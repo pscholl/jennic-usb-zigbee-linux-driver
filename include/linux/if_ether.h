@@ -105,6 +105,7 @@
 #define ETH_P_DSA	0x001B		/* Distributed Switch Arch.	*/
 #define ETH_P_TRAILER	0x001C		/* Trailer switch tagging	*/
 #define ETH_P_PHONET	0x00F5		/* Nokia Phonet frames          */
+#define ETH_P_IEEE80215 0x00F6		/* IEEE80215 frame		*/
 
 /*
  *	This is an Ethernet frame header.
