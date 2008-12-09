@@ -27,6 +27,8 @@
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/mac.h>
 
+#define DEBUG
+
 int ieee80215_cmp_addr(ieee80215_dev_addr_t *addr1, ieee80215_dev_addr_t *addr2)
 {
 	if (0xfffe == addr1->_16bit || 0xfffe == addr2->_16bit)
@@ -48,11 +50,10 @@ void ieee80215_adjust_symbol_duration(ieee80215_mac_t *mac)
 		mac->pib.ack_wait_duration = IEEE80215_ACK_WAIT_DURATION_MIN;
 	}
 
-#warning FIXME debig
+#warning FIXME debug
 #define dbg_print(c, ...)
 #define dbg_dump8(c, ...)
-	dbg_print(mac, 0, DBG_INFO,
-		"channel: %d, symbol_duration: %d microseconds, ack_wait_duration: %d symbols\n",
+	pr_debug("channel: %d, symbol_duration: %d microseconds, ack_wait_duration: %d symbols\n",
 		mac->i.current_channel, mac->symbol_duration, mac->pib.ack_wait_duration);
 
 	if (mac->pib.bat_life_ext) {
@@ -619,7 +620,7 @@ static int comm_status_indication_on_confirm(void *obj, struct sk_buff *skb, int
 	ieee80215_mac_t *mac = obj;
 	ieee80215_mpdu_t *msg = skb_to_mpdu(skb);
 
-	dbg_print(mac, DATA, DBG_INFO, "code = %u\n", code);
+	pr_debug("code = %u\n", code);
 
 	if (code == IEEE80215_PHY_SUCCESS) {
 		code = IEEE80215_SUCCESS;

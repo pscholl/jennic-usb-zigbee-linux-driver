@@ -90,6 +90,7 @@ int ieee80215_register_netdev(struct ieee80215_dev_ops *dev_ops, struct net_devi
 	dev->open = ieee80215_slave_open;
 	dev->stop = ieee80215_slave_close;
 	dev->hard_start_xmit = ieee80215_net_xmit;
+	dev->master = mdev;
 	register_netdev(dev);
 	mpriv = netdev_priv(mdev);
 	list_add_tail_rcu((struct list_head *) &priv, &mpriv->interfaces);

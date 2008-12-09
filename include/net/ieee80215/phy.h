@@ -148,6 +148,7 @@ struct ieee80215_dev_ops {
 	char	*name;	/**< Device name */
 	void	*priv;
 	u64	_64bit;
+	int	flags;
 	void (*set_channel)(struct ieee80215_phy *phy, u8 channel);	/**< Set channel */
 	void (*ed)(struct ieee80215_phy *phy);				/**< Read energy detection level */
 	void (*set_state)(struct ieee80215_phy *phy, u8 flag);		/**< Change transceiver state */
@@ -193,6 +194,7 @@ struct ieee80215_phy {
 	struct work_struct	set_request;
 
 	struct ieee80215_dev_ops	*dev_op;
+	struct net_device * dev;	/* Net device to allocate */
 
 #if 0
 	/* I see no reason why we need lock here at all,

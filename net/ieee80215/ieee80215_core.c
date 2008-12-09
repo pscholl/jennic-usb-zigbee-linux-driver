@@ -23,6 +23,7 @@
 
 #include <net/ieee80215/ieee80215.h>
 #include <net/ieee80215/mac.h>
+#include <net/ieee80215/netdev.h>
 
 static int s_leveles[NMODS];
 
@@ -116,6 +117,12 @@ int ieee80215_register_device(ieee80215_dev_op_t *dev)
 		ieee80215_phy_free ( phy );
 		dev->priv = NULL;
 	}
+	ret = ieee80215_register_netdev_master(phy, dev);
+	if(ret) {
+		pr_debug("Cannot register phy\n");
+		ieee80215_phy_free ( phy );
+		dev->priv = NULL;
+	}
 
 	return ret;
 }
@@ -130,6 +137,12 @@ int ieee80215_unregister_device(ieee80215_dev_op_t *dev)
 		return -EINVAL;
 
 	phy = (ieee80215_phy_t*)dev->priv;
+
+	if(phy->dev) {
+		unregister_netdev(phy->dev);
+		free_netdev(phy->dev);
+		phy->dev = NULL;
+	}
 
 	ret = ieee80215_unregister_phy(phy);
 	if (ret) {

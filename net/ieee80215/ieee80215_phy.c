@@ -32,6 +32,7 @@
 
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/mac.h>
+#define DEBUG
 
 #if 0
 static int phy_lock(ieee80215_phy_t *phy)
@@ -90,10 +91,9 @@ void ieee80215_bg_pd_data_request(struct work_struct *work)
 	unsigned int psdu_len;
 	int ret = IEEE80215_PHY_SUCCESS;
 
-#warning FIXME debug
 #define dbg_print(format, ...)
 	if (!phy->cmd_q) {
-		dbg_print(phy, PHY_CORE, DBG_ERR, "Cannot dequeue packet\n");
+		pr_debug("Cannot dequeue packet\n");
 		return;
 	}
 

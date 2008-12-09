@@ -29,6 +29,8 @@
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/info.h>
 
+#define DEBUG
+
 /******************************************************************************/
 /* Some MAC's strucutre definitions */
 /******************************************************************************/
@@ -395,6 +397,7 @@ struct ieee80215_mac {
 	char			*name;	/**< Current MAC name */
 	void			*priv;	/**< Private MAC data */
 	ieee80215_phy_t		*phy;	/**< PHY to use */
+	struct net_device 	*dev;   /**< MAC level device */
 
 	ieee80215_pib_t		pib;
 	ieee80215_mlme_pib_t	pib_attr;
@@ -536,9 +539,11 @@ typedef struct ieee80215_mac ieee80215_mac_t;
 
 static __inline__ void ieee80215_set_state(ieee80215_mac_t *mac, ieee80215_mac_states_t new_state)
 {
-#warning FIXME debug
 #if 0
 	dbg_print(mac, CORE, DBG_INFO, "change state: [%s] -> [%s]\n",
+		s_states[mac->state], s_states[new_state]);
+#else
+	pr_debug("change state: [%s] -> [%s]\n", 
 		s_states[mac->state], s_states[new_state]);
 #endif
 	mac->original_state = mac->state;
@@ -547,9 +552,11 @@ static __inline__ void ieee80215_set_state(ieee80215_mac_t *mac, ieee80215_mac_s
 
 static __inline__ void ieee80215_restore_state(ieee80215_mac_t *mac)
 {
-#warning FIXME debug
 #if 0
 	dbg_print(mac, CORE, DBG_INFO, "Restoring state: [%s] -> [%s]\n",
+		s_states[mac->state], s_states[mac->original_state]);
+#else
+	pr_debug("Restoring state: [%s] -> [%s]\n",
 		s_states[mac->state], s_states[mac->original_state]);
 #endif
 	mac->state = mac->original_state;
@@ -614,7 +621,6 @@ static inline void dump_mpdu(struct ieee80215_mac *obj, ieee80215_mpdu_t *mpdu)
 	fc = &mpdu->mhr->fc;
 
 	__print_mpdu(mpdu);
-#warning FIXME debug
 #if 0
 	dbg_print(obj, CORE, DBG_ALL,
 		"type: %d, sec: %d, pend: %d, ack_req: %d, intra_pan: %d, dst addr mode: %d, src addr mode: %d\n",
@@ -707,6 +713,100 @@ static inline void dump_mpdu(struct ieee80215_mac *obj, ieee80215_mpdu_t *mpdu)
 		break;
 	}
 	dbg_dump8(obj, CORE, DBG_INFO, mpdu->skb->data, mpdu->skb->len);
+#else
+	pr_debug(
+		"type: %d, sec: %d, pend: %d, ack_req: %d, intra_pan: %d, dst addr mode: %d, src addr mode: %d\n",
+		fc->type, fc->security, fc->pend, fc->ack_req, fc->intra_pan, fc->dst_amode, fc->src_amode);
+
+	pr_debug(
+		"s_panid = 0x%p, mhr = 0x%p, da = 0x%p, sa = 0x%p\n",
+		mpdu->s_panid, mpdu->mhr, mpdu->da, mpdu->sa);
+	
+	if (mpdu->sa && !fc->intra_pan) {
+		pr_debug("src_panid: %d\n", *mpdu->s_panid);
+	}
+	switch(fc->src_amode) {
+	case IEEE80215_AMODE_16BIT:
+		pr_debug("src[16bit]: %d\n", mpdu->sa->_16bit);
+		break;
+	case IEEE80215_AMODE_64BIT:
+#warning FIXME print 64bit LE value
+		pr_debug("src[64bit]: %llu\n", mpdu->sa->_64bit);
+		break;
+	default:
+		pr_debug("src: noaddr\n");
+		break;
+	}
+	if (mpdu->da) {
+		pr_debug("dst_panid: %d\n", *mpdu->d_panid);
+	}
+	if (fc->intra_pan)
+		pr_debug("intra pan transmission\n");
+
+	switch(fc->dst_amode) {
+	case IEEE80215_AMODE_16BIT:
+		pr_debug("dst[16bit]: %d\n", mpdu->da->_16bit);
+		break;
+	case IEEE80215_AMODE_64BIT:
+		pr_debug("dst[64bit]: %llu\n", mpdu->da->_64bit);
+		break;
+	default:
+		pr_debug("dst: noaddr\n");
+		break;
+	}
+	pr_debug("mpdu payload: 0x%p\n", mpdu->p.msdu);
+
+	switch(fc->type) {
+	case IEEE80215_TYPE_BEACON:
+		pr_debug("Frame is beacon, bid: %d\n", mpdu->mhr->seq);
+		pr_debug(
+			"bo: %d, so: %d, pan_coord: %d, assoc_permit: %d, fcs: %d, ble: %d\n",
+			mpdu->p.b->sff.b_order, mpdu->p.b->sff.s_order,
+			mpdu->p.b->sff.pan_coord, mpdu->p.b->sff.a_permit,
+			mpdu->p.b->sff.fcap_slot, mpdu->p.b->sff.bat_life_ext);
+		break;
+	case IEEE80215_TYPE_ACK:
+		pr_debug("Frame is ack, seq: %d\n", mpdu->mhr->seq);
+		break;
+	case IEEE80215_TYPE_DATA:
+		pr_debug("Frame is data\n");
+		break;
+	case IEEE80215_TYPE_MAC_CMD:
+		pr_debug("Frame is mac cmd, id: %d\n", mpdu->p.g->cmd_id);
+		switch(mpdu->p.g->cmd_id) {
+		case IEEE80215_ASSOCIATION_REQ:
+			pr_debug("Association request, from %llu\n", mpdu->sa->_64bit);
+			break;
+		case IEEE80215_ASSOCIATION_PERM:
+			pr_debug("Association reply, from %u, status: %d, 16bit: %d\n",
+				mpdu->da->_16bit, mpdu->p.aresp->status, mpdu->p.aresp->_16bit);
+			break;
+		case IEEE80215_DISASSOCIATION_NOTIFY:
+			break;
+		case IEEE80215_DATA_REQ:
+			break;
+		case IEEE80215_PANID_CONFLICT_NOTIFY:
+			break;
+		case IEEE80215_ORPHAN_NOTIFY:
+			break;
+		case IEEE80215_BEACON_REQ:
+			break;
+		case IEEE80215_COORD_REALIGN_NOTIFY:
+			break;
+		case IEEE80215_GTS_REQ:
+			break;
+		case IEEE80215_GTS_ALLOC:
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		pr_debug("Unknown frame type\n");
+		break;
+	}
+#warning FIXME dbg_dump8
+	// dbg_dump8(mpdu->skb->data, mpdu->skb->len);
 #endif
 }
 

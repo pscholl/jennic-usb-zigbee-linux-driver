@@ -1,1 +1,2 @@
 obj-y += fake.o
+EXTRA_CFLAGS += -DDEBUG -DCONFIG_FFD

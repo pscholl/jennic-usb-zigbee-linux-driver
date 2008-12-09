@@ -25,6 +25,7 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/beacon.h>
 #include <linux/timer.h>
+#define DEBUG
 
 char *s_states[] = {
 	"WAIT",
@@ -933,6 +934,7 @@ void ieee80215_clear_scan(ieee80215_mac_t *mac)
 	struct list_head *itr, *tmp;
 
 	cancel_delayed_work(&mac->scan.work);
+	pr_debug("locking\n");
 	spin_lock(&mac->scan.desc.lock);
 	list_for_each_safe(itr, tmp, &mac->scan.desc.list) {
 		pdesc = container_of(itr, ieee80215_pan_desc_t, list);
@@ -941,12 +943,12 @@ void ieee80215_clear_scan(ieee80215_mac_t *mac)
 		kfree(pdesc);
 	}
 	if (mac->scan.desc.count) {
-		dbg_print(mac, 0, DBG_ERR,
-			"mac->scan.desc is inconsistent: mac->scan.desc.count = %u, must be 0\n",
+		pr_debug("mac->scan.desc is inconsistent: mac->scan.desc.count = %u, must be 0\n",
 			mac->scan.desc.count);
 		mac->scan.desc.count = 0;
 	}
 	spin_unlock(&mac->scan.desc.lock);
+	pr_debug("unlocking\n");
 	mac->scan.status = 0;
 	mac->scan.type = 0;
 	mac->scan.duration = 0;
@@ -1148,8 +1150,7 @@ int ieee80215_register_phy(ieee80215_phy_t *phy)
 	mac->phy = phy;
 
 	mac->pib.dev_addr._64bit = phy->dev_op->_64bit;
-	dbg_print(mac, CORE, DBG_INFO,
-		"mac = 0x%p, dev_addr_64bit = 0x%llx\n",
+	pr_debug("mac = 0x%p, dev_addr_64bit = 0x%llx\n",
 		mac, mac->pib.dev_addr._64bit);
 
 	if (ieee80215_init_pib(&mac->pib, mac)) {
@@ -1159,7 +1160,7 @@ int ieee80215_register_phy(ieee80215_phy_t *phy)
 	}
 
 	if (ieee80215_init(mac)) {
-		dbg_print(mac, CORE, DBG_ERR_CRIT, "Unable to init MAC\n");
+		pr_debug("Unable to init MAC\n");
 		ret = -EINVAL;
 		goto err_exit_memfree;
 	}

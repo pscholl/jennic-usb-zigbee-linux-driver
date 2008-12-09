@@ -69,7 +69,7 @@ static void ieee80215_netdev_setup_master(struct net_device *dev)
 	dev->watchdog_timeo	= 0;
 }
 
-int ieee80215_register_netdev_master(struct ieee80215_dev_ops *dev_ops)
+int ieee80215_register_netdev_master(struct ieee80215_phy * phy, struct ieee80215_dev_ops *dev_ops)
 {
 	struct net_device *dev;
 	struct ieee80215_mnetdev_priv *priv;
@@ -87,7 +87,9 @@ int ieee80215_register_netdev_master(struct ieee80215_dev_ops *dev_ops)
 	dev->open = ieee80215_master_open;
 	dev->stop = ieee80215_master_close;
 	register_netdev(dev);
-	ieee80215_register_netdev(dev_ops, dev);
+	phy->dev = dev;
+	if(dev_ops->flags && IEEE80215_DEV_SINGLE)
+		ieee80215_register_netdev(dev_ops, dev);
 	return 0;
 }
 EXPORT_SYMBOL(ieee80215_register_netdev_master);

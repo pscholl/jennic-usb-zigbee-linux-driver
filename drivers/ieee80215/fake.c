@@ -2,37 +2,19 @@
 #include <linux/timer.h>
 #include <asm/local.h>
 #include <linux/platform_device.h>
+#include <net/ieee80215/ieee80215.h>
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/const.h>
-#include <linux/netdevice.h> /* Will go away */
+#include <linux/netdevice.h>
 
 static struct timer_list rx_timer;
 
-/* Will go away */
-
-static struct sk_buff * alloc_cmd_frame(u8 msg, u8 status)
-{
-	/* We provide our states via special frames
-	 * If our frame size is less than 6 bytes (PHY header size)
-	 * then this is control message for our stack
-	 */
-	struct sk_buff * skb = alloc_skb(4, GFP_ATOMIC);
-	unsigned char * data = skb->data;
-
-	/* To be not mistaken about this frame type */
-	data[0] = 0;
-	data[1] = msg;
-	data[2] = status;
-	data[3] = 0;
-	return skb;
-}
-
 static void do_net_rx(unsigned long data)
 {
-	struct ieee80215_dev_ops * ops = (struct ieee80215_dev_ops *) data;
-	struct sk_buff * skb;
+	struct ieee80215_phy * phy = (struct ieee80215_phy *) data;
+	// struct sk_buff * skb;
 	u8 msg, status;
 #if 0
 	/* Some APIs */
@@ -45,8 +27,7 @@ static void do_net_rx(unsigned long data)
 #endif
 	msg = IEEE80215_MSG_SET_STATE;
 	status = IEEE80215_PHY_SUCCESS;
-	skb = alloc_cmd_frame(msg, status);
-	netif_rx(skb);
+	ieee80215_net_cmd(phy, msg, status);
         del_timer(&rx_timer);
         rx_timer.expires = jiffies + 10000;
         add_timer(&rx_timer);
@@ -104,6 +85,7 @@ static ieee80215_dev_op_t *alloc_ieee80215_dev(void)
 	dev_op->cca		= hw_cca;
 	dev_op->set_state	= hw_state;
 	dev_op->xmit		= hw_xmit;
+	dev_op->flags		= IEEE80215_DEV_SINGLE;
 
 	return dev_op;
 }
@@ -152,8 +134,8 @@ static int __init ieee80215fake_probe(struct platform_device *pdev)
 	dev_op = alloc_ieee80215_dev();
 //	err = ieee80215_register_device(dev_op);
 	
-	err = ieee80215_register_netdev_master(dev_op);
-	rx_init(dev_op);
+	err = ieee80215_register_device(dev_op);
+	rx_init(dev_op->priv);
 	if(err)
 		return err;
 	platform_set_drvdata(pdev, dev_op);

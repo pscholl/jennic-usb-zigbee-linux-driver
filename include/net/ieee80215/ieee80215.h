@@ -18,5 +18,13 @@
 
 #ifndef IEEE80215_H
 #define IEEE80215_H
+#include <net/ieee80215/phy.h>
+
 #define IEEE80215_ADDR_LEN	8
+#define IEEE80215_DEV_SINGLE	1
+#define IEEE80215_DEV_MULTI	2
+
+int ieee80215_register_device(struct ieee80215_dev_ops *hw);
+int ieee80215_unregister_device(struct ieee80215_dev_ops *hw);
+
 #endif

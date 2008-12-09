@@ -20,12 +20,13 @@
 
 #ifndef IEEE80215_NETDEV_H
 #define IEEE80215_NETDEV_H
+#include <linux/netdevice.h>
+#include <net/ieee80215/phy.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
 	struct ieee80215_mac *mac;
 	struct net_device *dev;
-	struct net_device *master;
 	struct sock *sk;
 };
 
@@ -34,6 +35,9 @@ struct ieee80215_mnetdev_priv {
 	struct list_head interfaces;
 	struct net_device *dev;
 };
-int ieee80215_register_netdev_master(struct ieee80215_dev_ops *dev_ops);
+int ieee80215_register_netdev_master(struct ieee80215_phy * phy,
+					struct ieee80215_dev_ops *dev_ops);
 int ieee80215_register_netdev(struct ieee80215_dev_ops *dev_ops, struct net_device *mdev);
+int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status);
+
 #endif

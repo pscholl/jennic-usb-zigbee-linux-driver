@@ -25,6 +25,7 @@
 #include <linux/capability.h>
 #include <linux/module.h>
 #include <linux/if_arp.h>
+#include <linux/if.h>
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
 #include <net/datalink.h>
 #include <net/psnap.h>
@@ -32,14 +33,17 @@
 #include <net/tcp_states.h>
 #include <net/route.h>
 
+#include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/netdev.h>
+#include <net/ieee80215/mac.h>
+#include <net/ieee80215/phy.h>
 
 static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
 	struct sock *sk;
 
-	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net)) {
+	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net) || !dev->master) {
 		kfree_skb(skb);
 		return 0;
 	}
@@ -82,11 +86,157 @@ static int ieee80215_sock_release(struct socket *sock)
 		lock_sock(sk);
 		release_sock(sk);
 		sock_put(sk);
-#warning FIXME
+#warning FIXME ieee80215_destroy_socket
 #if 0
 /* slapin: FIXME */
 		ieee80215_destroy_socket(sk);
 #endif
+	}
+	return 0;
+}
+
+static int ieee80215_if_ioctl(struct sock *sk, int cmd, void __user *arg)
+{
+	struct ifreq req;
+	struct net_device *dev;
+	struct ieee80215_netdev_priv * priv;
+	struct ieee80215_mnetdev_priv * mpriv;
+	struct ieee80215_user_data data;
+	if (copy_from_user(&req, arg, sizeof(req))) {
+		pr_debug("copy_from_user() failed\n");
+		return -EFAULT;
+	}
+	dev = __dev_get_by_name(&init_net, req.ifr_name);
+	if (!dev) {
+		pr_debug("no dev\n");
+		return -ENODEV;
+	}
+	if(dev->master) {
+		priv = netdev_priv(dev);
+		mpriv = netdev_priv(dev->master);
+	} else {
+		priv = NULL;
+		mpriv = netdev_priv(dev);
+	}
+	switch (cmd) {
+	case SIOCGIFADDR: {
+			if(!priv)
+				return -EPERM;
+#warning FIXME:	move address out from phy to support multi-interface config
+			req.ifr_hwaddr.sa_family = AF_IEEE80215;
+			memcpy(&req.ifr_hwaddr.sa_data,
+				&priv->mac->phy->dev_op->_64bit, sizeof(u64));
+			return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : 0;
+		}
+	
+	case SIOCSIFADDR:
+#warning FIXME:	move address out from phy to support multi-interface config
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+		if (AF_IEEE80215 != req.ifr_hwaddr.sa_family)
+			return -EINVAL;
+		if (netif_running(dev)) {
+			pr_debug("hardware address may only be changed while device is down\n");
+			return -EINVAL;
+		}
+		if(!priv)
+			return -EPERM;
+		priv->mac->phy->dev_op->_64bit = *(u64*)req.ifr_hwaddr.sa_data;
+		memcpy(&priv->mac->phy->dev_op->_64bit,
+				&req.ifr_hwaddr.sa_data, sizeof(u64));
+		return 0;
+
+	case SIOCGIFFLAGS:
+		req.ifr_flags = dev_get_flags(dev);
+		return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : 0;
+
+	case SIOCSIFFLAGS:
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+
+		if(!priv)
+			return -EPERM;
+
+		if (req.ifr_flags & (IFF_UP | IFF_RUNNING)) {
+			if (netif_running(dev)) {
+				pr_debug("device is already running\n");
+				return -EBUSY;
+			} else {
+				if(priv) {
+					sk->sk_user_data = dev;
+					priv->sk = sk;
+				}
+			}
+		}
+		return dev_change_flags(dev, req.ifr_flags);
+	case IEEE80215_SIOC_NETWORK_DISCOVERY:
+		if (copy_from_user(&data, req.ifr_data, sizeof(data))) {
+			pr_debug("copy_from_user() failed\n");
+			return -EFAULT;
+		}
+		priv->mac->mlme_scan_req(priv->mac, IEEE80215_SCAN_ACTIVE,
+				data.channels, data.duration);
+		break;
+	case IEEE80215_SIOC_NETWORK_FORMATION:
+		if (copy_from_user(&data, req.ifr_data, sizeof(data))) {
+			pr_debug("copy_from_user() failed\n");
+			return -EFAULT;
+		}
+		priv->mac->mlme_scan_req(priv->mac, IEEE80215_SCAN_ED,
+				data.channels, data.duration);
+		break;
+	case IEEE80215_SIOC_PERMIT_JOINING: {
+			ieee80215_mlme_pib_t a;
+			if (copy_from_user(&data, req.ifr_data, sizeof(data))) {
+				pr_debug("copy_from_user() failed\n");
+				return -EFAULT;
+			}
+			a.attr_type = IEEE80215_ASSOCIATION_PERMIT;
+			if (data.duration > 0) {
+				a.attr.association_permit = true;
+				if (0xff == data.duration) {
+					pr_debug("Permit join\n");
+				} else {
+					pr_debug("Permit join for %u seconds\n", data.duration);
+				}
+			} else {
+				pr_debug("Disable permit join\n");
+				a.attr.association_permit = false;
+			}
+			priv->mac->mlme_set_req(priv->mac, a);
+		}
+		break;
+	case IEEE80215_SIOC_START_ROUTER: {
+			struct ieee80215_cmd_cap cap;
+			u8 cap_info;
+			if (copy_from_user(&data, req.ifr_data, sizeof(data))) {
+				pr_debug("copy_from_user() failed\n");
+				return -EFAULT;
+			}
+			if (data.rejoin) {
+				pr_debug("Joining trough orhpan scan\n");
+				priv->mac->mlme_scan_req(priv->mac,
+						IEEE80215_SCAN_ORPHAN,
+						data.channels, data.duration);
+				return 0;
+			}
+			/* Join trough mlme_association */
+			cap.rxon = data.rxon;
+			cap.addr_alloc = 1;
+			cap.dev_type = data.as_router;
+			cap.power_src = data.power;
+			cap.cap_sec = data.mac_security;
+			memcpy(&cap_info, &cap, 1);
+			priv->mac->mlme_assoc_req(priv->mac, data.channel,
+						data.panid,
+						&data.addr, /* Coordinator address */
+						cap_info,
+						data.mac_security ? true : false);
+		}
+		break;
+	case IEEE80215_SIOC_JOIN:
+		priv->mac->mlme_get_req(priv->mac, IEEE80215_PANID);
+		break;
 	}
 	return 0;
 }
@@ -125,6 +275,12 @@ static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned 
 		break;
 	case SIOCGSTAMPNS:
 		rc = sock_get_timestampns(sk, argp);
+		break;
+	/* Interface */
+	default:
+		rtnl_lock();
+		rc = ieee80215_if_ioctl(sk, cmd, argp);
+		rtnl_unlock();
 		break;
 	}
 	return rc;
@@ -246,6 +402,36 @@ static void af_ieee80215_remove(void)
 {
 	proto_unregister(&ieee80215_prot);
 }
+
+int ieee80215_net_rx(struct ieee80215_phy *phy, unsigned char *data, ssize_t len)
+{
+	struct sk_buff *skb = alloc_skb(len, GFP_ATOMIC);
+
+	if(!phy->dev)
+		return -ENODEV;
+
+	if(!skb)
+		return -ENOMEM;
+
+	skb->dev = phy->dev;
+	/* TODO look, how to do this without copying */
+	memcpy(skb->data, data, len);
+	netif_rx(skb);
+	return 0;
+}
+EXPORT_SYMBOL(ieee80215_net_rx);
+
+int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status)
+{
+	char buf[4];
+	buf[0] = 0;
+	buf[1] = command;
+	buf[2] = status;
+	buf[3] = 0;
+	ieee80215_net_rx(phy, buf, 4);
+	return 0;
+}
+EXPORT_SYMBOL(ieee80215_net_cmd);
 
 module_init(af_ieee80215_init);
 module_exit(af_ieee80215_remove);
