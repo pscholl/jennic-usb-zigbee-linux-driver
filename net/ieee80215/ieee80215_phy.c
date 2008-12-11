@@ -414,14 +414,14 @@ static void _set_channel_confirm(struct ieee80215_phy *phy, u8 status)
 
 static void _ed_confirm(struct ieee80215_phy *phy, u8 status, u8 level)
 {
-	dbg_print(phy, 0, DBG_INFO, "status = %u, level = %u\n",
-		status, level);
+	pr_debug("%s:%s status = %u, level = %u\n", __FILE__, __FUNCTION__,
+			status, level);
 	_mac(phy)->plme_ed_confirm(_mac(phy), status, level);
 }
 
 static void _set_state_confirm(struct ieee80215_phy *phy, u8 status)
 {
-	dbg_print(phy, 0, DBG_INFO, "status = %u\n", status);
+	pr_debug("%s:%s status = %u\n", __FILE__, __FUNCTION__, status);
 	if (IEEE80215_PHY_SUCCESS == status) {
 		phy->state = phy->pending_state;
 	}

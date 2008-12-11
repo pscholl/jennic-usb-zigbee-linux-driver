@@ -38,6 +38,7 @@ struct ieee80215_mnetdev_priv {
 int ieee80215_register_netdev_master(struct ieee80215_phy * phy,
 					struct ieee80215_dev_ops *dev_ops);
 int ieee80215_register_netdev(struct ieee80215_dev_ops *dev_ops, struct net_device *mdev);
-int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status);
+int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status, u8 data);
+int ieee80215_net_rx(struct ieee80215_phy *phy, u8 *data, ssize_t len);
 
 #endif

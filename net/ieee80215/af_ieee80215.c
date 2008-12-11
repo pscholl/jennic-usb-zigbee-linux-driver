@@ -38,20 +38,110 @@
 #include <net/ieee80215/mac.h>
 #include <net/ieee80215/phy.h>
 
+#define DBG_DUMP(data, len) { \
+	int i; \
+	pr_debug("file %s: function: %s: data: len %d:\n", __FILE__, __FUNCTION__, len); \
+	for(i = 0; i < len; i++) {\
+		pr_debug("%02x: %02x\n", i, data[i]); \
+	} \
+}
+
+/**
+ * Processing control messages
+ * @dev - master device
+ * @msg - message
+ * @status - status
+ *
+ */
+
+static int ieee80215_process_msg(struct net_device *dev, u8 msg, u8 status, u8 data)
+{
+	struct ieee80215_mnetdev_priv *priv;
+	struct ieee80215_phy *phy;
+	int mystatus;
+	priv = netdev_priv(dev);
+	phy = priv->dev_ops->priv;
+	if(!phy)
+		return -EFAULT;
+	mystatus = (status == IEEE80215_PHY_SUCCESS) ?
+				IEEE80215_PHY_SUCCESS : IEEE80215_ERROR;
+	switch(status) {
+	case IEEE80215_MSG_CHANNEL_CONFIRM:
+		phy->set_channel_confirm(phy, mystatus);
+		break;
+	case IEEE80215_MSG_ED_CONFIRM:
+		phy->ed_confirm(phy, mystatus, data /* level */);
+		break;
+	case IEEE80215_MSG_CCA_CONFIRM:
+		mystatus = (IEEE80215_IDLE) ? IEEE80215_IDLE : IEEE80215_BUSY;
+		phy->cca_confirm(phy, mystatus);
+		break;
+	case IEEE80215_MSG_SET_STATE:
+		switch(status) {
+		case IEEE80215_PHY_SUCCESS:
+		case IEEE80215_TRX_OFF:
+		case IEEE80215_RX_ON:
+		case IEEE80215_TX_ON:
+		case IEEE80215_BUSY_RX:
+		case IEEE80215_BUSY_TX:
+		case IEEE80215_BUSY:
+			mystatus = status;
+			break;
+		default:
+			printk(KERN_ERR "%s: bad status received from firmware: %u\n",
+				__FUNCTION__, status);
+			mystatus = IEEE80215_ERROR;
+			break;
+		}
+		phy->set_state_confirm(phy, mystatus);
+		break;
+
+	case IEEE80215_MSG_XMIT_BLOCK_CONFIRM:
+	case IEEE80215_MSG_XMIT_STREAM_CONFIRM:
+		phy->xmit_confirm(phy, mystatus);
+		break;
+	default:
+		printk(KERN_ERR "%s bad message %d\n", msg);
+		break;
+	}
+	return 0;
+}
+
 static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
 	struct sock *sk;
 
-	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net) || !dev->master) {
+	DBG_DUMP(skb->data, skb->len);
+	if(!netif_running(dev))
+		return -ENODEV;
+	pr_debug("got frame, type %d, dev %p master %p\n", dev->type, dev, dev->master);
+	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net)) {
 		kfree_skb(skb);
 		return 0;
+	}
+	/* Control frame processing */
+	if(skb->len < 5 && !dev->master) {
+		pr_debug("Got control frame\n");
+		pr_debug("We better have some action for control frame here\n");
+		/* We won't put control frames to socket buffer, no need to bother */
+		ieee80215_process_msg(dev, skb->data[1], skb->data[2], skb->data[3]);
+		kfree_skb(skb);
 	}
 
 	/* What's wrong with skb->sk here??! */
 	/* dev_queue_xmit(skb) */
+	/* Will have this test in future */
+#if 0
+	if (!dev->master && len > 4)
+	{
+		kfree_skb(skb);
+		return 0;
+	}
+#endif
 	sk = ((struct ieee80215_netdev_priv *) netdev_priv(dev))->sk;
 	skb->sk = sk;
+
 	if (sock_queue_rcv_skb(sk, skb) < 0) {
 		kfree_skb(skb);
 	}
@@ -403,31 +493,40 @@ static void af_ieee80215_remove(void)
 	proto_unregister(&ieee80215_prot);
 }
 
-int ieee80215_net_rx(struct ieee80215_phy *phy, unsigned char *data, ssize_t len)
+int ieee80215_net_rx(struct ieee80215_phy *phy, u8 *data, ssize_t len)
 {
 	struct sk_buff *skb = alloc_skb(len, GFP_ATOMIC);
 
-	if(!phy->dev)
-		return -ENODEV;
-
-	if(!skb)
+	if(!skb) {
 		return -ENOMEM;
+	}
+	pr_debug("%s\n", __FUNCTION__);
+	if(!phy->dev) {
+		pr_debug("orphane frame recieved\n");
+		kfree_skb(skb);
+		return -ENODEV;
+	}
 
+	/* All frames originate from master interface for now */
 	skb->dev = phy->dev;
+	skb->protocol = htons(ETH_P_IEEE80215);
 	/* TODO look, how to do this without copying */
 	memcpy(skb->data, data, len);
+	skb_put(skb, len);
+	DBG_DUMP(skb->data, skb->len);
 	netif_rx(skb);
 	return 0;
 }
 EXPORT_SYMBOL(ieee80215_net_rx);
 
-int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status)
+int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status, u8 data)
 {
 	char buf[4];
+	pr_debug("%s\n", __FUNCTION__);
 	buf[0] = 0;
 	buf[1] = command;
 	buf[2] = status;
-	buf[3] = 0;
+	buf[3] = data;
 	ieee80215_net_rx(phy, buf, 4);
 	return 0;
 }

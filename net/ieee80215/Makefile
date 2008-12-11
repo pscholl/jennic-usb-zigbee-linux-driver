@@ -8,5 +8,5 @@ obj-y	+= 	ieee80215_phy.o ieee80215_mac_lib.o ieee80215_mac.o \
 	ieee80215_sync.o ieee80215_poll.o ieee80215_mac_start.o \
 	ieee80215_purge.o ieee80215_mac_data.o ieee80215_core.o \
 	ieee80215_rxenable.o ieee80215_lib.o
-DEFS = EXTRA_CFLAGS += -Wall -DEXPORT_SYMTAB -DCONFIG_FFD -DCONFIG_ZIGBEE_DEBUG -DIEEE80215_DEBUG -DDEBUG
+EXTRA_CFLAGS += -Wall -DEXPORT_SYMTAB -DCONFIG_FFD -DCONFIG_ZIGBEE_DEBUG -DIEEE80215_DEBUG -DDEBUG
 

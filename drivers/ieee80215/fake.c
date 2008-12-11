@@ -11,11 +11,52 @@
 
 static struct timer_list rx_timer;
 
+#define NUM_MSGS 9
+#define NUM_STATUSES 9
+
+static u8 msg_values[NUM_MSGS] = {
+	IEEE80215_MSG_CHANNEL_CONFIRM,
+	IEEE80215_MSG_ED_CONFIRM,
+	IEEE80215_MSG_CCA_CONFIRM,
+	IEEE80215_MSG_SET_STATE,
+	IEEE80215_MSG_XMIT_BLOCK_CONFIRM,
+	IEEE80215_MSG_XMIT_STREAM_CONFIRM,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_STREAM,
+};
+	/* possible statuses '*' = used in driver
+	* IEEE80215_BUSY;
+	* IEEE80215_BUSY_RX;
+	* IEEE80215_BUSY_TX;
+	IEEE80215_FORCE_TRX_OFF
+	* IEEE80215_IDLE;
+	IEEE80215_INVALID_PARAMETER
+	* IEEE80215_RX_ON;
+	* IEEE80215_PHY_SUCCESS;
+	* IEEE80215_TRX_OFF;
+	* IEEE80215_TX_ON;
+	IEEE80215_UNSUPPORTED_ATTRIBUTE
+	* IEEE80215_ERROR;
+	*/
+
+static u8 status_values[NUM_STATUSES] = {
+	IEEE80215_BUSY,
+	IEEE80215_BUSY_RX,
+	IEEE80215_BUSY_TX,
+	IEEE80215_IDLE,
+	IEEE80215_RX_ON,
+	IEEE80215_PHY_SUCCESS,
+	IEEE80215_TRX_OFF,
+	IEEE80215_TX_ON,
+	IEEE80215_ERROR,
+};
+
 static void do_net_rx(unsigned long data)
 {
 	struct ieee80215_phy * phy = (struct ieee80215_phy *) data;
 	// struct sk_buff * skb;
 	u8 msg, status;
+	u8 buf[64];
 #if 0
 	/* Some APIs */
 	ops->phy->set_channel_confirm(ops->phy, status);
@@ -25,12 +66,28 @@ static void do_net_rx(unsigned long data)
 	zbdev->phy->receive_block(zbdev->phy, zbdev->param2, zbdev->data, zbdev->param1);
 	ops->phy->receive_block(ops->phy, zbdev->param2,  zbdev->data, zbdev->param1);
 #endif
-	msg = IEEE80215_MSG_SET_STATE;
-	status = IEEE80215_PHY_SUCCESS;
-	ieee80215_net_cmd(phy, msg, status);
+	get_random_bytes(&msg, 1);
+	msg %= NUM_MSGS; /* Tune for additional commands, if any */
+	msg = msg_values[msg];
+	get_random_bytes(&status, 1);
+	status %= NUM_STATUSES; /* Tune for additional statuses, if any */
+	status = status_values[status];
+	switch(msg) {
+	case IEEE80215_MSG_RECV_STREAM:
+		break;
+	case IEEE80215_MSG_RECV_BLOCK:
+		get_random_bytes(buf, sizeof(buf));
+		ieee80215_net_rx(phy, buf, sizeof(buf));
+		break;
+	case IEEE80215_MSG_ED_CONFIRM:
+		get_random_bytes(&data, 1);
+	default:
+		ieee80215_net_cmd(phy, msg, status, data);
+	}
         del_timer(&rx_timer);
-        rx_timer.expires = jiffies + 10000;
+        rx_timer.expires = jiffies + 2000;
         add_timer(&rx_timer);
+	pr_debug("Transferred one frame\n");
 }
 
 static void __init rx_init(void * data)
@@ -38,7 +95,7 @@ static void __init rx_init(void * data)
         /* initialize the timer that will increment the counter */
         init_timer(&rx_timer);
         rx_timer.function = do_net_rx;
-        rx_timer.expires = jiffies + 1;
+        rx_timer.expires = jiffies + 2000;
         rx_timer.data = (unsigned long) data;
         add_timer(&rx_timer);
 }
@@ -48,26 +105,31 @@ static void __init rx_init(void * data)
 static void
 hw_set_channel(ieee80215_phy_t *phy, u8 channel)
 {
+	pr_debug("%s\n",__FUNCTION__);
 }
  
 static void
 hw_ed(ieee80215_phy_t *phy)
 {
+	pr_debug("%s\n",__FUNCTION__);
 }
  
 static void
 hw_cca(ieee80215_phy_t *phy, u8 mode)
 {
+	pr_debug("%s\n",__FUNCTION__);
 }
  
 static void
 hw_state(ieee80215_phy_t *phy, u8 state)
 {
+	pr_debug("%s\n",__FUNCTION__);
 }
  
 static void
 hw_xmit(ieee80215_phy_t *phy, u8 *ppdu, size_t len)
 {
+	pr_debug("%s\n",__FUNCTION__);
 }
  
 static ieee80215_dev_op_t *alloc_ieee80215_dev(void)
@@ -133,7 +195,7 @@ static int __init ieee80215fake_probe(struct platform_device *pdev)
 	int err;
 	dev_op = alloc_ieee80215_dev();
 //	err = ieee80215_register_device(dev_op);
-	
+	pr_debug("rgistering device\n");
 	err = ieee80215_register_device(dev_op);
 	rx_init(dev_op->priv);
 	if(err)

@@ -25,7 +25,6 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/beacon.h>
 #include <linux/timer.h>
-#define DEBUG
 
 char *s_states[] = {
 	"WAIT",
@@ -1009,6 +1008,7 @@ int ieee80215_init(ieee80215_mac_t *mac)
 	skb_queue_head_init(&mac->tr16);
 	skb_queue_head_init(&mac->tr64);
 
+	INIT_DELAYED_WORK(&mac->scan.work, NULL);
 	ieee80215_set_mac_defaults(mac);
 
 	if (ieee80215_init_gts(mac)) {
@@ -1037,7 +1037,6 @@ int ieee80215_init(ieee80215_mac_t *mac)
 	INIT_DELAYED_WORK(&mac->rx_enable_request, NULL);
 	INIT_DELAYED_WORK(&mac->sync_request, NULL);
 	INIT_DELAYED_WORK(&mac->poll_request, NULL);
-	INIT_DELAYED_WORK(&mac->scan.work, NULL);
 	INIT_DELAYED_WORK(&mac->ack_wait, NULL);
 	INIT_DELAYED_WORK(&mac->csma_dwork, NULL);
 

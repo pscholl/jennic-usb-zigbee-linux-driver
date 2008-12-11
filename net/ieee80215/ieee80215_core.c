@@ -167,11 +167,13 @@ static int __init ieee80215_core_init ( void )
 	printk(KERN_INFO "%s()\n", __FUNCTION__);
 #ifdef IEEE80215_DEBUG
 	printk(KERN_INFO"Debug enabled\n");
-	dbg_init(&ieee80215_debug_opts, s_leveles, NMODS, s_modules, ts);
+	// dbg_init(&ieee80215_debug_opts, s_leveles, NMODS, s_modules, ts);
 	printk(KERN_INFO "debug_opts: %s\n", debug_opts);
+#if 0
 	if (parse_debug_opts(&ieee80215_debug_opts, debug_opts)) {
 		return -EINVAL;
 	}
+#endif
 #endif
 	return 0;
 }
