@@ -1,5 +1,5 @@
 /* 
- * ZigBee socket interface
+ * IEEE80215.4 socket interface
  *
  * Copyright 2007, 2008 Siemens AG
  *
@@ -27,6 +27,7 @@
 #include <linux/if_arp.h>
 #include <linux/if.h>
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
+#include <linux/list.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -37,6 +38,7 @@
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/mac.h>
 #include <net/ieee80215/phy.h>
+#include <net/ieee80215/ieee80215.h>
 
 #define DBG_DUMP(data, len) { \
 	int i; \
@@ -60,12 +62,15 @@ static int ieee80215_process_msg(struct net_device *dev, u8 msg, u8 status, u8 d
 	struct ieee80215_phy *phy;
 	int mystatus;
 	priv = netdev_priv(dev);
+	BUG_ON(!priv);
+	BUG_ON(!priv->dev_ops);
+	BUG_ON(!priv->dev_ops->priv);
 	phy = priv->dev_ops->priv;
 	if(!phy)
 		return -EFAULT;
 	mystatus = (status == IEEE80215_PHY_SUCCESS) ?
 				IEEE80215_PHY_SUCCESS : IEEE80215_ERROR;
-	switch(status) {
+	switch(msg) {
 	case IEEE80215_MSG_CHANNEL_CONFIRM:
 		phy->set_channel_confirm(phy, mystatus);
 		break;
@@ -101,11 +106,14 @@ static int ieee80215_process_msg(struct net_device *dev, u8 msg, u8 status, u8 d
 		phy->xmit_confirm(phy, mystatus);
 		break;
 	default:
-		printk(KERN_ERR "%s bad message %d\n", msg);
+		printk(KERN_ERR "%s:%s bad message %d\n",
+					__FILE__, __FUNCTION__, msg);
 		break;
 	}
 	return 0;
 }
+
+
 
 static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
@@ -122,28 +130,44 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	}
 	/* Control frame processing */
 	if(skb->len < 5 && !dev->master) {
-		pr_debug("Got control frame\n");
-		pr_debug("We better have some action for control frame here\n");
+		struct ieee80215_netdev_priv *mpriv = netdev_priv(dev);
+		pr_debug("Got control frame %d %d %d\n", skb->data[1], skb->data[2], skb->data[3]);
 		/* We won't put control frames to socket buffer, no need to bother */
+		BUG_ON(!dev);
+		BUG_ON(!skb->data);
 		ieee80215_process_msg(dev, skb->data[1], skb->data[2], skb->data[3]);
-		kfree_skb(skb);
-	}
-
-	/* What's wrong with skb->sk here??! */
-	/* dev_queue_xmit(skb) */
-	/* Will have this test in future */
-#if 0
-	if (!dev->master && len > 4)
-	{
+		mpriv->stats.tx_bytes += skb->len;
+		mpriv->stats.tx_packets++;
 		kfree_skb(skb);
 		return 0;
 	}
-#endif
-	sk = ((struct ieee80215_netdev_priv *) netdev_priv(dev))->sk;
-	skb->sk = sk;
 
-	if (sock_queue_rcv_skb(sk, skb) < 0) {
+	pr_debug("%s:%s dev->master = %p, skb->len = %d\n",
+			__FILE__, __FUNCTION__, dev->master, skb->len);
+	if(dev->master) {
+		struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+		sk = priv->sk;
+		skb->sk = sk;
+		if(!sk) {/* Nothing is binded */
+				kfree_skb(skb);
+				priv->stats.tx_dropped++;
+		}
+
+	/* Write function to recognize frame addresses */
+
+		BUG_ON(!sk);
+		BUG_ON(!skb);
+
+		if (sock_queue_rcv_skb(sk, skb) < 0) {
+			kfree_skb(skb);
+			priv->stats.tx_dropped++;
+		}
+	} else {
+		struct ieee80215_mnetdev_priv *mpriv = netdev_priv(dev);
+		pr_debug("%s:%s: Got some junk from master interface\n",
+				__FILE__, __FUNCTION__);
 		kfree_skb(skb);
+		mpriv->stats.tx_dropped++;
 	}
 
 	return 0;
@@ -169,6 +193,12 @@ struct proto ieee80215_prot = {
 static int ieee80215_sock_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
+	struct net_device *dev = sk->sk_user_data;
+	struct ieee80215_netdev_priv *priv;
+	if(dev->master) {
+		priv = netdev_priv(dev);
+		priv->sk = NULL;
+	}
 
 	if (sk) {
 		sock_orphan(sk);
@@ -176,13 +206,27 @@ static int ieee80215_sock_release(struct socket *sock)
 		lock_sock(sk);
 		release_sock(sk);
 		sock_put(sk);
-#warning FIXME ieee80215_destroy_socket
-#if 0
-/* slapin: FIXME */
-		ieee80215_destroy_socket(sk);
-#endif
 	}
 	return 0;
+}
+
+static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
+{
+	struct net_device * dev;
+	struct ieee80215_netdev_priv *priv;
+	u8 * addr = (u8 *)uaddr;
+	if (addr_len != sizeof(u64))
+		return -EINVAL;
+	dev = dev_getbyhwaddr (&init_net, ARPHRD_IEEE80215, addr);
+	if(!dev)
+		return -EINVAL;
+	if(dev->master && netif_running(dev)) {
+		priv = netdev_priv(dev);
+		sock->sk->sk_user_data = dev;
+		priv->sk = sock->sk;
+		return 0;
+	}
+	return -EACCES;
 }
 
 static int ieee80215_if_ioctl(struct sock *sk, int cmd, void __user *arg)
@@ -214,8 +258,14 @@ static int ieee80215_if_ioctl(struct sock *sk, int cmd, void __user *arg)
 				return -EPERM;
 #warning FIXME:	move address out from phy to support multi-interface config
 			req.ifr_hwaddr.sa_family = AF_IEEE80215;
-			memcpy(&req.ifr_hwaddr.sa_data,
-				&priv->mac->phy->dev_op->_64bit, sizeof(u64));
+			if(!dev->master) /* copying from phy data */
+				memcpy(&req.ifr_hwaddr.sa_data,
+					&priv->mac->phy->dev_op->_64bit, sizeof(u64));
+			else { /* Copying from device data */
+				memcpy(&req.ifr_hwaddr.sa_data,
+					dev->dev_addr, sizeof(u64));
+			}
+
 			return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : 0;
 		}
 	
@@ -231,9 +281,14 @@ static int ieee80215_if_ioctl(struct sock *sk, int cmd, void __user *arg)
 		}
 		if(!priv)
 			return -EPERM;
-		priv->mac->phy->dev_op->_64bit = *(u64*)req.ifr_hwaddr.sa_data;
-		memcpy(&priv->mac->phy->dev_op->_64bit,
-				&req.ifr_hwaddr.sa_data, sizeof(u64));
+		if(!dev->master)
+			memcpy(&priv->mac->phy->dev_op->_64bit,
+				req.ifr_hwaddr.sa_data, sizeof(u64));
+		else {
+			memset(dev->dev_addr, 0, sizeof(dev->dev_addr));
+			memcpy(dev->dev_addr,
+				req.ifr_hwaddr.sa_data, sizeof(u64));
+		}
 		return 0;
 
 	case SIOCGIFFLAGS:
@@ -325,6 +380,27 @@ static int ieee80215_if_ioctl(struct sock *sk, int cmd, void __user *arg)
 		}
 		break;
 	case IEEE80215_SIOC_JOIN:
+		if(dev->master)
+			return -EFAULT;
+		if(!(mpriv->dev_ops->flags & IEEE80215_DEV_SINGLE))
+			/* Here we're to alloc real new device */
+			ieee80215_register_netdev(mpriv->dev_ops, mpriv->dev);
+		{
+			/* Enabling device */
+			struct ieee80215_netdev_priv *subif;
+			int rc = -EFAULT;
+			list_for_each_entry(subif, &mpriv->interfaces, list) {
+				if(!netif_running(subif->dev)) {
+					memcpy(subif->dev->dev_addr,
+							&data.addr._64bit, sizeof(u64));
+					netif_start_queue(subif->dev);
+					rc = 0;
+				}
+			}
+			if(rc)
+				return rc;
+		}
+
 		priv->mac->mlme_get_req(priv->mac, IEEE80215_PANID);
 		break;
 	}
@@ -393,7 +469,7 @@ static const struct proto_ops SOCKOPS_WRAPPED(ieee80215_dgram_ops) = {
 	.family		= PF_IEEE80215,
 	.owner		= THIS_MODULE,
 	.release	= ieee80215_sock_release,
-	.bind		= sock_no_bind,
+	.bind		= ieee80215_sock_bind,
 	.connect	= sock_no_connect,
 	.socketpair	= sock_no_socketpair,
 	.accept		= sock_no_accept,

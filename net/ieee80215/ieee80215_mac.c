@@ -341,6 +341,11 @@ process_xmit:
 	process_to_network_queue(mac);
 }
 
+#define DEFINED_CALLBACK(x) {	\
+	if(unlikely(!x))	\
+		return 0;	\
+}
+
 /**
  * \brief PLME-SAP.data_confirm
  *
@@ -364,8 +369,8 @@ int ieee80215_pd_data_confirm(struct ieee80215_mac *mac, int code)
 				goto process_confirm;
 			}
 		}
-		dbg_print(mac, 0, DBG_ERR, "queue access error\n");
-		BUG();
+		pr_debug("%s:%s: queue access error\n", __FILE__, __FUNCTION__);
+		return -EFAULT;
 	}
 process_confirm:
 	mpdu = skb_to_mpdu(msg);
@@ -373,18 +378,19 @@ process_confirm:
 	if (code != IEEE80215_PHY_SUCCESS) {
 		mpdu->retries++;
 		if (mpdu->retries >= IEEE80215_MAX_FRAME_RETRIES) {
-			dbg_print(mac, 0, DBG_ERR, "out of retry limit\n");
+			pr_debug("%s:%s: out of retry limit\n", __FILE__, __FUNCTION__);
 			goto exit_ptr;
 		}
-		dbg_print(mac, 0, DBG_ERR, "xmit request failed, retry\n");
+		pr_debug("%s:%s: xmit request failed, retry\n", __FILE__, __FUNCTION__);
+		DEFINED_CALLBACK(mac->phy->pd_data_request);
 		mac->phy->pd_data_request(mac->phy, msg);
 		return 0;
 	}
 
-	dbg_print(mac, 0, DBG_INFO, "xmit request: done\n");
+	pr_debug("%s:%s: xmit request: done\n", __FILE__, __FUNCTION__);
 
 	if (skb_to_mpdu(msg)->mhr->fc.ack_req) {
-		dbg_print(mac, 0, DBG_INFO, "ACK required, set RX_ON\n");
+		pr_debug("%s:%s: ACK required, set RX_ON\n", __FILE__, __FUNCTION__);
 		set_trx_state(mac, IEEE80215_RX_ON, ieee80215_data_ack_wait);
 		return 0;
 	}

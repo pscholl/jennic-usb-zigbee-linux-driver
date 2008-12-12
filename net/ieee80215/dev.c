@@ -60,6 +60,12 @@ static int ieee80215_slave_close(struct net_device *dev)
 	return 0;
 }
 
+static struct net_device_stats *ieee80215_get_stats(struct net_device *dev)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+	return &priv->stats;
+}
+
 static void ieee80215_netdev_setup(struct net_device *dev)
 {
 	dev->addr_len		= IEEE80215_ADDR_LEN;
@@ -90,10 +96,11 @@ int ieee80215_register_netdev(struct ieee80215_dev_ops *dev_ops, struct net_devi
 	dev->open = ieee80215_slave_open;
 	dev->stop = ieee80215_slave_close;
 	dev->hard_start_xmit = ieee80215_net_xmit;
+	dev->get_stats = ieee80215_get_stats;
 	dev->master = mdev;
 	register_netdev(dev);
 	mpriv = netdev_priv(mdev);
-	list_add_tail_rcu((struct list_head *) &priv, &mpriv->interfaces);
+	list_add_tail_rcu(&priv->list, &mpriv->interfaces);
 	return 0;
 }
 EXPORT_SYMBOL(ieee80215_register_netdev);

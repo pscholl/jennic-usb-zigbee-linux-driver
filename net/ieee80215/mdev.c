@@ -33,8 +33,18 @@ static int ieee80215_master_open(struct net_device *dev)
 	struct ieee80215_netdev_priv *subif;
 	int res = -EOPNOTSUPP;
 	priv = netdev_priv(dev);
+	if(!priv) {
+		pr_debug("%s:%s: unable to get master private data\n",
+				__FILE__, __FUNCTION__);
+		return -ENODEV;
+	}
+	pr_debug("%s:%s &priv->interfaces->next = %p\n", __FILE__,
+				__FUNCTION__, &priv->interfaces.next);
+	pr_debug("%s:%s &priv->interfaces->prev = %p\n", __FILE__,
+				__FUNCTION__, &priv->interfaces.prev);
 	list_for_each_entry(subif, &priv->interfaces, list) {
 		if(netif_running(subif->dev)) {
+			/* Doing nothing important for now */
 			res = 0;
 			break;
 		}
@@ -54,6 +64,11 @@ static int ieee80215_master_close(struct net_device *dev)
 			dev_close(subif->dev);
 	}
 	return 0;
+}
+static struct net_device_stats *ieee80215_get_master_stats(struct net_device *dev)
+{
+	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
+	return &priv->stats;
 }
 
 static void ieee80215_netdev_setup_master(struct net_device *dev)
@@ -86,6 +101,7 @@ int ieee80215_register_netdev_master(struct ieee80215_phy * phy, struct ieee8021
 	priv->dev_ops = dev_ops;
 	dev->open = ieee80215_master_open;
 	dev->stop = ieee80215_master_close;
+	dev->get_stats = ieee80215_get_master_stats;
 	register_netdev(dev);
 	phy->dev = dev;
 	if(dev_ops->flags && IEEE80215_DEV_SINGLE)

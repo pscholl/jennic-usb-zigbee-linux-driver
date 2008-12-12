@@ -28,12 +28,14 @@ struct ieee80215_netdev_priv {
 	struct ieee80215_mac *mac;
 	struct net_device *dev;
 	struct sock *sk;
+	struct net_device_stats stats;
 };
 
 struct ieee80215_mnetdev_priv {
 	struct ieee80215_dev_ops *dev_ops;
 	struct list_head interfaces;
 	struct net_device *dev;
+	struct net_device_stats stats;
 };
 int ieee80215_register_netdev_master(struct ieee80215_phy * phy,
 					struct ieee80215_dev_ops *dev_ops);
