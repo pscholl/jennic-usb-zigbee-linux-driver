@@ -157,7 +157,8 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 
 		BUG_ON(!sk);
 		BUG_ON(!skb);
-
+		priv->mac->phy->receive_block(priv->mac->phy, skb->len, skb->data, skb->head[0]);
+		//ieee80215_pd_data_indicate(priv->mac, skb);
 		if (sock_queue_rcv_skb(sk, skb) < 0) {
 			kfree_skb(skb);
 			priv->stats.tx_dropped++;
@@ -452,18 +453,114 @@ static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned 
 	return rc;
 }
 
+/* TODO: endianness */
 static int ieee80215_sock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg, size_t len)
 {
-	// struct sock *sk = sock->sk;
-	// int err;
-	return 0;
+	struct sock *sk = sock->sk;
+	int err;
+	unsigned mtu;
+	zb_npdu_head_t *h;
+	struct sk_buff *skb;
+	struct ieee80215_mpdu *mpdu;
+	struct net_device *dev;
+	struct sockaddr_zb *dst;
+
+	pr_debug("sock = 0x%p\n", sock);
+
+	err = sock_error(sk);
+	if (err) {
+		pr_debug("sock_error() returned 0x%x\n", err);
+		return err;
+	}
+
+	if (msg->msg_flags & MSG_OOB) {
+		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
+		return -EOPNOTSUPP;
+	}
+	
+	dev = sk->sk_user_data;
+	if (!dev) {
+		pr_debug("no dev\n");
+		return -ENXIO;
+	}
+	mtu = dev->mtu;
+	pr_debug("name = %s, mtu = %u\n", dev->name, mtu);
+
+	if (len > mtu) {
+		pr_debug("len = %u, mtu = %u\n", len, mtu);
+		return -EINVAL;
+	}
+
+	mpdu = mac_alloc_mpdu(len + ZB_NWK_FRAME_OVERHEAD);
+	if (!mpdu) {
+		pr_debug("unable to allocate memory\n");
+		return -ENOMEM;
+	}
+	skb = mpdu_to_skb(mpdu);
+#if 0
+	h = (zb_npdu_head_t *)skb_put(skb, ZB_NWK_FRAME_OVERHEAD);
+	mpdu->p.h = h;
+
+	if (!msg->msg_name || msg->msg_namelen < sizeof(*dst)) {
+		pr_debug("msg->msg_name = 0x%p, msg->msg_namelen = %u\n",
+			msg->msg_name, msg->msg_namelen);
+		return -EINVAL;
+	}
+	dst = (u64*)msg->msg_name;
+	h->dst = dst;
+	pr_debug("h->dst = 0x%x\n", h->dst);
+#endif
+	err = memcpy_fromiovec(skb_put(skb, len), msg->msg_iov, len);
+	if (err < 0) {
+		pr_debug("unable to memcpy_fromiovec()\n");
+		kfree_mpdu(mpdu);
+		return err;
+	}
+
+	skb->dev = dev;
+	skb->sk = sk;
+	dev_queue_xmit(skb);
+
+	if (err)
+		return err;
+
+	return len;
 }
 
 static int ieee80215_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 	struct msghdr *msg, size_t size, int flags)
 {
-	return 0;
+	struct sock *sk;
+	int noblock;
+	struct sk_buff *skb;
+	int err = 0;
+
+	pr_debug("sock = 0x%p\n", sock);
+
+	sk = sock->sk;
+	noblock = flags & MSG_DONTWAIT;
+	flags &= ~MSG_DONTWAIT;
+
+	skb = skb_recv_datagram(sk, flags, noblock, &err);
+	if (!skb)
+		return err;
+	
+	if (size < skb->len)
+		msg->msg_flags |= MSG_TRUNC;
+	else
+		size = skb->len;
+	
+	err = memcpy_toiovec(msg->msg_iov, skb->data, size);
+	if (err < 0) {
+		skb_free_datagram(sk, skb);
+		return err;
+	}
+
+	sock_recv_timestamp(msg, sk, skb);
+	skb_free_datagram(sk, skb);
+	return size;
 }
+
 
 static const struct proto_ops SOCKOPS_WRAPPED(ieee80215_dgram_ops) = {
 	.family		= PF_IEEE80215,
@@ -569,7 +666,7 @@ static void af_ieee80215_remove(void)
 	proto_unregister(&ieee80215_prot);
 }
 
-int ieee80215_net_rx(struct ieee80215_phy *phy, u8 *data, ssize_t len)
+int ieee80215_net_rx(struct ieee80215_phy *phy, u8 *data, ssize_t len, u8 *head, u8 head_size)
 {
 	struct sk_buff *skb = alloc_skb(len, GFP_ATOMIC);
 
@@ -586,6 +683,10 @@ int ieee80215_net_rx(struct ieee80215_phy *phy, u8 *data, ssize_t len)
 	/* All frames originate from master interface for now */
 	skb->dev = phy->dev;
 	skb->protocol = htons(ETH_P_IEEE80215);
+	if(head_size > 0) {
+		skb_reserve(skb, head_size);
+		memcpy(skb->head, head, head_size);
+	}
 	/* TODO look, how to do this without copying */
 	memcpy(skb->data, data, len);
 	skb_put(skb, len);
@@ -603,7 +704,7 @@ int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status, u8 data)
 	buf[1] = command;
 	buf[2] = status;
 	buf[3] = data;
-	ieee80215_net_rx(phy, buf, 4);
+	ieee80215_net_rx(phy, buf, 4, 0, 0);
 	return 0;
 }
 EXPORT_SYMBOL(ieee80215_net_cmd);

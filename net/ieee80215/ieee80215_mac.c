@@ -106,7 +106,7 @@ static void process_from_network_queue(ieee80215_mac_t *mac)
 	u32 count;
 
 	count = skb_queue_len(&mac->from_network);
-	dbg_print(mac, 0, DBG_INFO, "from network queue length = %u\n", count);
+	pr_debug("from network queue length = %u\n", count);
 	if (count && mac->from_network_running) {
 		queue_work(mac->worker, &mac->data_indication);
 	}
@@ -624,10 +624,15 @@ int ieee80215_filter_af(ieee80215_mac_t *mac, struct sk_buff *skb)
 int ieee80215_pd_data_indicate(struct ieee80215_mac *mac, struct sk_buff *skb)
 {
 	bool promiscuous_mode;
+	int i;
 	ieee80215_mpdu_t *mpdu = skb_to_mpdu(skb);
 
-	dbg_dump8(mac, 0, DBG_INFO, skb->data, skb->len);
-
+#if 0
+	pr_debug(DBG_INFO, skb->data, skb->len);
+#endif
+	pr_debug("Received frame\n");
+	for(i = 0; i < skb->len; i++)
+	    pr_debug("data_indicate %02x: %02x\n", skb->data[i]);
 	ieee80215_adjust_pointers(mac, skb);
 
 	ieee80215_get_pib(mac, IEEE80215_PROMISCOUS_MODE, (u8*)&promiscuous_mode);
@@ -671,7 +676,7 @@ int ieee80215_pd_data_indicate(struct ieee80215_mac *mac, struct sk_buff *skb)
 	}
 
 filtered:
-	dbg_print(mac, 0, DBG_INFO, "queue frame for local processing\n");
+	pr_debug("queue frame for local processing\n");
 	skb_queue_tail(&mac->from_network, skb);
 	queue_work(mac->worker, &mac->data_indication);
 	return 0;

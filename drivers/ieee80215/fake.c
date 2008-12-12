@@ -77,7 +77,7 @@ static void do_net_rx(unsigned long data)
 		break;
 	case IEEE80215_MSG_RECV_BLOCK:
 		get_random_bytes(buf, sizeof(buf));
-		ieee80215_net_rx(phy, buf, sizeof(buf));
+		ieee80215_net_rx(phy, buf, sizeof(buf), 0, 0);
 		break;
 	case IEEE80215_MSG_ED_CONFIRM:
 		get_random_bytes(&data, 1);

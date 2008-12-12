@@ -486,31 +486,35 @@ void _receive_block(struct ieee80215_phy *phy, unsigned int len, const char *buf
 	ieee80215_PPDU_t *ppdu;
 
 	if (!(phy->state & PHY_RX_ON)) {
-		dbg_print(phy, 0, DBG_INFO, "RX is not on\n");
+		pr_debug("RX is not on\n");
 		BUG();
 	}
 
 	if (len > IEEE80215_MAX_PHY_PACKET_SIZE) {
-		dbg_print(phy, PHY_RECV, DBG_ERR, "PHY pkt is longer that allowed\n");
+		pr_debug("PHY pkt is longer that allowed\n");
 		return;
 	}
 
 	ppdu = (ieee80215_PPDU_t*)buf;
 	if (ppdu->sfd != DEF_SFD) {
-		dbg_print(phy, PHY_RECV, DBG_INFO, "received frame have no valid SFD\n");
+		pr_debug("received frame have no valid SFD\n");
 		return;
 	}
 
-	dbg_print(phy, PHY_RECV, DBG_ALL, "psdu len: %u\n", ppdu->flen);
+	pr_debug("psdu len: %u\n", ppdu->flen);
 	msdu = dev_alloc_mpdu(ppdu->flen);
 	if (!msdu) {
-		dbg_print(phy, 0, DBG_ERR_CRIT, "Cannot allocate msdu skb\n");
+		pr_debug("Cannot allocate msdu skb\n");
 		return;
 	}
 	memcpy(skb_put(msdu->skb, ppdu->flen), buf + IEEE80215_MAX_PHY_OVERHEAD, ppdu->flen);
 	msdu->lq = ppduLQ;
 	msdu->timestamp = jiffies;
 
+	if(!_mac(phy)->pd_data_indicate) {
+		pr_debug("no data indication present\n");
+		return;
+	}
 	_mac(phy)->pd_data_indicate(_mac(phy), msdu->skb);
 	return;
 }

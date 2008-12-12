@@ -48,6 +48,8 @@
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/mac.h>
 #include <net/ieee80215/phy.h>
+#include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee80215/netdev.h>
 #if 0
 #include <net/zb_aps.h>
 #include <net/zb_phy_serial.h>
@@ -347,6 +349,8 @@ static void
 process_command(struct zb_device *zbdev)
 {
 	u8 status;
+	u8 data = 0;
+	struct ieee80215_phy * phy = zbdev->phy;
 
 	/* Command processing */
 	if (!_match_pending_id(zbdev)) {
@@ -380,10 +384,10 @@ process_command(struct zb_device *zbdev)
 	}
 	switch (zbdev->id) {
 	case RESP_SET_CHANNEL:
-		zbdev->phy->set_channel_confirm(zbdev->phy, status);
+		ieee80215_net_cmd(phy, IEEE80215_MSG_CHANNEL_CONFIRM, status, data);
 		break;
 	case RESP_ED:
-		zbdev->phy->ed_confirm(zbdev->phy, status, zbdev->param2 /* level */);
+		ieee80215_net_cmd(phy, IEEE80215_MSG_ED_CONFIRM, status, data);
 		break;
 	case RESP_CCA:
 		/* zbdev->param1 is STATUS_ERR or STATUS_BUSY or STATUS_IDLE */
@@ -392,7 +396,7 @@ process_command(struct zb_device *zbdev)
 		} else {
 			status = IEEE80215_BUSY;
 		}
-		zbdev->phy->cca_confirm(zbdev->phy, status);
+		ieee80215_net_cmd(phy, IEEE80215_MSG_CCA_CONFIRM, status, data);
 		break;
 	case RESP_SET_STATE:
 		if (STATUS_SUCCESS == zbdev->param1) {
@@ -414,21 +418,20 @@ process_command(struct zb_device *zbdev)
 				__FUNCTION__, zbdev->param1);
 			status = IEEE80215_ERROR;
 		}
-		zbdev->phy->set_state_confirm(zbdev->phy, status);
+		ieee80215_net_cmd(phy, IEEE80215_MSG_CCA_CONFIRM, status, data);
 		break;
 	case RESP_XMIT_BLOCK:
-		zbdev->phy->xmit_confirm(zbdev->phy, status);
+		ieee80215_net_cmd(phy, IEEE80215_MSG_XMIT_BLOCK_CONFIRM, status, data);
 		break;
 	case RESP_XMIT_STREAM:
-		zbdev->phy->xmit_confirm(zbdev->phy, status);
+		ieee80215_net_cmd(phy, IEEE80215_MSG_XMIT_STREAM_CONFIRM, status, data);
 		break;
 	case DATA_RECV_BLOCK:
 		/* zbdev->param1 is LQ, zbdev->param2 is length */
-		zbdev->phy->receive_block(zbdev->phy, zbdev->param2, zbdev->data, zbdev->param1);
+		ieee80215_net_rx(phy, zbdev->data, zbdev->param2, &zbdev->param1, 1);
 		break;
 	case DATA_RECV_STREAM:
 		/* TODO: update firmware to use this */
-		zbdev->phy->receive_stream(zbdev->phy, zbdev->param2, zbdev->param1);
 		break;
 	}
 }
@@ -441,6 +444,7 @@ process_char(struct zb_device *zbdev, unsigned char c)
 	*/
 
 	/* Data processing */
+	pr_debug("Char: %d\n", c);
 	switch (zbdev->state) {
 	case STATE_WAIT_START1:
 		if (START_BYTE1 == c) {
@@ -689,24 +693,26 @@ zb_serial_xmit(ieee80215_phy_t *phy, u8 *ppdu, size_t len)
 	_send_pending_data(zbdev);
 }
 
-static ieee80215_dev_op_t *_alloc_dev_op(void)
+static ieee80215_dev_op_t *alloc_ieee80215_dev(void)
 {
-	ieee80215_dev_op_t *dev_op;
+	struct ieee80215_dev_ops *dev_op;
 
-	dev_op = kzalloc(sizeof(*dev_op), GFP_KERNEL);
+	dev_op = kzalloc(sizeof(struct ieee80215_dev_ops), GFP_KERNEL);
 	if (!dev_op) {
-		printk(KERN_ERR "%s: unable to allocate memory\n", __FUNCTION__);
-		return NULL;
-	}
-	dev_op->name 		= name;		/* module param */
+ 		printk(KERN_ERR "%s: unable to allocate memory\n", __FUNCTION__);
+ 		return NULL;
+ 	}
+	dev_op->name 		= "fakedev";
 	dev_op->set_channel	= zb_serial_set_channel;
 	dev_op->ed		= zb_serial_ed;
 	dev_op->cca		= zb_serial_cca;
 	dev_op->set_state	= zb_serial_set_state;
 	dev_op->xmit		= zb_serial_xmit;
+	dev_op->flags		= IEEE80215_DEV_SINGLE;
 
 	return dev_op;
 }
+
 
 /*****************************************************************************
  * Line discipline interface for IEEE 802.15.4 serial device
@@ -744,6 +750,7 @@ zb_tty_open(struct tty_struct *tty)
 	zb_nwk_t *nwk;
 	*/
 
+	pr_debug("Openning ldisc\n");
 	if(!capable(CAP_NET_ADMIN))
 		return -EPERM;
 
@@ -756,7 +763,7 @@ zb_tty_open(struct tty_struct *tty)
 	init_completion(&zbdev->open_done);
 	INIT_DELAYED_WORK(&zbdev->resp_timeout, _on_resp_timeout);
 
-	dev_op = _alloc_dev_op();
+	dev_op = alloc_ieee80215_dev();
 	if (!dev_op) {
 		kfree(zbdev);
 		return -ENOMEM;
@@ -921,7 +928,7 @@ static struct tty_ldisc_ops zb_ldisc = {
 
 static int __init zb_serial_init(void)
 {
-	printk(KERN_INFO "Initializing ZigBee TTY interface. Device name = %s\n", name);
+	printk(KERN_INFO "Initializing ZigBee TTY interface");
 
 	INIT_LIST_HEAD(&zbd_list_head);
 	/*init_completion(&ready);*/
