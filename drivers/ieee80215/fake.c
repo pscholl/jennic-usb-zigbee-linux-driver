@@ -54,6 +54,7 @@ static u8 status_values[NUM_STATUSES] = {
 static void do_net_rx(unsigned long data)
 {
 	struct ieee80215_phy * phy = (struct ieee80215_phy *) data;
+	u8 lq;
 	// struct sk_buff * skb;
 	u8 msg, status;
 	u8 buf[64];
@@ -67,6 +68,7 @@ static void do_net_rx(unsigned long data)
 	ops->phy->receive_block(ops->phy, zbdev->param2,  zbdev->data, zbdev->param1);
 #endif
 	get_random_bytes(&msg, 1);
+	get_random_bytes(&lq, 1);
 	msg %= NUM_MSGS; /* Tune for additional commands, if any */
 	msg = msg_values[msg];
 	get_random_bytes(&status, 1);
@@ -76,16 +78,19 @@ static void do_net_rx(unsigned long data)
 	case IEEE80215_MSG_RECV_STREAM:
 		break;
 	case IEEE80215_MSG_RECV_BLOCK:
+		pr_debug("Setting RX on\n");
+		ieee80215_net_cmd(phy, IEEE80215_MSG_SET_STATE, IEEE80215_RX_ON, data);
 		get_random_bytes(buf, sizeof(buf));
-		ieee80215_net_rx(phy, buf, sizeof(buf), 0, 0);
+		ieee80215_net_rx(phy, buf, sizeof(buf), lq);
 		break;
 	case IEEE80215_MSG_ED_CONFIRM:
 		get_random_bytes(&data, 1);
 	default:
+		pr_debug("generated event %d status %d\n", msg, status);
 		ieee80215_net_cmd(phy, msg, status, data);
 	}
         del_timer(&rx_timer);
-        rx_timer.expires = jiffies + 2000;
+        rx_timer.expires = jiffies + 200;
         add_timer(&rx_timer);
 	pr_debug("Transferred one frame\n");
 }
@@ -95,7 +100,7 @@ static void __init rx_init(void * data)
         /* initialize the timer that will increment the counter */
         init_timer(&rx_timer);
         rx_timer.function = do_net_rx;
-        rx_timer.expires = jiffies + 2000;
+        rx_timer.expires = jiffies + 200;
         rx_timer.data = (unsigned long) data;
         add_timer(&rx_timer);
 }

@@ -507,6 +507,7 @@ void _receive_block(struct ieee80215_phy *phy, unsigned int len, const char *buf
 		pr_debug("Cannot allocate msdu skb\n");
 		return;
 	}
+	/* Copying only PHY payload into ppdu */
 	memcpy(skb_put(msdu->skb, ppdu->flen), buf + IEEE80215_MAX_PHY_OVERHEAD, ppdu->flen);
 	msdu->lq = ppduLQ;
 	msdu->timestamp = jiffies;

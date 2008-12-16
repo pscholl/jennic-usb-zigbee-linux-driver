@@ -33,25 +33,15 @@ static void assoc_done_trx_set(ieee80215_mac_t *mac)
 	u16 addr16;
 
 	addr16 = mac->pib.dev_addr._16bit;
-#warning FIXME debug
-#if 0
-	dbg_print(mac, ASSOC, DBG_INFO, "status = 0x%x\n", mac->assoc_status);
-#endif
+	pr_info("status = 0x%x\n", mac->assoc_status);
 	if (IEEE80215_SUCCESS == mac->assoc_status) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO,
-			"associated, assigned addr16 = 0x%x\n", addr16);
-#endif
+		pr_info("associated, assigned addr16 = 0x%x\n", addr16);
 		ieee80215_set_state(mac, ACTIVE);
 	} else {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO, "not associated\n");
-#endif
+		pr_info("not associated\n");
 		ieee80215_restore_state(mac);
 	}
-#warning FIXME indication/confurm
+#warning FIXME indication/confirm
 #if 0
 	_nhle(mac)->mlme_associate_confirm(_nhle(mac), addr16, mac->assoc_status);
 #endif
@@ -61,47 +51,29 @@ int ieee80215_assoc_perm_cmd(ieee80215_mac_t *mac, struct sk_buff *skb)
 {
 	ieee80215_mpdu_t *mpdu = skb_to_mpdu(skb);
 
-#warning FIXME debug
-#if 0
-	dbg_print(mac, ASSOC, DBG_INFO, "state = %s\n", s_states[mac->state]);
-#endif
+	pr_info("state = %s\n", s_states[mac->state]);
 	dump_mpdu(mac, mpdu);
 
 	if (ZA != mac->state) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO, "unexpected association response\n");
-#endif
+		pr_info("unexpected association response\n");
 		return 0;
 	}
 
 	mac->assoc_status = mpdu->p.aresp->status;
-#warning FIXME debug
-#if 0
-	dbg_print(mac, ASSOC, DBG_INFO, "aresp status: %d\n", mpdu->p.aresp->status);
-#endif
+	pr_info("aresp status: %d\n", mpdu->p.aresp->status);
 
 	if (mac->assoc_status == IEEE80215_SUCCESS) {
 		write_lock(&mac->pib.lock);
 		mac->pib.dev_addr._16bit = le16_to_cpu(mpdu->p.aresp->_16bit);
 		if (IEEE80215_AMODE_16BIT == mpdu->mhr->fc.src_amode) {
 			mac->pib.coord._16bit = le16_to_cpu(mpdu->sa->_16bit);
-#warning FIXME debug
-#if 0
-			dbg_print(mac, ASSOC, DBG_INFO, "coord16 = 0x%x\n", mac->pib.coord._16bit);
-#endif
+			pr_info("coord16 = 0x%x\n", mac->pib.coord._16bit);
 		} else if (IEEE80215_AMODE_64BIT == mpdu->mhr->fc.src_amode) {
 			mac->pib.coord._64bit = le64_to_cpu(mpdu->sa->_64bit);
-#warning FIXME debug
-#if 0
-			dbg_print(mac, ASSOC, DBG_INFO, "coord64 = 0x%x\n", mac->pib.coord._64bit);
-#endif
+			pr_info("coord64 = 0x%llx\n", mac->pib.coord._64bit);
 		} else {
-#warning FIXME debug
-#if 0
-			dbg_print(mac, ASSOC, DBG_ERR, "unexpected coord addr mode = %u\n",
+			printk(KERN_ERR "unexpected coord addr mode = %u\n",
 				mpdu->mhr->fc.src_amode);
-#endif
 		}
 		write_unlock(&mac->pib.lock);
 	} else {
@@ -126,10 +98,7 @@ static void assoc_timeout(struct work_struct *work)
 		return;
 	}
 	mac->assoc_pending = false;
-#warning FIXME debug
-#if 0
-	dbg_print(mac, ASSOC, DBG_INFO, "no association response\n");
-#endif
+	pr_info("no association response\n");
 	mac->assoc_status = IEEE80215_NO_DATA;
 	write_lock(&mac->pib.lock);
 	mac->pib.dev_addr.panid = 0xffff;
@@ -154,31 +123,22 @@ int ieee80215_assoc_extract_confirm(void *obj, struct sk_buff *skb, int code)
 			unsigned long tmp;
 			PREPARE_DELAYED_WORK(&mac->associate_timeout, assoc_timeout);
 			tmp = IEEE80215_SLOW_SERIAL_FIXUP * usecs_to_jiffies(IEEE80215_MAX_FRAME_RESP_TIME * mac->symbol_duration);
-#warning FIXME debug
-#if 0
-			dbg_print(mac, ASSOC, DBG_INFO, "wait %lu jiffies for data from peer\n", tmp);
-#endif
+			pr_info("wait %lu jiffies for data from peer\n", tmp);
 			schedule_delayed_work(&mac->associate_timeout, tmp);
 		} else {
 			mac->assoc_pending = false;
-#warning FIXME debug
-#if 0
-			dbg_print(mac, ASSOC, DBG_INFO, "Assoc extract confirmed, no data pending\n");
-#endif
+			pr_info("Assoc extract confirmed, no data pending\n");
 			ieee80215_restore_state(mac);
-#warning FIXME indication/confurm
+#warning FIXME indication/confirm
 #if 0
 			_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, code);
 #endif
 		}
 	} else {
 		mac->assoc_pending = false;
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO, "Processing failed, code = %d\n", code);
-#endif
+		pr_info("Processing failed, code = %d\n", code);
 		ieee80215_restore_state(mac);
-#warning FIXME indication/confurm
+#warning FIXME indication/confirm
 #if 0
 		_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, code);
 #endif
@@ -195,22 +155,16 @@ void ieee80215_assoc_wait_confirm(struct work_struct *work)
 	mac = container_of(work, ieee80215_mac_t, associate_request.work);
 
 	if (ieee80215_slotted(mac) && mac->f.track_beacon) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO, "No assoc response\n");
-#endif
+		pr_info("No assoc response\n");
 		cancel_delayed_work(&mac->associate_request);
 		ieee80215_restore_state(mac);
-#warning FIXME indication/confurm
+#warning FIXME indication/confirm
 #if 0
 		_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, IEEE80215_NO_DATA);
 #endif
 		return;
 	}
-#warning FIXME debug
-#if 0
-	dbg_print(mac, ASSOC, DBG_INFO, "request data from coordinator\n");
-#endif
+	pr_debug("request data from coordinator\n");
 
 	read_lock(&mac->pib.lock);
 	a.panid = mac->pib.dev_addr.panid;
@@ -222,13 +176,10 @@ void ieee80215_assoc_wait_confirm(struct work_struct *work)
 	read_unlock(&mac->pib.lock);
 	msg = ieee80215_create_data_request_cmd(mac, &a);
 	if (!msg) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_ERR, "Unable to create data request cmd\n");
-#endif
+		printk(KERN_ERR "Unable to create data request cmd\n");
 		cancel_delayed_work(&mac->associate_request);
 		ieee80215_restore_state(mac);
-#warning FIXME indication/confurm
+#warning FIXME indication/confirm
 #if 0
 		_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, IEEE80215_NO_DATA);
 #endif
@@ -258,19 +209,12 @@ int ieee80215_assoc_cmd_confirm(void *obj, struct sk_buff *skb, int code)
 			assoc_wait_time = usecs_to_jiffies(IEEE80215_RESPONSE_WAIT_TIME*
 					mac->symbol_duration);
 		}
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_ALL, "Wait %lu jiffies\n", assoc_wait_time);
-#endif
+		pr_info( "Wait %lu jiffies\n", assoc_wait_time);
 		schedule_delayed_work(&mac->associate_request, assoc_wait_time);
 	} else {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO,
-			"Association failed, code = 0x%x\n", code);
-#endif
+		pr_info("Association failed, code = 0x%x\n", code);
 		ieee80215_restore_state(mac);
-#warning FIXME indication/confurm
+#warning FIXME indication/confirm
 #if 0
 		_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, code);
 #endif
@@ -281,10 +225,7 @@ int ieee80215_assoc_cmd_confirm(void *obj, struct sk_buff *skb, int code)
 int ieee80215_assoc_start(struct ieee80215_mac *mac, int code,
 			  ieee80215_plme_pib_t *a)
 {
-#warning FIXME debug
-#if 0
-	dbg_print(mac, ASSOC, DBG_INFO, "code = %d\n", code);
-#endif
+	pr_info( "code = %d\n", code);
 	if (code == IEEE80215_PHY_SUCCESS) {
 		/* Do the sending now */
 		ieee80215_csma_ca_start(mac);
@@ -292,17 +233,14 @@ int ieee80215_assoc_start(struct ieee80215_mac *mac, int code,
 		struct sk_buff *msg;
 
 		ieee80215_restore_state(mac);
-#warning FIXME indication/confurm
+#warning FIXME indication/confirm
 #if 0
 		_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, IEEE80215_INVALID_PARAM);
 #endif
 
 		msg = skb_dequeue(&mac->to_network);
 		if (!msg) {
-#warning FIXME debug
-#if 0
-			dbg_print(mac, ASSOC, DBG_ERR, "no data\n");
-#endif
+			printk(KERN_ERR  "no data\n");
 			return 0;
 		}
 		kfree_mpdu(skb_to_mpdu(msg));
@@ -321,42 +259,29 @@ int ieee80215_mlme_assoc_req(ieee80215_mac_t *mac, u8 lch, u16 c_panid,
 	rxon = cap_info & (1 << 3);
 
 	if (lch > IEEE80215_PHY_CURRENT_CHANNEL_MAX) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_ERR, "channel is out of range\n");
-#endif
-#warning FIXME indication/confurm
+		printk(KERN_ERR  "channel is out of range\n");
+#warning FIXME indication/confirm
 #if 0
 		_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, IEEE80215_INVALID_PARAM);
 #endif
 		return 0;
 	}
 	if (crd) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO,
+		pr_info(
 			"Association request to given address: "
-			"[16bit]:0x%x, [64bit]:0x%x, ch: 0x%x, panid: 0x%x, cap: 0x%x\n",
+			"[16bit]:0x%x, [64bit]:0x%llx, ch: 0x%x, panid: 0x%x, cap: 0x%x\n",
 			crd->_16bit, crd->_64bit, lch, c_panid, cap_info);
-#endif
 		crd->panid = c_panid;
 	} else {
 		ieee80215_get_pib(mac, IEEE80215_COORD_EXTENDED_ADDRESS, (u8*)&ca);
 		ieee80215_get_pib(mac, IEEE80215_COORD_SHORT_ADDRESS, (u8*)&ca);
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_INFO,
-			"Association request to: [16bit]: %lu, [64bit]: %llu\n",
+		pr_info("Association request to: [16bit]: %u, [64bit]: %llu\n",
      			ca._16bit, ca._64bit);
-		dbg_print(mac, ASSOC, DBG_INFO, " ch: 0x%x, panid: 0x%x, cap: 0x%x\n",
+		pr_info(" ch: 0x%x, panid: 0x%x, cap: 0x%x\n",
 			lch, c_panid, cap_info);
-#endif
 		if (ca._16bit >= 0xfffe && ca._64bit == IEEE80215_COORD_EXT_ADDRESS_DEF) {
-#warning FIXME debug
-#define dbg_print(c, ...)
-#define dbg_dump8(c, ...)
-			dbg_print(mac, ASSOC, DBG_ERR, "No coordinator address assigned\n");
-#warning FIXME indication/confurm
+			printk(KERN_ERR  "No coordinator address assigned\n");
+#warning FIXME indication/confirm
 #if 0
 			_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, IEEE80215_NO_SHORT_ADDRESS);
 #endif
@@ -366,42 +291,27 @@ int ieee80215_mlme_assoc_req(ieee80215_mac_t *mac, u8 lch, u16 c_panid,
 		crd = &ca;
 	}
 
-#warning FIXME debug
-#if 0
-	dbg_print(mac, ASSOC, DBG_INFO, "Mac state: %d, %s\n",
+	pr_info( "Mac state: %d, %s\n",
 		mac->state, s_states[mac->state]);
-#endif
 
 	switch (mac->state) {
 		case ZP:
 		case YA:
 			break;
 		default:
-#warning FIXME debug
-#if 0
-			dbg_print(mac, ASSOC, DBG_ERR, "Inappropriate state: %d, %s\n",
+			printk(KERN_ERR "Inappropriate state: %d, %s\n",
 				  mac->state, s_states[mac->state]);
-#endif
 			return 0;
 			break;
 	}
 
 	if (lch > IEEE80215_PHY_CURRENT_CHANNEL_MAX) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_ERR, "Channel is out of scope\n");
-#endif
+		printk(KERN_ERR "Channel is out of scope\n");
 		return 0;
 	}
 
 	if (c_panid == IEEE80215_PANID_MAX) {
-#warning FIXME debug
-#if 0
-		dbg_print(mac, ASSOC, DBG_ERR, "PANid must not be broadcast\n");
-#endif
-#warning FIXME debug
-#define dbg_print(c, ...)
-#define dbg_dump8(c, ...)
+		printk(KERN_ERR "PANid must not be broadcast\n");
 		return 0;
 	}
 
@@ -428,8 +338,8 @@ int ieee80215_mlme_assoc_req(ieee80215_mac_t *mac, u8 lch, u16 c_panid,
 
 	msg = ieee80215_create_assoc_cmd(mac, crd, cap_info);
 	if (!msg) {
-		dbg_print(mac, ASSOC, DBG_ERR, "unable to create assoc request\n");
-#warning FIXME indication/confurm
+		printk(KERN_ERR  "unable to create assoc request\n");
+#warning FIXME indication/confirm
 #if 0
 		_nhle(mac)->mlme_associate_confirm(_nhle(mac), 0xffff, IEEE80215_ERROR);
 #endif
@@ -454,13 +364,13 @@ int ieee80215_mlme_assoc_reply(ieee80215_mac_t *mac,
 	mac->f.sec_enable = sec_enable;
 	aresp = ieee80215_create_assocresp_cmd(mac, adev, status);
 	if (!aresp) {
-		dbg_print(mac, ASSOC, DBG_ERR, "Unable to create assoc response cmd\n");
+		printk(KERN_ERR  "Unable to create assoc response cmd\n");
 		return 0;
 	}
 
-	dbg_print(mac, ASSOC, DBG_INFO, "Queue aresp cmd to transaction queue\n");
+	pr_info( "Queue aresp cmd to transaction queue\n");
 	skb_queue_tail(&mac->tr64, mpdu_to_skb(aresp));
-	dbg_print(mac, ASSOC, DBG_INFO, "tr64 queue len = %u\n", skb_queue_len(&mac->tr64));
+	pr_info( "tr64 queue len = %u\n", skb_queue_len(&mac->tr64));
 	return 0;
 }
 
@@ -471,7 +381,7 @@ int ieee80215_mlme_orphan_resp(ieee80215_mac_t *mac, ieee80215_dev_addr_t *addr,
 	ieee80215_addr_t ad;
 	ieee80215_mpdu_t *msg;
 
-	dbg_print(mac, ASSOC, DBG_INFO, "assoc_member = %u\n", assoc_member);
+	pr_info( "assoc_member = %u\n", assoc_member);
 
 	if (!assoc_member) {
 		return 0;
@@ -482,7 +392,7 @@ int ieee80215_mlme_orphan_resp(ieee80215_mac_t *mac, ieee80215_dev_addr_t *addr,
 	ad._64bit = addr->_64bit;
 	msg = ieee80215_create_realign_cmd(mac, &ad, mac->i.current_channel);
 	if (!msg) {
-		dbg_print(mac, ASSOC, DBG_ERR, "Unable to create coord realign cmd\n");
+		printk(KERN_ERR  "Unable to create coord realign cmd\n");
 		return 0;
 	}
 	skb_queue_head(&mac->to_network, mpdu_to_skb(msg));

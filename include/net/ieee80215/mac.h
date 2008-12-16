@@ -725,11 +725,10 @@ static inline void dump_mpdu(struct ieee80215_mac *obj, ieee80215_mpdu_t *mpdu)
 	}
 	switch(fc->src_amode) {
 	case IEEE80215_AMODE_16BIT:
-		pr_debug("src[16bit]: %d\n", mpdu->sa->_16bit);
+		pr_debug("src[16bit]: %x\n", mpdu->sa->_16bit);
 		break;
 	case IEEE80215_AMODE_64BIT:
-#warning FIXME print 64bit LE value
-		pr_debug("src[64bit]: %llu\n", mpdu->sa->_64bit);
+		pr_debug("src[64bit]: %llx\n", mpdu->sa->_64bit);
 		break;
 	default:
 		pr_debug("src: noaddr\n");
@@ -803,12 +802,18 @@ static inline void dump_mpdu(struct ieee80215_mac *obj, ieee80215_mpdu_t *mpdu)
 		pr_debug("Unknown frame type\n");
 		break;
 	}
-#warning FIXME dbg_dump8
-	// dbg_dump8(mpdu->skb->data, mpdu->skb->len);
-#endif
+	{
+		int i;
+		pr_debug("skb dump %d bytes\n", mpdu->skb->len);
+		for(i = 0; i < mpdu->skb->len; i++) {
+			pr_debug("dump: %02x: %02x\n", i, mpdu->skb->data[i]);
+		}
+	}
 }
+#endif
 
 int ieee80215_register_phy(ieee80215_phy_t *phy);
 int ieee80215_unregister_phy(ieee80215_phy_t *phy);
-
+void ieee80215_adjust_pointers(struct ieee80215_mac *mac, struct sk_buff *skb);
+int ieee80215_ignore_mpdu(struct ieee80215_mac *mac, struct sk_buff *skb);
 #endif /* IEEE80215_MAC_H */

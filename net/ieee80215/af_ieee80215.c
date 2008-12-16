@@ -98,6 +98,10 @@ static int ieee80215_process_msg(struct net_device *dev, u8 msg, u8 status, u8 d
 			mystatus = IEEE80215_ERROR;
 			break;
 		}
+		if(mystatus == IEEE80215_RX_ON)
+			pr_debug("RX_ON\n");
+
+		pr_debug("Setting status %d\n", mystatus);
 		phy->set_state_confirm(phy, mystatus);
 		break;
 
@@ -119,6 +123,7 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
 	struct sock *sk;
+	ieee80215_mpdu_t *mpdu;
 
 	DBG_DUMP(skb->data, skb->len);
 	if(!netif_running(dev))
@@ -157,7 +162,21 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 
 		BUG_ON(!sk);
 		BUG_ON(!skb);
-		priv->mac->phy->receive_block(priv->mac->phy, skb->len, skb->data, skb->head[0]);
+		mpdu = skb_to_mpdu(skb);
+		ieee80215_adjust_pointers(priv->mac, skb);
+		// ieee80215_get_pib(mac, IEEE80215_PROMISCOUS_MODE, (u8*)&promiscuous_mode);
+		if (ieee80215_ignore_mpdu(priv->mac, skb)) {
+			pr_debug("Ignoring frame\n");
+			kfree_mpdu(mpdu);
+			return 0;
+		}
+		if (IEEE80215_TYPE_ACK == mpdu->mhr->fc.type) {
+			pr_debug("ACK received, seq: %d\n", mpdu->mhr->seq);
+				mpdu->filtered = true;
+				goto filtered;
+		}
+		filtered:
+			pr_debug("queue frame for local processing\n");
 		//ieee80215_pd_data_indicate(priv->mac, skb);
 		if (sock_queue_rcv_skb(sk, skb) < 0) {
 			kfree_skb(skb);
@@ -666,30 +685,46 @@ static void af_ieee80215_remove(void)
 	proto_unregister(&ieee80215_prot);
 }
 
-int ieee80215_net_rx(struct ieee80215_phy *phy, u8 *data, ssize_t len, u8 *head, u8 head_size)
+int ieee80215_net_rx(struct ieee80215_phy *phy, u8 *data, ssize_t len, u8 lq)
 {
-	struct sk_buff *skb = alloc_skb(len, GFP_ATOMIC);
+	ieee80215_mpdu_t *msdu;
+	ieee80215_PPDU_t *ppdu;
+	struct sk_buff *skb;
 
-	if(!skb) {
-		return -ENOMEM;
-	}
 	pr_debug("%s\n", __FUNCTION__);
 	if(!phy->dev) {
 		pr_debug("orphane frame recieved\n");
-		kfree_skb(skb);
 		return -ENODEV;
 	}
+	if (!(phy->state & PHY_RX_ON)) {
+		pr_debug("RX is not on\n");
+		return -EINVAL;
+	}
+	if (len > IEEE80215_MAX_PHY_PACKET_SIZE) {
+		pr_debug("PHY pkt is longer that allowed\n");
+		return -EINVAL;
+	}
+	ppdu = (struct ieee80215_PPDU *) data;
+	if (ppdu->sfd != DEF_SFD) {
+		pr_debug("received frame have no valid SFD\n");
+		return -EINVAL;
+	}
+	pr_debug("psdu len: %u\n", ppdu->flen);
+	msdu = dev_alloc_mpdu(ppdu->flen);
+	if (!msdu) {
+		pr_debug("Cannot allocate msdu skb\n");
+		return -ENOMEM;
+	}
+	skb = msdu->skb;
 
 	/* All frames originate from master interface for now */
 	skb->dev = phy->dev;
 	skb->protocol = htons(ETH_P_IEEE80215);
-	if(head_size > 0) {
-		skb_reserve(skb, head_size);
-		memcpy(skb->head, head, head_size);
-	}
 	/* TODO look, how to do this without copying */
-	memcpy(skb->data, data, len);
-	skb_put(skb, len);
+	/* Copying only PHY payload into ppdu, check for linearize */
+	memcpy(skb_put(msdu->skb, ppdu->flen), data + IEEE80215_MAX_PHY_OVERHEAD, ppdu->flen);
+	msdu->lq = lq;
+	msdu->timestamp = jiffies;
 	DBG_DUMP(skb->data, skb->len);
 	netif_rx(skb);
 	return 0;
@@ -704,7 +739,7 @@ int ieee80215_net_cmd(struct ieee80215_phy *phy, u8 command, u8 status, u8 data)
 	buf[1] = command;
 	buf[2] = status;
 	buf[3] = data;
-	ieee80215_net_rx(phy, buf, 4, 0, 0);
+	ieee80215_net_rx(phy, buf, 4, 0);
 	return 0;
 }
 EXPORT_SYMBOL(ieee80215_net_cmd);
@@ -712,3 +747,4 @@ EXPORT_SYMBOL(ieee80215_net_cmd);
 module_init(af_ieee80215_init);
 module_exit(af_ieee80215_remove);
 MODULE_LICENSE("GPL");
+
