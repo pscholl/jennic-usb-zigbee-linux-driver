@@ -24,6 +24,8 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/netdev.h>
+#include <net/ieee80215/af_ieee80215.h>
 
 int ieee80215_gts_start_slice(ieee80215_mac_t *mac, int code);
 int ieee80215_gts_data_confirm(void *obj, struct sk_buff *skb, int code);
@@ -113,7 +115,8 @@ u32 ieee80215_calc_next_gts_time(ieee80215_mac_t *mac, ieee80215_gts_info_t *gts
 int ieee80215_gts_data_action_start(ieee80215_mac_t *mac)
 {
 	mac->plme_set_trx_state_confirm = ieee80215_gts_start_slice;
-	mac->phy->plme_set_trx_state_request(mac->phy, mac->i.action);
+	ieee80215_net_cmd(mac->phy, IEEE80215_MSG_SET_STATE,
+				mac->i.action, 0);	
 	return 0;
 }
 

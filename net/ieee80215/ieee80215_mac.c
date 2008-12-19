@@ -24,6 +24,8 @@
 #include <net/ieee80215/mac.h>
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/netdev.h>
+#include <net/ieee80215/af_ieee80215.h>
 #include <linux/timer.h>
 
 char *s_states[] = {
@@ -92,15 +94,15 @@ static void process_to_network_queue(ieee80215_mac_t *mac)
 	u32 count;
 
 	count = skb_queue_len(&mac->to_network);
-#warning FIXME debug
-#define dbg_print(c, ...)
-#define dbg_dump8(c, ...)
-	dbg_print(mac, 0, DBG_INFO, "to network queue length = %u\n", count);
+	pr_debug("to network queue length = %u\n", count);
 	if (count && mac->to_network_running) {
 		ieee80215_csma_ca_start(mac);
 	}
 }
 
+/* rcv will help with this one */
+
+#if 0
 static void process_from_network_queue(ieee80215_mac_t *mac)
 {
 	u32 count;
@@ -111,6 +113,7 @@ static void process_from_network_queue(ieee80215_mac_t *mac)
 		queue_work(mac->worker, &mac->data_indication);
 	}
 }
+#endif
 
 int ieee80215_should_rxon(ieee80215_mac_t *mac)
 {
@@ -138,7 +141,7 @@ int ieee80215_should_rxon(ieee80215_mac_t *mac)
 	slot_duration = mac->sf_time/IEEE80215_NUM_SFS;
 	curr_slot = curr_time_slot/slot_duration;
 	/* Now we are on curr_slot */
-	dbg_print(mac, CORE, DBG_ALL, "We are on slot: %d\n", curr_slot);
+	pr_debug("We are on slot: %d\n", curr_slot);
 	/* check, if we yet in CAP */
 	if (curr_slot <= mac->i.final_cap_slot) {
 		return 1;
@@ -146,17 +149,18 @@ int ieee80215_should_rxon(ieee80215_mac_t *mac)
 	return 0;
 }
 
+#if 0
 static int recv_ack(ieee80215_mac_t *mac, struct sk_buff *ack)
 {
 	struct sk_buff *msg;
 
 	msg = skb_peek(&mac->to_network);
 	if (!msg) {
-		dbg_print(mac, 0, DBG_INFO, "no frame pending, ignore ack\n");
+		pr_debug("no frame pending, ignore ack\n");
 		return 0;
 	}
 	if (!skb_to_mpdu(msg)->on_confirm) {
-		dbg_print(mac, 0, DBG_ERR, "msg->on_confirm is NULL\n");
+		pr_info("msg->on_confirm is NULL\n");
 		BUG();
 	}
 
@@ -165,14 +169,14 @@ static int recv_ack(ieee80215_mac_t *mac, struct sk_buff *ack)
 		skb_to_mpdu(ack)->mhr->seq, skb_to_mpdu(msg)->mhr->seq);
 
 	if (skb_to_mpdu(ack)->mhr->seq != skb_to_mpdu(msg)->mhr->seq) {
-		dbg_print(mac, 0, DBG_INFO, "unexpected ACK\n");
+		pr_debug("unexpected ACK\n");
 		return 0;
 	}
 
 	ieee80215_dsn_inc(mac);
 	cancel_delayed_work(&mac->ack_wait);
 
-	dbg_print(mac, 0, DBG_INFO, "ack->mhr->fc.pend = %u\n",
+	pr_debug("ack->mhr->fc.pend = %u\n",
 		skb_to_mpdu(ack)->mhr->fc.pend);
 
 	skb_to_mpdu(msg)->mhr->fc.pend = skb_to_mpdu(ack)->mhr->fc.pend; /* hack */
@@ -184,6 +188,7 @@ static int recv_ack(ieee80215_mac_t *mac, struct sk_buff *ack)
 	cancel_delayed_work(&mac->csma_dwork);
 	return 0;
 }
+#endif
 
 static void msg_no_ack(ieee80215_mac_t *mac)
 {
@@ -191,11 +196,11 @@ static void msg_no_ack(ieee80215_mac_t *mac)
 
 	msg = skb_peek(&mac->to_network);
 	if (!msg) {
-		dbg_print(mac, 0, DBG_ERR, "no frame pending\n");
+		pr_info("no frame pending\n");
 		BUG();
 	}
 	if (!skb_to_mpdu(msg)->on_confirm) {
-		dbg_print(mac, 0, DBG_ERR, "msg->on_confirm is NULL\n");
+		pr_info("msg->on_confirm is NULL\n");
 		BUG();
 	}
 
@@ -210,26 +215,26 @@ static void ack_timeout(struct work_struct *work)
 	ieee80215_mac_t *mac = container_of(work, ieee80215_mac_t, ack_wait.work);
 	struct sk_buff *msg;
 
-	dbg_print(mac, 0, DBG_INFO, "ACK wait timeout\n");
+	pr_debug("ACK wait timeout\n");
 
 	msg = skb_peek(&mac->to_network);
 	if (!msg) {
-		dbg_print(mac, 0, DBG_ERR, "no frame pending\n");
+		pr_info("no frame pending\n");
 		BUG();
 	}
 
 	if (skb_to_mpdu(msg)->retries > IEEE80215_MAX_FRAME_RETRIES) {
 		int state;
-		dbg_print(mac, 0, DBG_ERR, "no ACK for max_frame_retries times\n");
+		pr_info("no ACK for max_frame_retries times\n");
 		if (ieee80215_should_rxon(mac)) {
 			state = IEEE80215_RX_ON;
 		} else {
 			state = IEEE80215_TRX_OFF;
 		}
-		set_trx_state(mac, state, msg_no_ack);
+		ieee80215_net_set_trx_state(mac, state, msg_no_ack);
 	} else {
 		skb_to_mpdu(msg)->retries++;
-		dbg_print(mac, 0, DBG_INFO, "retries = %d, resend\n", skb_to_mpdu(msg)->retries);
+		pr_debug("retries = %d, resend\n", skb_to_mpdu(msg)->retries);
 #if 0
 		assume GTS transmissions are not used
 		if (msg->gts) {
@@ -252,7 +257,7 @@ static void ieee80215_data_ack_wait(ieee80215_mac_t *mac)
 	PREPARE_DELAYED_WORK(&mac->ack_wait, ack_timeout);
 	ieee80215_get_pib(mac, IEEE80215_ACK_WAIT_DURATION, &duration);
 	j = IEEE80215_SLOW_SERIAL_FIXUP * usecs_to_jiffies(duration * mac->symbol_duration);
-	dbg_print(mac, 0, DBG_INFO, "wait for ack %lu jiffies\n", j);
+	pr_debug("wait for ack %lu jiffies\n", j);
 	schedule_delayed_work(&mac->ack_wait, j);
 }
 
@@ -273,35 +278,40 @@ static const char* state_to_str(int state)
 static int set_trx_state_confirm(struct ieee80215_mac *mac, int code)
 {
 	if (IEEE80215_PHY_SUCCESS == code || mac->pending_trx_state == code) {
-		dbg_print(mac, 0, DBG_INFO, "set %s: ok\n",
+		pr_debug("set %s: ok\n",
 			state_to_str(mac->pending_trx_state));
 		if (mac->pending_trx_state_func) {
 			mac->pending_trx_state_func(mac);
 		}
 	} else {
-		dbg_print(mac, 0, DBG_INFO, "set state attempt failed, retry\n");
-		mac->phy->plme_set_trx_state_request(mac->phy, mac->pending_trx_state);
+		pr_debug("set state attempt failed, retry\n");
+		ieee80215_net_cmd(mac->phy, IEEE80215_MSG_SET_STATE,
+					mac->pending_trx_state, 0);	
+			ieee80215_net_set_trx_state(mac, IEEE80215_TX_ON, ieee80215_ack_perform);
 	}
 	return 0;
 }
 
+#if 0
 void set_trx_state(ieee80215_mac_t *mac, int state, set_trx_state_func_t func)
 {
 	switch (state) {
 	case IEEE80215_RX_ON:
 	case IEEE80215_TRX_OFF:
 	case IEEE80215_TX_ON:
-		dbg_print(mac, 0, DBG_INFO, "set %s\n", state_to_str(state));
+		pr_info("set %s\n", state_to_str(state));
 		break;
 	default:
-		dbg_print(mac, 0, DBG_ERR, "state 0x%x is not allowed\n", state);
+		pr_info("state 0x%x is not allowed\n", state);
 		return;
 	}
 	mac->pending_trx_state = state;
 	mac->pending_trx_state_func = func;
 	mac->plme_set_trx_state_confirm = set_trx_state_confirm;
-	mac->phy->plme_set_trx_state_request(mac->phy, state);
+	ieee80215_net_cmd(mac->phy, IEEE80215_MSG_SET_STATE,
+				state, 0);	
 }
+#endif
 
 static void confirm_xmit(ieee80215_mac_t *mac)
 {
@@ -312,20 +322,20 @@ static void confirm_xmit(ieee80215_mac_t *mac)
 	if (!msg) {
 		/* May be it was a gts transmittion ? */
 		if (mac->curr_gts) {
-			dbg_print(mac, DATA, DBG_ALL, "Have curr_gts\n");
+			pr_debug("Have curr_gts\n");
 			msg = skb_peek(mac->curr_gts->gts_q);
 			if (msg) {
-				dbg_print(mac, DATA, DBG_ALL, "Have gts data message to confirm\n");
+				pr_debug("Have gts data message to confirm\n");
 				gts = 1;
 				goto process_xmit;
 			}
 		}
-		dbg_print(mac, 0, DBG_ERR, "queue access error\n");
+		pr_info("queue access error\n");
 		BUG();
 	}
 process_xmit:
 	if (!skb_to_mpdu(msg)->on_confirm) {
-		dbg_print(mac, 0, DBG_ERR, "msg->on_confirm is NULL\n");
+		pr_info("msg->on_confirm is NULL\n");
 		BUG();
 	}
 	if(skb_to_mpdu(msg)->retries >= IEEE80215_MAX_FRAME_RETRIES)
@@ -382,8 +392,7 @@ process_confirm:
 			goto exit_ptr;
 		}
 		pr_debug("%s:%s: xmit request failed, retry\n", __FILE__, __FUNCTION__);
-		DEFINED_CALLBACK(mac->phy->pd_data_request);
-		mac->phy->pd_data_request(mac->phy, msg);
+		dev_queue_xmit(msg);
 		return 0;
 	}
 
@@ -391,7 +400,7 @@ process_confirm:
 
 	if (skb_to_mpdu(msg)->mhr->fc.ack_req) {
 		pr_debug("%s:%s: ACK required, set RX_ON\n", __FILE__, __FUNCTION__);
-		set_trx_state(mac, IEEE80215_RX_ON, ieee80215_data_ack_wait);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, ieee80215_data_ack_wait);
 		return 0;
 	}
 	ieee80215_dsn_inc(mac);
@@ -401,7 +410,7 @@ exit_ptr:
 	} else {
 		state = IEEE80215_TRX_OFF;
 	}
-	set_trx_state(mac, state, confirm_xmit);
+	ieee80215_net_set_trx_state(mac, state, confirm_xmit);
 	return 0;
 }
 
@@ -418,21 +427,23 @@ static inline void ieee80215_adjust_payload(ieee80215_mpdu_t *mpdu, u8 p_off)
 
 int ieee80215_ack_confirm(void *obj, struct sk_buff *ack, int code)
 {
+#warning mac support confirmation made no-op
+#if 0
 	ieee80215_mac_t *mac = obj;
 	struct sk_buff *received;
 
 	dbg_print(mac, DATA, DBG_INFO, "code = %d\n", code);
 
 	if (IEEE80215_PHY_SUCCESS != code) {
-		dbg_print(mac, 0, DBG_INFO, "failed to send ACK, retry\n");
+		pr_debug("failed to send ACK, retry\n");
 		mac->phy->pd_data_request(mac->phy, ack);
 		return 0;
 	}
-	dbg_print(mac, 0, DBG_INFO, "ACK was sent out\n");
+	pr_debug("ACK was sent out\n");
 
 	received = skb_peek(&mac->from_network);
 	if (!received) {
-		dbg_print(mac, 0, DBG_ERR, "ACK for nothing\n");
+		pr_info("ACK for nothing\n");
 		BUG();
 	}
 	skb_to_mpdu(received)->ack_send = true;
@@ -443,28 +454,29 @@ int ieee80215_ack_confirm(void *obj, struct sk_buff *ack, int code)
 		&& (IEEE80215_DATA_REQ == skb_to_mpdu(received)->p.g->cmd_id)
 		&& (IEEE80215_TYPE_ACK == skb_to_mpdu(ack)->mhr->fc.type)
 		&& (!skb_to_mpdu(ack)->mhr->fc.pend)) {
-		dbg_print(mac, 0, DBG_ALL, "data request received, no data pending, discard request\n");
+		pr_debug("data request received, no data pending, discard request\n");
 		skb_unlink(received, &mac->from_network);
 		kfree_mpdu(skb_to_mpdu(received));
 	}
 
 	mac->from_network_running = 1;
 	process_from_network_queue(mac);
+#endif
 	return 0;
 }
 
-static void ieee80215_ack_perform(ieee80215_mac_t *mac)
+void ieee80215_ack_perform(ieee80215_mac_t *mac)
 {
 	struct sk_buff *skb;
 
 	skb = skb_peek(&mac->to_network);
 	if (!skb || IEEE80215_TYPE_ACK != skb_to_mpdu(skb)->mhr->fc.type) {
-		dbg_print(mac, 0, DBG_ERR, "queue access error\n");
+		pr_info("queue access error\n");
 		BUG();
 	}
 
-	dbg_print(mac, 0, DBG_INFO, "sending out an ack\n");
-	mac->phy->pd_data_request(mac->phy, skb);
+	pr_debug("sending out an ack\n");
+	dev_queue_xmit(skb);
 }
 
 void ieee80215_adjust_pointers(ieee80215_mac_t *mac, struct sk_buff *skb)
@@ -476,8 +488,7 @@ void ieee80215_adjust_pointers(ieee80215_mac_t *mac, struct sk_buff *skb)
 	mpdu->mhr = (ieee80215_mhr_t*)mpdu->skb->data;
 	fc = &mpdu->mhr->fc;
 
-	dbg_print(mac, CMD, DBG_ALL,
-		"type: %d, sec: %d, pend: %d, ack_req: %d, intra_pan: %d, dst addr mode: %d, src addr mode: %d\n",
+	pr_debug("type: %d, sec: %d, pend: %d, ack_req: %d, intra_pan: %d, dst addr mode: %d, src addr mode: %d\n",
 		fc->type, fc->security, fc->pend, fc->ack_req, fc->intra_pan, fc->dst_amode, fc->src_amode);
 
 	intra_pan = fc->intra_pan;
@@ -532,8 +543,7 @@ void ieee80215_adjust_pointers(ieee80215_mac_t *mac, struct sk_buff *skb)
 		addr_off += mpdu->s_panid?sizeof(u16):0;
 	}
 
-	dbg_print(mac, 0, DBG_ALL,
-		"addr_off = %u, s_panid = 0x%p, mhr = 0x%p, da = 0x%p, sa = 0x%p\n",
+	pr_debug("addr_off = %u, s_panid = 0x%p, mhr = 0x%p, da = 0x%p, sa = 0x%p\n",
 		sizeof(*mpdu->mhr)+addr_off, mpdu->s_panid, mpdu->mhr, mpdu->da, mpdu->sa);
 
 	ieee80215_adjust_payload(mpdu, sizeof(*mpdu->mhr)+addr_off);
@@ -548,7 +558,7 @@ int ieee80215_filter_af(ieee80215_mac_t *mac, struct sk_buff *skb)
 	u64 local64, dst64;
 	ieee80215_mpdu_t *mpdu = skb_to_mpdu(skb);
 
-	dbg_print(mac, 0, DBG_INFO, "mpdu = 0x%p\n", mpdu);
+	pr_debug("mpdu = 0x%p\n", mpdu);
 
 	ieee80215_get_pib(mac, IEEE80215_PANID, &local_panid);
 
@@ -557,23 +567,20 @@ int ieee80215_filter_af(ieee80215_mac_t *mac, struct sk_buff *skb)
 	} else if (mpdu->sa) {
 		panid = le16_to_cpu(*mpdu->s_panid);
 	} else {
-		dbg_print(mac, 0, DBG_ERR,
-			"frame w/o addressing: dst = 0x%p, src = 0x%p\n",
+		pr_info("frame w/o addressing: dst = 0x%p, src = 0x%p\n",
 			mpdu->da, mpdu->sa);
 		return 1;
 	}
 
-	dbg_print(mac, 0, DBG_INFO,
-		"panid = 0x%x, local panid = 0x%x\n",
+	pr_info("panid = 0x%x, local panid = 0x%x\n",
 		panid, local_panid);
 
 	if (panid != 0xffff && local_panid != 0xffff && panid != local_panid) {
-		dbg_print(mac, 0, DBG_INFO,
-			"remote panid does not match local, discard frame\n");
+		pr_info("remote panid does not match local, discard frame\n");
 		return 1;
 	}
 
-	dbg_print(mac, 0, DBG_ALL, "dst address mode = %d\n",
+	pr_debug("dst address mode = %d\n",
 		mpdu->mhr->fc.dst_amode);
 
 	switch (mpdu->mhr->fc.dst_amode) {
@@ -581,7 +588,7 @@ int ieee80215_filter_af(ieee80215_mac_t *mac, struct sk_buff *skb)
 		ieee80215_get_pib(mac, IEEE80215_SHORT_ADDRESS, &local16);
 		dst16 = le16_to_cpu(mpdu->da->_16bit);
 
-		dbg_print(mac, 0, DBG_ALL, "dst16 = 0x%x, our = 0x%x\n",
+		pr_debug("dst16 = 0x%x, our = 0x%x\n",
 			dst16, local16);
 
 		if (dst16 == 0xffff || local16 == 0xffff || dst16 == local16) {
@@ -593,7 +600,7 @@ int ieee80215_filter_af(ieee80215_mac_t *mac, struct sk_buff *skb)
 		local64 = mac->pib.dev_addr._64bit;
 		dst64 = le64_to_cpu(mpdu->da->_64bit);
 
-		dbg_print(mac, 0, DBG_ALL, "dst64 = 0x%llx, local64 = 0x%llx\n",
+		pr_debug("dst64 = 0x%llx, local64 = 0x%llx\n",
 			dst64, local64);
 
 		if (dst64 == local64) {
@@ -602,14 +609,14 @@ int ieee80215_filter_af(ieee80215_mac_t *mac, struct sk_buff *skb)
 		}
 		break;
 	default:
-		dbg_print(mac, 0, DBG_ALL, "no dst addr\n");
+		pr_debug("no dst addr\n");
 		if (mpdu->sa && (0xffff == panid || 0xffff == local_panid || panid == local_panid)) {
 			mpdu->filtered = true;
 		}
 		break;
 	}
 
-	dbg_print(mac, 0, DBG_ALL, "mpdu->filtered = %u\n", mpdu->filtered);
+	pr_debug("mpdu->filtered = %u\n", mpdu->filtered);
 	return 0;
 }
 
@@ -621,6 +628,7 @@ int ieee80215_filter_af(ieee80215_mac_t *mac, struct sk_buff *skb)
  * \param mac	pointer to current mac
  * \param mpdu	actual mpdu
  */
+#if 0
 int ieee80215_pd_data_indicate(struct ieee80215_mac *mac, struct sk_buff *skb)
 {
 	bool promiscuous_mode;
@@ -632,7 +640,7 @@ int ieee80215_pd_data_indicate(struct ieee80215_mac *mac, struct sk_buff *skb)
 #endif
 	pr_debug("Received frame\n");
 	for(i = 0; i < skb->len; i++)
-	    pr_debug("data_indicate %02x: %02x\n", skb->data[i]);
+	    pr_debug("data_indicate %02x: %02x\n", i, skb->data[i]);
 	ieee80215_adjust_pointers(mac, skb);
 
 	ieee80215_get_pib(mac, IEEE80215_PROMISCOUS_MODE, (u8*)&promiscuous_mode);
@@ -648,7 +656,7 @@ int ieee80215_pd_data_indicate(struct ieee80215_mac *mac, struct sk_buff *skb)
 			_nhle(mac)->mcps_data_indication(_nhle(mac), cloned_mpdu);
 		}
 #endif
-		dbg_print(mac, 0, DBG_INFO, "In promiscuous_mode\n");
+		pr_debug("In promiscuous_mode\n");
 #warning FIXME indication/confurm
 #if 0
 		_nhle(mac)->mcps_data_indication(_nhle(mac), skb);
@@ -656,7 +664,7 @@ int ieee80215_pd_data_indicate(struct ieee80215_mac *mac, struct sk_buff *skb)
 	}
 
 	if (ieee80215_ignore_mpdu(mac, skb)) {
-		dbg_print(mac, 0, DBG_INFO, "Ignoring frame\n");
+		pr_debug("Ignoring frame\n");
 		kfree_mpdu(mpdu);
 		return 0;
 	}
@@ -681,7 +689,9 @@ filtered:
 	queue_work(mac->worker, &mac->data_indication);
 	return 0;
 }
+#endif
 
+#if 0
 static void process_incoming_frame(ieee80215_mac_t *mac)
 {
 	struct sk_buff *mpdu;
@@ -689,7 +699,7 @@ static void process_incoming_frame(ieee80215_mac_t *mac)
 	mpdu = skb_peek(&mac->from_network);
 	BUG_ON(!mpdu);
 
-	dbg_print(mac, 0, DBG_INFO, "frame type = %d\n", skb_to_mpdu(mpdu)->mhr->fc.type);
+	pr_debug("frame type = %d\n", skb_to_mpdu(mpdu)->mhr->fc.type);
 
 	switch (skb_to_mpdu(mpdu)->mhr->fc.type) {
 	case IEEE80215_TYPE_DATA:
@@ -708,7 +718,7 @@ static void process_incoming_frame(ieee80215_mac_t *mac)
 		ieee80215_parse_beacon(mac, mpdu);
 		break;
 	default:
-		dbg_print(mac, 0, DBG_INFO, "unexpected frame type\n");
+		pr_debug("unexpected frame type\n");
 		break;
 	}
 	skb_unlink(mpdu, &mac->from_network);
@@ -716,7 +726,9 @@ static void process_incoming_frame(ieee80215_mac_t *mac)
 	process_to_network_queue(mac);
 	process_from_network_queue(mac);
 }
+#endif
 
+#if 0
 static void bg_data_indication(struct work_struct *work)
 {
 	ieee80215_mac_t *mac = container_of(work, ieee80215_mac_t, data_indication);
@@ -725,22 +737,22 @@ static void bg_data_indication(struct work_struct *work)
 	int state;
 
 	if (!mac->from_network_running) {
-		dbg_print(mac, 0, DBG_ALL, "from network queue is stopped\n");
+		pr_debug("from network queue is stopped\n");
 		return;
 	}
 
 	skb = skb_peek(&mac->from_network);
 	if (!skb) {
-		dbg_print(mac, 0, DBG_ALL, "from network queue is empty\n");
+		pr_debug("from network queue is empty\n");
 		return;
 	}
 	mpdu = skb_to_mpdu(skb);
-	dbg_print(mac, 0, DBG_ALL, "mpdu = 0x%p\n", mpdu);
+	pr_debug("mpdu = 0x%p\n", mpdu);
 	if (mpdu->mhr->fc.ack_req && !mpdu->ack_send) {
 		ieee80215_mpdu_t *ack;
-		dbg_print(mac, 0, DBG_ALL, "ACK required\n");
+		pr_debug("ACK required\n");
 		if (!ieee80215_can_process_ack(mac, skb)) {
-			dbg_print(mac, 0, DBG_ALL, "no time slice left, drop frame\n");
+			pr_debug("no time slice left, drop frame\n");
 			skb_unlink(skb, &mac->from_network);
 			kfree_mpdu(mpdu);
 			return;
@@ -750,12 +762,12 @@ static void bg_data_indication(struct work_struct *work)
 			ack->on_confirm = ieee80215_ack_confirm;
 			mac->from_network_running = 0;
 			skb_queue_head(&mac->to_network, mpdu_to_skb(ack));
-			set_trx_state(mac, IEEE80215_TX_ON, ieee80215_ack_perform);
+			ieee80215_net_set_trx_state(mac, IEEE80215_TX_ON, ieee80215_ack_perform);
 		}
 		return;
 	}
 
-	dbg_print(mac, 0, DBG_INFO, "frame type = %d\n", mpdu->mhr->fc.type);
+	pr_debug("frame type = %d\n", mpdu->mhr->fc.type);
 
 	if (mac->assoc_pending && IEEE80215_TYPE_MAC_CMD == mpdu->mhr->fc.type
 		&& IEEE80215_ASSOCIATION_PERM == mpdu->p.g->cmd_id) {
@@ -777,8 +789,9 @@ static void bg_data_indication(struct work_struct *work)
 	} else {
 		state = IEEE80215_TRX_OFF;
 	}
-	set_trx_state(mac, state, process_incoming_frame);
+	ieee80215_net_set_trx_state(mac, state, process_incoming_frame);
 }
+#endif
 
 static ieee80215_mac_t *ieee80215_mac_alloc(const char *name)
 {
@@ -878,7 +891,7 @@ int ieee80215_init_pib(ieee80215_pib_t *pib, ieee80215_mac_t *mac)
 	ieee80215_set_pib_defaults(pib);
 
 	if (ieee80215_init_acl(&pib->acl_entries, mac)) {
-		dbg_print(mac, CORE, DBG_ERR_CRIT, "Cannot init acl entries\n");
+		pr_info("Cannot init acl entries\n");
 		return -EINVAL;
 	}
 	return 0;
@@ -893,7 +906,7 @@ static void ieee80215_gts_close(ieee80215_mac_t *mac)
 		it = mac->gts.db.list.next;
 		g = container_of(it, ieee80215_gts_info_t, list);
 		if (!g) {
-			dbg_print(mac, 0, DBG_ERR, "No GTS entry found\n");
+			pr_info("No GTS entry found\n");
 		}
 		list_del(it);
 		cancel_delayed_work(&g->gts_work);
@@ -1010,9 +1023,6 @@ int ieee80215_init(ieee80215_mac_t *mac)
 	spin_lock_init(&mac->scan.desc.lock);
 	INIT_LIST_HEAD(&mac->scan.desc.list);
 
-	mac->from_network_running = 1;
-	skb_queue_head_init(&mac->from_network);
-
 	mac->to_network_running = 1;
 	skb_queue_head_init(&mac->to_network);
 
@@ -1023,13 +1033,13 @@ int ieee80215_init(ieee80215_mac_t *mac)
 	ieee80215_set_mac_defaults(mac);
 
 	if (ieee80215_init_gts(mac)) {
-		dbg_print(mac, CORE, DBG_ERR_CRIT, "Could not init GTS DB\n");
+		pr_info("Could not init GTS DB\n");
 		return -EFAULT;
 	}
 
 	mac->worker = create_workqueue(mac->name);
 	if(!mac->worker) {
-		dbg_print(mac, CORE, DBG_ERR_CRIT, "Could not create worker\n");
+		pr_info("Could not create worker\n");
 		ret = -EFAULT;
 		goto err_exit_gts_free;
 	}
@@ -1037,7 +1047,6 @@ int ieee80215_init(ieee80215_mac_t *mac)
 	/* defer initialization until actual use */
 	INIT_WORK(&mac->get_request, NULL);
 	INIT_WORK(&mac->set_request, NULL);
-	INIT_WORK(&mac->data_indication, bg_data_indication);
 	INIT_WORK(&mac->purge_request, NULL);
 	INIT_DELAYED_WORK(&mac->bwork, NULL);
 	INIT_DELAYED_WORK(&mac->data_request, NULL);
@@ -1052,7 +1061,6 @@ int ieee80215_init(ieee80215_mac_t *mac)
 	INIT_DELAYED_WORK(&mac->csma_dwork, NULL);
 
 	mac->pd_data_confirm = ieee80215_pd_data_confirm;
-	mac->pd_data_indicate = ieee80215_pd_data_indicate;
 
 	mac->mcps_data_req = ieee80215_mcps_data_request;
 	mac->mlme_assoc_req = ieee80215_mlme_assoc_req;
@@ -1081,19 +1089,22 @@ void ieee80215_mac_stop(ieee80215_mac_t *mac)
 {
 	ieee80215_gts_close(mac);
 
-	dbg_print(mac, 0, DBG_INFO, "going to purge tr16\n");
+	pr_debug("going to purge tr16\n");
 	skb_queue_purge(&mac->tr16);
 
-	dbg_print(mac, 0, DBG_INFO, "going to purge tr64\n");
+	pr_debug("going to purge tr64\n");
 	skb_queue_purge(&mac->tr64);
 
-	dbg_print(mac, 0, DBG_INFO, "going to purge to_network\n");
+	pr_debug("going to purge to_network\n");
 	skb_queue_purge(&mac->to_network);
 
-	dbg_print(mac, 0, DBG_INFO, "going to purge from_network\n");
+#if 0
+	pr_debug("going to purge from_network\n");
 	skb_queue_purge(&mac->from_network);
+#endif
+#warning do something about mac->sk upon release of mac
 
-	dbg_print(mac, 0, DBG_INFO, "going to clear scan\n");
+	pr_debug("going to clear scan\n");
 	ieee80215_clear_scan(mac);
 
 	cancel_delayed_work(&mac->bwork);
@@ -1119,10 +1130,10 @@ void ieee80215_mac_stop(ieee80215_mac_t *mac)
 
 void ieee80215_mac_close(ieee80215_mac_t *mac)
 {
-	dbg_print(mac, CORE, DBG_ALL, "mac = 0x%p\n", mac);
+	pr_debug("mac = 0x%p\n", mac);
 	ieee80215_mac_stop(mac);
 	destroy_workqueue(mac->worker);
-	dbg_print(mac, CORE, DBG_ALL, "done\n");
+	pr_debug("done\n");
 }
 
 int ieee80215_register_phy(ieee80215_phy_t *phy)
@@ -1164,7 +1175,7 @@ int ieee80215_register_phy(ieee80215_phy_t *phy)
 		mac, mac->pib.dev_addr._64bit);
 
 	if (ieee80215_init_pib(&mac->pib, mac)) {
-		dbg_print(mac, CORE, DBG_ERR_CRIT, "Cannot init pib\n");
+		pr_info("Cannot init pib\n");
 		ret = -EINVAL;
 		goto err_exit_memfree;
 	}
@@ -1178,7 +1189,7 @@ int ieee80215_register_phy(ieee80215_phy_t *phy)
 #warning mac registration with nwk needs rewriting
 #if 0
 	if (zb_register_mac(mac)) {
-		dbg_print(mac, CORE, DBG_ERR_CRIT, "Unable to register MAC\n");
+		pr_info("Unable to register MAC\n");
 		ret = -EINVAL;
 		goto err_exit_memfree;
 	}

@@ -27,6 +27,7 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/mac_scan.h>
+#include <net/ieee80215/netdev.h>
 
 static void passive_scan_end_one(ieee80215_mac_t *mac)
 {
@@ -44,7 +45,7 @@ static void passive_scan_timeout(struct work_struct *work)
 #define dbg_dump8(c, ...)
 	dbg_print(mac, 0, DBG_INFO, "Finalizing PS iteration\n");
 	cancel_delayed_work(&mac->scan.work);
-	set_trx_state(mac, IEEE80215_TRX_OFF, passive_scan_end_one);
+	ieee80215_net_set_trx_state(mac, IEEE80215_TRX_OFF, passive_scan_end_one);
 }
 
 static void await_beacons(ieee80215_mac_t *mac)
@@ -76,7 +77,7 @@ static int passive_set_channel_confirm(struct ieee80215_mac *mac, int code, ieee
 		&& attr->attr_type == IEEE80215_PHY_CURRENT_CHANNEL
 		&& attr->attr.curr_channel == mac->scan.current_channel) {
 		dbg_print(mac, 0, DBG_INFO, "set channel: done\n");
-		set_trx_state(mac, IEEE80215_RX_ON, await_beacons);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, await_beacons);
 	} else {
 		dbg_print(mac, 0, DBG_ERR, "set channel failed, retry\n");
 		start_passive_scan(mac);

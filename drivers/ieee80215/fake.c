@@ -11,10 +11,8 @@
 
 static struct timer_list rx_timer;
 
-#define NUM_MSGS 9
-#define NUM_STATUSES 9
 
-static u8 msg_values[NUM_MSGS] = {
+static u8 msg_values[] = {
 	IEEE80215_MSG_CHANNEL_CONFIRM,
 	IEEE80215_MSG_ED_CONFIRM,
 	IEEE80215_MSG_CCA_CONFIRM,
@@ -22,8 +20,26 @@ static u8 msg_values[NUM_MSGS] = {
 	IEEE80215_MSG_XMIT_BLOCK_CONFIRM,
 	IEEE80215_MSG_XMIT_STREAM_CONFIRM,
 	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
+	IEEE80215_MSG_RECV_BLOCK,
 	IEEE80215_MSG_RECV_STREAM,
 };
+#define NUM_MSGS (sizeof(msg_values)/sizeof(msg_values[0]))
+
 	/* possible statuses '*' = used in driver
 	* IEEE80215_BUSY;
 	* IEEE80215_BUSY_RX;
@@ -39,7 +55,7 @@ static u8 msg_values[NUM_MSGS] = {
 	* IEEE80215_ERROR;
 	*/
 
-static u8 status_values[NUM_STATUSES] = {
+static u8 status_values[] = {
 	IEEE80215_BUSY,
 	IEEE80215_BUSY_RX,
 	IEEE80215_BUSY_TX,
@@ -50,6 +66,7 @@ static u8 status_values[NUM_STATUSES] = {
 	IEEE80215_TX_ON,
 	IEEE80215_ERROR,
 };
+#define NUM_STATUSES (sizeof(status_values)/sizeof(status_values[0]))
 
 static void do_net_rx(unsigned long data)
 {
@@ -92,7 +109,6 @@ static void do_net_rx(unsigned long data)
         del_timer(&rx_timer);
         rx_timer.expires = jiffies + 200;
         add_timer(&rx_timer);
-	pr_debug("Transferred one frame\n");
 }
 
 static void __init rx_init(void * data)

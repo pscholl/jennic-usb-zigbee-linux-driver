@@ -404,10 +404,6 @@ struct ieee80215_mac {
 	bool			to_network_running;
 	struct sk_buff_head	to_network;
 
-	/*spinlock_t		from_network_lock;*/
-	bool			from_network_running;
-	struct sk_buff_head	from_network;
-
 	struct sk_buff_head	tr16;	/**< indirect transaction info */
 	struct sk_buff_head	tr64;	/**< indirect transaction info */
 
@@ -816,4 +812,5 @@ int ieee80215_register_phy(ieee80215_phy_t *phy);
 int ieee80215_unregister_phy(ieee80215_phy_t *phy);
 void ieee80215_adjust_pointers(struct ieee80215_mac *mac, struct sk_buff *skb);
 int ieee80215_ignore_mpdu(struct ieee80215_mac *mac, struct sk_buff *skb);
+void ieee80215_ack_perform(ieee80215_mac_t *mac);
 #endif /* IEEE80215_MAC_H */

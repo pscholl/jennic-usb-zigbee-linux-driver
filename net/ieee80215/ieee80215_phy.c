@@ -29,10 +29,11 @@
 #include <net/ieee80215_lib.h>
 #include <net/ieee80215.h>
 #endif
-
+#include <linux/netdevice.h>
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/mac.h>
-#define DEBUG
+#include <net/ieee80215/netdev.h>
+#include <net/ieee80215/af_ieee80215.h>
 
 #if 0
 static int phy_lock(ieee80215_phy_t *phy)
@@ -70,14 +71,15 @@ static void phy_unlock(ieee80215_phy_t *phy)
  */
 int ieee80215_pd_data_request(struct ieee80215_phy *phy, struct sk_buff *skb)
 {
-	phy->cmd_q = skb;
-	queue_work(phy->worker, &phy->data_request);
+	dev_queue_xmit(skb);
 	return 0;
 }
 
-#define DEFINED_CALLBACK(x) { 	\
-	if(unlikely(!x))	\
-		return;		\
+#define DEFINED_CALLBACK(x) { 					\
+	if(unlikely(!x)) {					\
+		pr_debug("callback " # x " is not defined\n");	\
+		return;						\
+	}							\
 }
 
 /**
@@ -335,9 +337,8 @@ void ieee80215_bg_plme_set_request(struct work_struct *work)
  */
 int ieee80215_plme_set_trx_request(struct ieee80215_phy *phy, int state)
 {
-	phy->cmd.cb[0] = state;
-	queue_work(phy->worker, &phy->set_trx_state_request);
-
+	ieee80215_net_cmd(phy, IEEE80215_MSG_SET_STATE,
+					state, 0);	
 	return 0;
 }
 
@@ -349,6 +350,7 @@ int ieee80215_plme_set_trx_request(struct ieee80215_phy *phy, int state)
  * \param data pointer to current phy
  * \return 0 if Ok, errno if fail
  */
+#if 0
 void ieee80215_bg_plme_set_trx_request(struct work_struct *work)
 {
 	ieee80215_phy_t *phy;
@@ -410,6 +412,7 @@ err_exit:
 	_mac(phy)->plme_set_trx_state_confirm(_mac(phy), ret);
 	return;
 }
+#endif
 
 /********************************************************/
 /* hardware interface, callbacks */
@@ -652,14 +655,14 @@ int ieee80215_phy_init(ieee80215_phy_t *phy)
 	INIT_WORK(&phy->ed_request, ieee80215_bg_plme_ed_request);
 	INIT_WORK(&phy->get_request, ieee80215_bg_plme_get_request);
 	INIT_WORK(&phy->set_request, ieee80215_bg_plme_set_request);
-	INIT_WORK(&phy->set_trx_state_request, ieee80215_bg_plme_set_trx_request);
+	// INIT_WORK(&phy->set_trx_state_request, ieee80215_bg_plme_set_trx_request);
 
 	phy->pd_data_request = ieee80215_pd_data_request;
 	phy->plme_cca_request = ieee80215_plme_cca_request;
 	phy->plme_ed_request = ieee80215_plme_ed_request;
 	phy->plme_get_request = ieee80215_plme_get_request;
 	phy->plme_set_request = ieee80215_plme_set_request;
-	phy->plme_set_trx_state_request = ieee80215_plme_set_trx_request;
+	// phy->plme_set_trx_state_request = ieee80215_plme_set_trx_request;
 
 	phy->set_channel_confirm = _set_channel_confirm;
 	phy->ed_confirm = _ed_confirm;
@@ -682,7 +685,7 @@ int ieee80215_phy_close(ieee80215_phy_t *phy)
 	work_clear_pending(&phy->cca_request);
 	work_clear_pending(&phy->ed_request);
 	work_clear_pending(&phy->get_request);
-	work_clear_pending(&phy->set_trx_state_request);
+	// work_clear_pending(&phy->set_trx_state_request);
 	work_clear_pending(&phy->set_request);
 
 	flush_workqueue(phy->worker);

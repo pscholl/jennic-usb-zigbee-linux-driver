@@ -28,6 +28,7 @@
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/mac_scan.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/netdev.h>
 
 static void ieee80215_active_iter_next(ieee80215_mac_t *mac)
 {
@@ -48,7 +49,7 @@ static void ieee80215_active_scan_iter_end(struct work_struct *work)
 
 	cancel_delayed_work(&mac->scan.work);
 
-	set_trx_state(mac, IEEE80215_TRX_OFF, ieee80215_active_iter_next);
+	ieee80215_net_set_trx_state(mac, IEEE80215_TRX_OFF, ieee80215_active_iter_next);
 }
 
 static void active_await_beacons(ieee80215_mac_t *mac)
@@ -68,7 +69,7 @@ static int ieee80215_active_scan_confirm(void *obj, struct sk_buff *skb, int cod
 
 	if (code == IEEE80215_PHY_SUCCESS) {
 		dbg_print(mac, 0, DBG_INFO, "set RX_ON\n");
-		set_trx_state(mac, IEEE80215_RX_ON, active_await_beacons);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, active_await_beacons);
 	} else {
 		dbg_print(mac, 0, DBG_INFO, "try again\n");
 		ieee80215_active_scan(mac);
@@ -108,7 +109,7 @@ static int ieee80215_active_pend(struct ieee80215_mac *mac, int code,
 	if (code == IEEE80215_PHY_SUCCESS
 		&& attr->attr_type == IEEE80215_PHY_CURRENT_CHANNEL
 		&& attr->attr.curr_channel == mac->scan.current_channel) {
-		set_trx_state(mac, IEEE80215_TX_ON, active_measure_start);
+		ieee80215_net_set_trx_state(mac, IEEE80215_TX_ON, active_measure_start);
 		return 0;
 	}
 	dbg_print(mac, 0, DBG_ERR, "PHY set request failed, going to next channel\n");
@@ -177,7 +178,7 @@ int ieee80215_active_scan(struct ieee80215_mac *mac)
 			mac->scan.status = IEEE80215_SUCCESS;
 		else
 			mac->scan.status = IEEE80215_NO_BEACON;
-		set_trx_state(mac, IEEE80215_TRX_OFF, active_scan_end);
+		ieee80215_net_set_trx_state(mac, IEEE80215_TRX_OFF, active_scan_end);
 		return 0;
 	}
 

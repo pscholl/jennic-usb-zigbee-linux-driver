@@ -30,7 +30,7 @@ int ieee80215_rxenable_end(struct ieee80215_mac *mac, int code)
 #warning FIXME debug
 #define dbg_print(c, ...)
 #define dbg_dump8(c, ...)
-	dbg_print(mac, RXEN, DBG_INFO, "Finishing RXEN with code: %d\n", code);
+	pr_info("Finishing RXEN with code: %d\n", code);
 	return 0;
 }
 
@@ -39,20 +39,21 @@ void ieee80215_rxenable_finish(struct work_struct *work)
 	ieee80215_mac_t *mac = container_of(work, ieee80215_mac_t,
 					    rx_enable_request.work);
 
-	dbg_print(mac, RXEN, DBG_INFO, "Finishing RXEN\n");
+	pr_info("Finishing RXEN\n");
 	cancel_delayed_work(&mac->gts_request);
 	mac->plme_set_trx_state_confirm = ieee80215_rxenable_end;
-	mac->phy->plme_set_trx_state_request(mac->phy, IEEE80215_TRX_OFF);
+	ieee80215_net_cmd(mac->phy, IEEE80215_MSG_SET_STATE,
+				IEEE80215_TRX_OFF, 0);	
 }
 
 
 int ieee80215_rxenable_confirm_off(struct ieee80215_mac *mac, int code)
 {
 	if (code == IEEE80215_PHY_SUCCESS || code == IEEE80215_TRX_OFF) {
-		dbg_print(mac, RXEN, DBG_INFO, "Receiver is off\n");
+		pr_info("Receiver is off\n");
 		code = IEEE80215_SUCCESS;
 	} else {
-		dbg_print(mac, RXEN, DBG_INFO, "Unable to turn off receiver\n");
+		pr_info("Unable to turn off receiver\n");
 	}
 #warning FIXME indication/confurm !!!!!!!!!!!!!
 #if 0
@@ -64,11 +65,11 @@ int ieee80215_rxenable_confirm_off(struct ieee80215_mac *mac, int code)
 int ieee80215_rxenable_start(struct ieee80215_mac *mac, int code)
 {
 	if (code == IEEE80215_PHY_SUCCESS || code == IEEE80215_RX_ON) {
-		dbg_print(mac, RXEN, DBG_INFO, "RXEN!\n");
+		pr_info("RXEN!\n");
 		schedule_delayed_work(&mac->rx_enable_request,
 				       usecs_to_jiffies(mac->i.rxon_duration*mac->symbol_duration));
 	} else {
-		dbg_print(mac, RXEN, DBG_INFO, "Unable to RX_ON: %d\n", code);
+		pr_info("Unable to RX_ON: %d\n", code);
 #warning FIXME indication/confurm
 #if 0
 		_nhle(mac)->mlme_rxen_confirm(_nhle(mac), IEEE80215_TX_ACTIVE);
@@ -82,9 +83,10 @@ void ieee80215_rxenable_defer(struct work_struct *work)
 	ieee80215_mac_t *mac = container_of(work, ieee80215_mac_t,
 					    rx_enable_request.work);
 
-	dbg_print(mac, RXEN, DBG_INFO, "Enabling RX\n");
+	pr_info("Enabling RX\n");
 	mac->plme_set_trx_state_confirm = ieee80215_rxenable_start;
-	mac->phy->plme_set_trx_state_request(mac->phy, IEEE80215_RX_ON);
+	ieee80215_net_cmd(mac->phy, IEEE80215_MSG_SET_STATE,
+				IEEE80215_RX_ON, 0);	
 }
 
 /* we fit in cap if rxon_time - aTurnaroundTime less that cap_len */
@@ -132,7 +134,8 @@ int ieee80215_mlme_rxen_req(ieee80215_mac_t *mac, bool def_permit, u32 time,
 	if (!duration) {
 		/* Just disable receiver */
 		mac->plme_set_trx_state_confirm = ieee80215_rxenable_confirm_off;
-		mac->phy->plme_set_trx_state_request(mac->phy, IEEE80215_TRX_OFF);
+		ieee80215_net_cmd(mac->phy, IEEE80215_MSG_SET_STATE,
+					IEEE80215_TRX_OFF, 0);	
 		return 0;
 	}
 
@@ -145,7 +148,7 @@ int ieee80215_mlme_rxen_req(ieee80215_mac_t *mac, bool def_permit, u32 time,
 		/* Do we fit into superframe ? */
 		ret = ieee80215_duration_is_ok(mac);
 		if (ret) {
-			dbg_print(mac, RXEN, DBG_INFO, "Invalid requested params\n");
+			pr_info("Invalid requested params\n");
 #warning FIXME indication/confurm
 #if 0
 			return _nhle(mac)->mlme_rxen_confirm(_nhle(mac),
@@ -189,7 +192,8 @@ int ieee80215_mlme_rxen_req(ieee80215_mac_t *mac, bool def_permit, u32 time,
 	} else {
 		PREPARE_DELAYED_WORK(&mac->rx_enable_request, ieee80215_rxenable_finish);
 	}
-	mac->phy->plme_set_trx_state_request(mac->phy, IEEE80215_RX_ON);
+	ieee80215_net_cmd(mac->phy, IEEE80215_MSG_SET_STATE,
+					IEEE80215_RX_ON, 0);	
 	return 0;
 }
 

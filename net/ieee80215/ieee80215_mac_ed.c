@@ -28,6 +28,7 @@
 #include <net/ieee80215/mac.h>
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/mac_scan.h>
+#include <net/ieee80215/netdev.h>
 
 static void ed_measure_end(ieee80215_mac_t *mac)
 {
@@ -86,7 +87,7 @@ static int ieee80215_plme_ed_iter(struct ieee80215_mac *mac, int code, int ret)
 	} else {
 		dbg_print(mac, 0, DBG_INFO, "channel %u scan is finished\n",
 			mac->scan.current_channel);
-		set_trx_state(mac, IEEE80215_TRX_OFF, ed_measure_end);
+		ieee80215_net_set_trx_state(mac, IEEE80215_TRX_OFF, ed_measure_end);
 	}
 	return 0;
 }
@@ -117,7 +118,7 @@ static int ieee80215_ed_pend(ieee80215_mac_t *mac, int code, ieee80215_plme_pib_
 	if (code == IEEE80215_PHY_SUCCESS
 		&& attr->attr_type == IEEE80215_PHY_CURRENT_CHANNEL
 		&& attr->attr.curr_channel == mac->scan.current_channel) {
-		set_trx_state(mac, IEEE80215_RX_ON, ed_measure_start);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, ed_measure_start);
 		return 0;
 	}
 	dbg_print(mac, 0, DBG_ERR, "PHY set request failed, going to next channel\n");
@@ -161,7 +162,7 @@ int ieee80215_ed_scan(struct ieee80215_mac *mac)
 		ieee80215_restore_state(mac);
 		mac->scan.status = IEEE80215_SUCCESS;
 		if (ieee80215_should_rxon(mac)) {
-			set_trx_state(mac, IEEE80215_RX_ON, _ed_done);
+			ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, _ed_done);
 		} else {
 			_ed_done(mac);
 		}

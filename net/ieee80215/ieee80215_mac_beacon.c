@@ -28,6 +28,7 @@
 #include <net/ieee80215/beacon.h>
 #include <net/ieee80215/mac_scan.h>
 #include <net/ieee80215/const.h>
+#include <net/ieee80215/netdev.h>
 
 /**
  * @brief Check Pending addresses in beacon header
@@ -671,7 +672,7 @@ void ieee80215_superframe_end(struct work_struct *work)
 	mac = container_of(work, ieee80215_mac_t, bwork.work);
 
 	dbg_print(mac, BEACON, DBG_INFO, "superframe end, now: %lu\n", jiffies);
-	set_trx_state(mac, IEEE80215_TRX_OFF, ieee80215_wait_next_beacon_time);
+	ieee80215_net_set_trx_state(mac, IEEE80215_TRX_OFF, ieee80215_wait_next_beacon_time);
 }
 
 static void ieee80215_transmit_beacon(ieee80215_mac_t *mac)
@@ -711,6 +712,6 @@ void ieee80215_send_beacon(struct work_struct *work)
 	}
 	beacon->on_confirm = beacon_xmit_confirm;
 	skb_queue_head(&mac->to_network, mpdu_to_skb(beacon));
-	set_trx_state(mac, IEEE80215_TX_ON, ieee80215_transmit_beacon);
+	ieee80215_net_set_trx_state(mac, IEEE80215_TX_ON, ieee80215_transmit_beacon);
 }
 

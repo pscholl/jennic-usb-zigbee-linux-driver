@@ -25,6 +25,7 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/netdev.h>
 
 static void sync_perform(ieee80215_mac_t *mac);
 
@@ -38,7 +39,7 @@ static void ieee80215_sync_rxon(struct work_struct *work)
 	mac = container_of(work, ieee80215_mac_t, sync_request.work);
 
 	dbg_print(mac, SYNC, DBG_INFO, "Start of the SF, Tracking the beacon\n");
-	set_trx_state(mac, IEEE80215_RX_ON, sync_perform);
+	ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, sync_perform);
 }
 
 static void sync_period_off(struct work_struct *work)
@@ -133,7 +134,7 @@ static int ieee80215_sync_start(ieee80215_mac_t *mac, int code, ieee80215_plme_p
 	if (code == IEEE80215_PHY_SUCCESS) {
 		dbg_print(mac, SYNC, DBG_INFO, "set channel: done\n");
 		mac->i.current_channel = attr->attr.curr_channel;
-		set_trx_state(mac, IEEE80215_RX_ON, sync_perform);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, sync_perform);
 	} else {
 		dbg_print(mac, SYNC, DBG_ERR, "Unable to set channel\n");
 		BUG();

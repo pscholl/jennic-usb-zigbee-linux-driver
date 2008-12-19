@@ -26,6 +26,7 @@
 #include <linux/bitmap.h>
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/netdev.h>
 
 static void ieee80215_start_await(ieee80215_mac_t *mac)
 {
@@ -75,7 +76,7 @@ static int ieee80215_start_confirm(void *obj, struct sk_buff *skb, int code)
 	ieee80215_get_pib(mac, IEEE80215_BEACON_TX_TIME, &btx);
 	if ((jiffies - btx) < mac->totaltime) {
 		dbg_print(mac, START, DBG_INFO, "there are slots after beacon\n");
-		set_trx_state(mac, IEEE80215_RX_ON, start_confirm);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, start_confirm);
 	} else {
 		dbg_print(mac, START, DBG_INFO, "After beacon no slots left\n");
 		start_confirm(mac);
@@ -107,7 +108,7 @@ static int ieee80215_start_pend(ieee80215_mac_t *mac, int code, ieee80215_plme_p
 
 	if (mac->pib.superframe_order == 0xf) {
 		dbg_print(mac, START, DBG_INFO, "starting beaconless network\n");
-		set_trx_state(mac, IEEE80215_RX_ON, start_confirm);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, start_confirm);
 		return 0;
 	}
 
@@ -131,7 +132,7 @@ static int ieee80215_start_pend(ieee80215_mac_t *mac, int code, ieee80215_plme_p
 	mpdu->on_confirm = ieee80215_start_confirm;
 	mpdu->use_csma_ca = 0;
 	skb_queue_head(&mac->to_network, mpdu_to_skb(mpdu));
-	set_trx_state(mac, IEEE80215_TX_ON, ieee80215_start_await);
+	ieee80215_net_set_trx_state(mac, IEEE80215_TX_ON, ieee80215_start_await);
 	return 0;
 }
 

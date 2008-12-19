@@ -27,6 +27,7 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/netdev.h>
 
 static void assoc_done_trx_set(ieee80215_mac_t *mac)
 {
@@ -107,9 +108,9 @@ static void assoc_timeout(struct work_struct *work)
 	mac->pib.coord._64bit = IEEE80215_COORD_EXT_ADDRESS_DEF;
 	write_unlock(&mac->pib.lock);
 	if (ieee80215_should_rxon(mac)) {
-		set_trx_state(mac, IEEE80215_RX_ON, assoc_done_trx_set);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, assoc_done_trx_set);
 	} else {
-		set_trx_state(mac, IEEE80215_TRX_OFF, assoc_done_trx_set);
+		ieee80215_net_set_trx_state(mac, IEEE80215_TRX_OFF, assoc_done_trx_set);
 	}
 }
 

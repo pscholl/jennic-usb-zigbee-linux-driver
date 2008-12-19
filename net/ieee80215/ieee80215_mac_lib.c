@@ -26,8 +26,7 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/mac.h>
-
-#define DEBUG
+#include <net/ieee80215/netdev.h>
 
 int ieee80215_cmp_addr(ieee80215_dev_addr_t *addr1, ieee80215_dev_addr_t *addr2)
 {
@@ -315,11 +314,11 @@ static int csma_ca_cca_confirm(ieee80215_mac_t *mac, int code)
 				}
 			}
 		}
-		set_trx_state(mac, IEEE80215_TX_ON, csma_ca_data);
+		ieee80215_net_set_trx_state(mac, IEEE80215_TX_ON, csma_ca_data);
 		return 0;
 	}
 
-	dbg_print(mac, CSMA, DBG_INFO, "Channel is not idle\n");
+	pr_debug("Channel is not idle\n");
 	mac->csma_val.be = min(mac->csma_val.be+1, IEEE80215_MAX_CSMA_BACKOFF_MAX);
 	if (ieee80215_slotted(mac)) {
 		mac->csma_val.cw = 2;
@@ -351,7 +350,7 @@ static void csma_ca_rxon(struct work_struct *work)
 	ieee80215_mac_t *mac;
 
 	mac = container_of(work, ieee80215_mac_t, csma_dwork.work);
-	set_trx_state(mac, IEEE80215_RX_ON, csma_ca_cca);
+	ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, csma_ca_cca);
 }
 
 int ieee80215_csma_ca_start(ieee80215_mac_t *mac)
@@ -370,7 +369,7 @@ int ieee80215_csma_ca_start(ieee80215_mac_t *mac)
 
 	if (!msg->use_csma_ca) {
 		dbg_print(mac, 0, DBG_INFO, "csma_ca is not used\n");
-		set_trx_state(mac, IEEE80215_RX_ON, csma_ca_cca);
+		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, csma_ca_cca);
 		return 0;
 	}
 
@@ -1082,7 +1081,7 @@ int ieee80215_mlme_reset_req(ieee80215_mac_t *mac, bool def_reset)
 	ieee80215_set_state(mac, PEND_RESET);
 
 	mac->f.set_default_pib = def_reset;
-	set_trx_state(mac, IEEE80215_TRX_OFF, ieee80215_pending_reset);
+	ieee80215_net_set_trx_state(mac, IEEE80215_TRX_OFF, ieee80215_pending_reset);
 	return 0;
 }
 
