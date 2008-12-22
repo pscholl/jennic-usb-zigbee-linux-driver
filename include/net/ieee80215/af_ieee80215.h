@@ -11,6 +11,16 @@
 #define  IEEE80215_MSG_RECV_STREAM		8
 #endif
 
+/*
+ * Fill either one of them for bind(),
+ * and of course only addr is applicable for connect()
+ */
+struct sockaddr_ieee80215 {
+	sa_family_t family; /* AF_IEEE80215 */
+	int ifindex;
+	__le64 addr; /* little endian */
+};
+
 struct ieee80215_user_data {
 	int channels;
 	int channel;

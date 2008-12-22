@@ -31,12 +31,19 @@
 #include <net/sock.h>
 #include <net/tcp_states.h>
 #include <net/route.h>
+#include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
-#include <net/ieee80215/ieee80215.h>
 
 static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	kfree_skb(skb);
+	skb->iif = dev->ifindex;
+	skb->dev = dev->master;
+	dev->stats.tx_packets++;
+	dev->stats.tx_bytes += skb->len;
+
+	dev->trans_start = jiffies;
+	dev_queue_xmit(skb);
+
 	return 0;
 }
 
@@ -72,14 +79,14 @@ static void ieee80215_netdev_setup(struct net_device *dev)
 	memset(dev->broadcast, 0xff, IEEE80215_ADDR_LEN);
 	dev->features		= NETIF_F_NO_CSUM;
 	dev->hard_header_len	= 0;
-	dev->mtu		= 137; /* TODO: check if it is the right value for MAC layer */
+	dev->mtu		= 127;
 	dev->tx_queue_len	= 10;
 	dev->type		= ARPHRD_IEEE80215;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
 }
 
-int ieee80215_register_netdev(struct ieee80215_dev_ops *dev_ops, struct net_device *mdev)
+int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 {
 	struct net_device *dev;
 	struct ieee80215_netdev_priv *priv;
@@ -93,14 +100,25 @@ int ieee80215_register_netdev(struct ieee80215_dev_ops *dev_ops, struct net_devi
 	}
 	priv = netdev_priv(dev);
 	priv->dev = dev;
+	memcpy(dev->dev_addr, addr, dev->addr_len);
+	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 	dev->open = ieee80215_slave_open;
 	dev->stop = ieee80215_slave_close;
 	dev->hard_start_xmit = ieee80215_net_xmit;
 	dev->get_stats = ieee80215_get_stats;
-	dev->master = mdev;
-	register_netdev(dev);
-	mpriv = netdev_priv(mdev);
+	dev_hold(ieee80215_to_priv(hw)->master);
+	dev->master = ieee80215_to_priv(hw)->master;
+	mpriv = netdev_priv(ieee80215_to_priv(hw)->master);
 	list_add_tail_rcu(&priv->list, &mpriv->interfaces);
-	return 0;
+	register_netdev(dev);
+	return dev->ifindex;
 }
-EXPORT_SYMBOL(ieee80215_register_netdev);
+
+void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv *ndp)
+{
+	struct net_device *dev = ndp->dev;
+	dev_put(ieee80215_to_priv(hw)->master);
+	unregister_netdevice(ndp->dev);
+	list_del_rcu(&ndp->list);
+	free_netdev(dev);
+}

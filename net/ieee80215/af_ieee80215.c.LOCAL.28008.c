@@ -36,7 +36,11 @@
 
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/netdev.h>
+#include <net/ieee80215/mac.h>
+#include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/phy.h>
+#include <net/ieee80215/ieee80215.h>
+#include <net/ieee80215/beacon.h>
 
 #define DBG_DUMP(data, len) { \
 	int i; \
@@ -46,7 +50,6 @@
 	} \
 }
 
-#if 0
 void ieee80215_net_set_trx_request(struct ieee80215_phy *phy, int state)
 {
 	int ret = IEEE80215_PHY_SUCCESS;
@@ -116,7 +119,7 @@ err_exit:
 static int ieee80215_process_msg(struct net_device *dev, u8 msg, u8 status, u8 data)
 {
 	struct ieee80215_mnetdev_priv *priv;
-	struct ieee80215_dev *hw;
+	struct ieee80215_phy *phy;
 	int mystatus;
 	priv = netdev_priv(dev);
 	BUG_ON(!dev);
@@ -386,6 +389,37 @@ struct sockaddr_ieee80215 {
 	sa_family_t family; /* AF_IEEE80215 */
 	__le64 addr; /* little endian */
 };
+
+static struct packet_type ieee80215_packet_type = {
+	.type = __constant_htons(ETH_P_IEEE80215),
+	.func = ieee80215_rcv,
+};
+
+struct proto ieee80215_prot = {
+	.name		   = "ieee80215",
+	.owner		   = THIS_MODULE,
+	.obj_size	   = sizeof(struct sock),
+};
+
+static int ieee80215_sock_release(struct socket *sock)
+{
+	struct sock *sk = sock->sk;
+	struct net_device *dev = sk->sk_user_data;
+	struct ieee80215_netdev_priv *priv;
+	if(dev->master) {
+		priv = netdev_priv(dev);
+		priv->sk = NULL;
+	}
+
+	if (sk) {
+		sock_orphan(sk);
+		sock->sk = NULL;
+		lock_sock(sk);
+		release_sock(sk);
+		sock_put(sk);
+	}
+	return 0;
+}
 
 static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 {
@@ -789,26 +823,59 @@ struct notifier_block ieee80215_notifier = {
 	.notifier_call	= ieee80215_device_event,
 };
 
-
-static int ieee80215_sock_release(struct socket *sock)
+/*
+ * Create a socket. Initialise the socket, blank the addresses
+ * set the state.
+ */
+static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 {
-	struct sock *sk = sock->sk;
-	struct net_device *dev = sk->sk_user_data;
-	struct ieee80215_netdev_priv *priv;
-	if (!dev) {
-		pr_debug("no dev\n");
-		return -ENXIO;
-	}
-	if(dev->master) {
-		priv = netdev_priv(dev);
-		priv->sk = NULL;
-	}
+	struct sock *sk;
+	int rc = -ESOCKTNOSUPPORT;
 
-	if (sk) {
-		sock->sk = NULL;
-		sk->sk_prot->close(sk, 0);
-	}
-	return 0;
+	if (net != &init_net)
+		return -EAFNOSUPPORT;
+
+	if (sock->type != SOCK_RAW && sock->type != SOCK_DGRAM)
+		goto out;
+	rc = -ENOMEM;
+	sk = sk_alloc(net, PF_IEEE80215, GFP_KERNEL, &ieee80215_prot);
+	if (!sk)
+		goto out;
+	rc = 0;
+	sock->ops = &ieee80215_dgram_ops;
+	sock_init_data(sock, sk);
+
+	/* Checksums on by default */
+	sock_set_flag(sk, SOCK_ZAPPED);
+out:
+	return rc;
+}
+
+static struct net_proto_family ieee80215_family_ops = {
+	.family		= PF_IEEE80215,
+	.create		= ieee80215_create,
+	.owner		= THIS_MODULE,
+};
+
+static int __init af_ieee80215_init(void)
+{
+	int rc = -EINVAL;
+
+	rc = proto_register(&ieee80215_prot, 1);
+	if (rc)
+		goto out;
+
+	/* Tell SOCKET that we are alive */
+	sock_register(&ieee80215_family_ops);
+	dev_add_pack(&ieee80215_packet_type);
+
+	rc = 0;
+out:
+	return rc;
+}
+static void af_ieee80215_remove(void)
+{
+	proto_unregister(&ieee80215_prot);
 }
 
 static int ieee80215_net_rx_cmd(struct ieee80215_phy *phy, u8 *data, ssize_t len)
@@ -944,249 +1011,6 @@ int ieee80215_net_set_trx_state(struct ieee80215_mac *mac,
 	return 0;
 }
 EXPORT_SYMBOL(ieee80215_net_set_trx_state);
-
-#endif
-
-static int ieee80215_sock_release(struct socket *sock)
-{
-	struct sock *sk = sock->sk;
-
-	if (sk) {
-		sock->sk = NULL;
-		sk->sk_prot->close(sk, 0);
-	}
-	return 0;
-}
-static int ieee80215_sock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg, size_t len)
-{
-	struct sock *sk = sock->sk;
-
-	return sk->sk_prot->sendmsg(iocb, sk, msg, len);
-}
-
-static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
-{
-	struct sock *sk = sock->sk;
-
-	if (sk->sk_prot->bind) {
-		return sk->sk_prot->bind(sk, uaddr, addr_len);
-	}
-
-	return sock_no_bind(sock, uaddr, addr_len);
-}
-
-static const struct proto_ops ieee80215_raw_ops = {
-	.family		   = PF_IEEE80215,
-	.owner		   = THIS_MODULE,
-	.release	   = ieee80215_sock_release,
-	.bind		   = ieee80215_sock_bind,
-	.connect	   = sock_no_connect,
-	.socketpair	   = sock_no_socketpair,
-	.accept		   = sock_no_accept,
-	.getname	   = sock_no_getname,
-	.poll		   = sock_no_poll,
-	.ioctl		   = sock_no_ioctl,
-	.listen		   = sock_no_listen,
-	.shutdown	   = sock_no_shutdown,
-	.setsockopt	   = sock_common_setsockopt,
-	.getsockopt	   = sock_common_getsockopt,
-	.sendmsg	   = ieee80215_sock_sendmsg,
-	.recvmsg	   = sock_common_recvmsg,
-	.mmap		   = sock_no_mmap,
-	.sendpage	   = sock_no_sendpage,
-#ifdef CONFIG_COMPAT
-	.compat_setsockopt = compat_sock_common_setsockopt,
-	.compat_getsockopt = compat_sock_common_getsockopt,
-#endif
-};
-
-static const struct proto_ops ieee80215_dgram_ops = {
-	.family		   = PF_IEEE80215,
-	.owner		   = THIS_MODULE,
-	.release	   = ieee80215_sock_release,
-	.bind		   = ieee80215_sock_bind,
-	.connect	   = sock_no_connect,
-	.socketpair	   = sock_no_socketpair,
-	.accept		   = sock_no_accept,
-	.getname	   = sock_no_getname,
-	.poll		   = sock_no_poll,
-	.ioctl		   = sock_no_ioctl,
-	.listen		   = sock_no_listen,
-	.shutdown	   = sock_no_shutdown,
-	.setsockopt	   = sock_common_setsockopt,
-	.getsockopt	   = sock_common_getsockopt,
-	.sendmsg	   = ieee80215_sock_sendmsg,
-	.recvmsg	   = sock_common_recvmsg,
-	.mmap		   = sock_no_mmap,
-	.sendpage	   = sock_no_sendpage,
-#ifdef CONFIG_COMPAT
-	.compat_setsockopt = compat_sock_common_setsockopt,
-	.compat_getsockopt = compat_sock_common_getsockopt,
-#endif
-};
-
-
-/*
- * Create a socket. Initialise the socket, blank the addresses
- * set the state.
- */
-static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
-{
-	struct sock *sk;
-	int rc;
-	struct proto *proto;
-	const struct proto_ops *ops;
-
-	if (net != &init_net)
-		return -EAFNOSUPPORT;
-
-	switch (sock->type) {
-	case SOCK_RAW:
-		proto = &ieee80215_raw_prot;
-		ops = &ieee80215_raw_ops;
-		break;
-	default:
-		rc = -ESOCKTNOSUPPORT;
-		goto out;
-	}
-
-	rc = -ENOMEM;
-	sk = sk_alloc(net, PF_IEEE80215, GFP_KERNEL, proto);
-	if (!sk)
-		goto out;
-	rc = 0;
-
-	sock->ops = ops;
-
-	sock_init_data(sock, sk);
-	// FIXME: sk->sk_destruct
-	sk->sk_family = PF_IEEE80215;
-
-	/* Checksums on by default */
-	sock_set_flag(sk, SOCK_ZAPPED);
-
-	if (sk->sk_prot->hash)
-		sk->sk_prot->hash(sk);
-
-	if (sk->sk_prot->init) {
-		rc = sk->sk_prot->init(sk);
-		if (rc)
-			sk_common_release(sk);
-	}
-out:
-	return rc;
-}
-
-static struct net_proto_family ieee80215_family_ops = {
-	.family		= PF_IEEE80215,
-	.create		= ieee80215_create,
-	.owner		= THIS_MODULE,
-};
-
-static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
-	struct packet_type *pt, struct net_device *orig_dev)
-{
-//	struct sock *sk;
-
-	DBG_DUMP(skb->data, skb->len);
-	if(!netif_running(dev))
-		return -ENODEV;
-	pr_debug("got frame, type %d, dev %p master %p\n", dev->type, dev, dev->master);
-	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net)) {
-		kfree_skb(skb);
-		return NET_RX_DROP;
-	}
-
-	ieee80215_raw_deliver(dev, skb);
-#if 0
-	/* Control frame processing */
-	if(skb->len < 5 && !dev->master) {
-		struct ieee80215_netdev_priv *mpriv = netdev_priv(dev);
-		pr_debug("Got control frame %d %d %d\n", skb->data[1], skb->data[2], skb->data[3]);
-		/* We won't put control frames to socket buffer, no need to bother */
-		BUG_ON(!dev);
-		BUG_ON(!skb->data);
-		ieee80215_process_msg(dev, skb->data[1], skb->data[2], skb->data[3]);
-		mpriv->stats.tx_bytes += skb->len;
-		mpriv->stats.tx_packets++;
-		kfree_skb(skb);
-		return 0;
-	}
-
-	pr_debug("%s:%s dev->master = %p, skb->len = %d\n",
-			__FILE__, __FUNCTION__, dev->master, skb->len);
-	if(dev->master) {
-		struct ieee80215_netdev_priv *priv = netdev_priv(dev);
-		sk = priv->sk;
-		skb->sk = sk;
-		if(!sk) {/* Nothing is binded */
-				kfree_skb(skb);
-				priv->stats.tx_dropped++;
-		}
-
-	/* Write function to recognize frame addresses */
-
-		BUG_ON(!sk);
-		BUG_ON(!skb);
-		priv->mac->phy->receive_block(priv->mac->phy, skb->len, skb->data, skb->head[0]);
-		//ieee80215_pd_data_indicate(priv->mac, skb);
-		if (sock_queue_rcv_skb(sk, skb) < 0) {
-			kfree_skb(skb);
-			priv->stats.tx_dropped++;
-		}
-	} else {
-		struct ieee80215_mnetdev_priv *mpriv = netdev_priv(dev);
-		pr_debug("%s:%s: Got some junk from master interface\n",
-				__FILE__, __FUNCTION__);
-		kfree_skb(skb);
-		mpriv->stats.tx_dropped++;
-	}
-#endif
-
-	return 0;
-}
-
-
-static struct packet_type ieee80215_packet_type = {
-	.type = __constant_htons(ETH_P_IEEE80215),
-	.func = ieee80215_rcv,
-};
-
-static int __init af_ieee80215_init(void)
-{
-	int rc = -EINVAL;
-
-	rc = proto_register(&ieee80215_raw_prot, 1);
-	if (rc)
-		goto out;
-
-	rc = proto_register(&ieee80215_dgram_prot, 1);
-	if (rc)
-		goto err_dgram;
-
-	/* Tell SOCKET that we are alive */
-	rc = sock_register(&ieee80215_family_ops);
-	if (rc)
-		goto err_sock;
-	dev_add_pack(&ieee80215_packet_type);
-
-	rc = 0;
-	goto out;
-
-err_sock:
-	proto_unregister(&ieee80215_dgram_prot);
-err_dgram:
-	proto_unregister(&ieee80215_raw_prot);
-out:
-	return rc;
-}
-static void af_ieee80215_remove(void)
-{
-	dev_remove_pack(&ieee80215_packet_type);
-	sock_unregister(PF_IEEE80215);
-	proto_unregister(&ieee80215_dgram_prot);
-	proto_unregister(&ieee80215_raw_prot);
-}
 
 module_init(af_ieee80215_init);
 module_exit(af_ieee80215_remove);

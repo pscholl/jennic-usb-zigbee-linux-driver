@@ -1,18 +1,19 @@
 #include <linux/module.h>
 #include <linux/timer.h>
-#include <asm/local.h>
 #include <linux/platform_device.h>
-#include <net/ieee80215/ieee80215.h>
-#include <net/ieee80215/phy.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/const.h>
 #include <linux/netdevice.h>
+#include <net/ieee80215/dev.h>
+#include <net/ieee80215/netdev.h>
 
-static struct timer_list rx_timer;
+struct fake_priv {
+	struct ieee80215_dev *dev;
+//	struct timer_list rx_timer;
+	phy_status_t cur_state, pend_state;
+};
 
 
-static u8 msg_values[] = {
+#if 0
+static u8 msg_values[NUM_MSGS] = {
 	IEEE80215_MSG_CHANNEL_CONFIRM,
 	IEEE80215_MSG_ED_CONFIRM,
 	IEEE80215_MSG_CCA_CONFIRM,
@@ -124,128 +125,120 @@ static void __init rx_init(void * data)
 
 /* Valid channels: 1-16 */
 static void
-hw_set_channel(ieee80215_phy_t *phy, u8 channel)
+hw_set_channel(struct ieee80215_dev *dev, u8 channel)
 {
 	pr_debug("%s\n",__FUNCTION__);
 }
- 
-static void
-hw_ed(ieee80215_phy_t *phy)
-{
-	pr_debug("%s\n",__FUNCTION__);
-}
- 
-static void
-hw_cca(ieee80215_phy_t *phy, u8 mode)
-{
-	pr_debug("%s\n",__FUNCTION__);
-}
- 
-static void
-hw_state(ieee80215_phy_t *phy, u8 state)
-{
-	pr_debug("%s\n",__FUNCTION__);
-}
- 
-static void
-hw_xmit(ieee80215_phy_t *phy, u8 *ppdu, size_t len)
-{
-	pr_debug("%s\n",__FUNCTION__);
-}
- 
-static ieee80215_dev_op_t *alloc_ieee80215_dev(void)
-{
-	struct ieee80215_dev_ops *dev_op;
-
-	dev_op = kzalloc(sizeof(struct ieee80215_dev_ops), GFP_KERNEL);
-	if (!dev_op) {
- 		printk(KERN_ERR "%s: unable to allocate memory\n", __FUNCTION__);
- 		return NULL;
- 	}
-	dev_op->name 		= "fakedev";
-	dev_op->set_channel	= hw_set_channel;
-	dev_op->ed		= hw_ed;
-	dev_op->cca		= hw_cca;
-	dev_op->set_state	= hw_state;
-	dev_op->xmit		= hw_xmit;
-	dev_op->flags		= IEEE80215_DEV_SINGLE;
-
-	return dev_op;
-}
- 
-static ssize_t ieee80215fake_debug_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	// struct ieee80215_dev_ops *dev_op = dev_get_drvdata(dev);
-	return 0;
-}
-#if 0
-static ssize_t ieee80215fake_control_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	// struct ieee80215_dev_ops *dev_op = dev_get_drvdata(dev);
-	// struct ieee80215_phy_t *phy = dev_op->priv;
-	return 0;
-}
-static ssize_t ieee80215fake_control_store(struct device *dev,
-		struct device_attribute *attr, char *buf, size_t len)
-{
-	struct ieee80215_dev_ops *dev_op = dev_get_drvdata(dev);
-	struct ieee80215_phy *phy = dev_op->priv;
-#warning FIXME
-	phy->receive_block(phy, len, buf, 0);
-	return 0;
-}
-#endif 
-DEVICE_ATTR(debug, S_IWUSR|S_IRUGO,
-	ieee80215fake_debug_show, NULL);
-#if 0
-DEVICE_ATTR(control, S_IWUSR|S_IRUGO,
-	ieee80215fake_control_show,  ieee80215fake_control_store);
-static struct device_attribute *devcontrol[] = {
-	[0]		= 	&dev_attr_debug,
-#if 0
-	[1]		= 	&dev_attr_control,
 #endif
+
+static int is_transmitting(struct ieee80215_dev *dev) {
+	return 0;
+}
+
+static int is_receiving(struct ieee80215_dev *dev) {
+	return 0;
+}
+
+static phy_status_t
+hw_ed(struct ieee80215_dev *dev, u8 *level)
+{
+	pr_debug("%s\n",__FUNCTION__);
+	BUG_ON(!level);
+	*level = 0;
+	return PHY_SUCCESS;
+}
+
+static phy_status_t
+hw_cca(struct ieee80215_dev *dev)
+{
+	pr_debug("%s\n",__FUNCTION__);
+	return PHY_IDLE;
+}
+
+static phy_status_t
+hw_state(struct ieee80215_dev *dev, phy_status_t state)
+{
+	struct fake_priv *priv = dev->priv;
+	pr_debug("%s\n",__FUNCTION__);
+	if (state != PHY_TRX_OFF && state != PHY_RX_ON && state != PHY_TX_ON && state != PHY_FORCE_TRX_OFF)
+		return PHY_INVAL;
+	else if (state == PHY_FORCE_TRX_OFF) {
+		priv->cur_state = PHY_TRX_OFF;
+		return PHY_SUCCESS;
+	} else if (priv->cur_state == state)
+		return state;
+	else if ((state == PHY_TRX_OFF || state == PHY_RX_ON) && is_transmitting(dev)) {
+		priv->pend_state = state;
+		return PHY_BUSY_TX;
+	} else if ((state == PHY_TRX_OFF || state == PHY_TX_ON) && is_receiving(dev)) {
+		priv->pend_state = state;
+		return PHY_BUSY_RX;
+	} else {
+		priv->cur_state = state;
+		return PHY_SUCCESS;
+	}
+}
+
+static int
+hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
+{
+	struct sk_buff *newskb;
+	pr_debug("%s\n",__FUNCTION__);
+	newskb = pskb_copy(skb, GFP_ATOMIC);
+	ieee80215_rx(dev, newskb);
+	return PHY_SUCCESS;
+}
+
+static struct ieee80215_ops fake_ops = {
+	.owner = THIS_MODULE,
+	.tx = hw_tx,
+	.ed = hw_ed,
+	.cca = hw_cca,
+	.set_trx_state = hw_state,
 };
-#endif
 
-static int __init ieee80215fake_probe(struct platform_device *pdev)
+static int __devinit ieee80215fake_probe(struct platform_device *pdev)
 {
-	struct ieee80215_dev_ops * dev_op;
+	struct fake_priv *priv;
 	int err;
-	dev_op = alloc_ieee80215_dev();
-//	err = ieee80215_register_device(dev_op);
+	priv = kzalloc(sizeof(struct fake_priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+
+	priv->dev = ieee80215_alloc_device();
+	if (!priv->dev) {
+		kfree(priv);
+		return -ENOMEM;
+	}
+	priv->dev->name = "IEEE 802.15.4 fake";
+	priv->dev->priv = priv;
+
 	pr_debug("rgistering device\n");
-	err = ieee80215_register_device(dev_op);
-	rx_init(dev_op->priv);
-	if(err)
+	err = ieee80215_register_device(priv->dev, &fake_ops);
+	if(err) {
+		kfree(priv);
 		return err;
-	platform_set_drvdata(pdev, dev_op);
-	dev_info(&pdev->dev, "Adding ieee80215 hardware\n");
-#if 0
-	err = device_create_file(&pdev->dev, devcontrol);
-        if (err) {
-                dev_err(&pdev->dev, "cannot create status attribute\n");
-        }
-#endif
+	}
+	ieee80215_add_slave(priv->dev, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
+//	rx_init(dev_op->priv);
+	platform_set_drvdata(pdev, priv);
+	dev_info(&pdev->dev, "Added ieee80215 hardware\n");
 	return 0;
 }
 
-static int ieee80215fake_remove(struct platform_device *pdev)
+static int __devexit ieee80215fake_remove(struct platform_device *pdev)
 {
-	struct ieee80215_dev_op * dev_op = platform_get_drvdata(pdev);
-	kfree(dev_op);
+	struct fake_priv *priv = platform_get_drvdata(pdev);
+	ieee80215_unregister_device(priv->dev);
+	kfree(priv);
 	return 0;
 }
 
-struct platform_device ieee80215fake_dev = {
-	.name = "ieee80215fake",
-};
+static struct platform_device *ieee80215fake_dev;
 
-struct platform_driver ieee80215fake = {
+static struct platform_driver ieee80215fake_driver = {
 	.probe = ieee80215fake_probe,
-	.remove = ieee80215fake_remove,
+	.remove = __devexit_p(ieee80215fake_remove),
 	.driver = {
 			.name = "ieee80215fake",
 			.owner = THIS_MODULE,
@@ -254,13 +247,14 @@ struct platform_driver ieee80215fake = {
 
 static __init int fake_init(void)
 {
-	platform_device_register(&ieee80215fake_dev);
-	return platform_driver_register(&ieee80215fake);
+	ieee80215fake_dev = platform_device_register_simple("ieee80215fake", -1, NULL, 0);
+	return platform_driver_register(&ieee80215fake_driver);
 }
 
 static __exit void fake_exit(void)
 {
-	platform_driver_unregister(&ieee80215fake);
+	platform_driver_unregister(&ieee80215fake_driver);
+	platform_device_unregister(ieee80215fake_dev);
 }
 
 module_init(fake_init);
