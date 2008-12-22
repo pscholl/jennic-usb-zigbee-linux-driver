@@ -428,7 +428,9 @@ static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int 
 	u8 * addr = (u8 *)uaddr;
 	if (addr_len != sizeof(u64))
 		return -EINVAL;
+	rtnl_lock();
 	dev = dev_getbyhwaddr (&init_net, ARPHRD_IEEE80215, addr);
+	rtnl_unlock();
 	if(!dev)
 		return -EINVAL;
 	if(dev->master && netif_running(dev)) {

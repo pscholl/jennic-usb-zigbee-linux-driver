@@ -24,6 +24,8 @@
 #include <net/ieee80215/mac_lib.h>
 #include <net/ieee80215/const.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/netdev.h>
+#include <net/ieee80215/af_ieee80215.h>
 
 int ieee80215_rxenable_end(struct ieee80215_mac *mac, int code)
 {
