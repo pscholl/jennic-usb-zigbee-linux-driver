@@ -1000,6 +1000,104 @@ static const struct proto_ops ieee80215_raw_ops = {
 #endif
 };
 
+static int ieee80215_sock_dgram_ioctl(struct sock *sk, int cmd, void __user *arg)
+{
+	struct ifreq req;
+	struct net_device *dev;
+	struct ieee80215_netdev_priv * priv;
+	struct ieee80215_mnetdev_priv * mpriv;
+	struct ieee80215_user_data data;
+	if (copy_from_user(&req, arg, sizeof(req))) {
+		pr_debug("copy_from_user() failed\n");
+		return -EFAULT;
+	}
+	dev = __dev_get_by_name(&init_net, req.ifr_name);
+	if (!dev) {
+		pr_debug("no dev\n");
+		return -ENODEV;
+	}
+	if(dev->master) {
+		priv = netdev_priv(dev);
+		mpriv = netdev_priv(dev->master);
+	} else {
+		priv = NULL;
+		mpriv = netdev_priv(dev);
+	}
+	switch (cmd) {
+	case SIOCGIFADDR: {
+			if(!priv)
+				return -EPERM;
+#warning FIXME:	move address out from phy to support multi-interface config
+			req.ifr_hwaddr.sa_family = AF_IEEE80215;
+			if(!dev->master) /* copying from phy data */
+				memcpy(&req.ifr_hwaddr.sa_data,
+					&priv->mac->phy->dev_op->_64bit, sizeof(u64));
+			else { /* Copying from device data */
+				memcpy(&req.ifr_hwaddr.sa_data,
+					dev->dev_addr, sizeof(u64));
+			}
+
+			return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : 0;
+		}
+	
+	case SIOCSIFADDR:
+#warning FIXME:	move address out from phy to support multi-interface config
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+		if (AF_IEEE80215 != req.ifr_hwaddr.sa_family)
+			return -EINVAL;
+		if (netif_running(dev)) {
+			pr_debug("hardware address may only be changed while device is down\n");
+			return -EINVAL;
+		}
+		if(!priv)
+			return -EPERM;
+		if(!dev->master)
+			memcpy(&priv->mac->phy->dev_op->_64bit,
+				req.ifr_hwaddr.sa_data, sizeof(u64));
+		else {
+			memset(dev->dev_addr, 0, sizeof(dev->dev_addr));
+			memcpy(dev->dev_addr,
+				req.ifr_hwaddr.sa_data, sizeof(u64));
+		}
+		return 0;
+
+	case SIOCGIFFLAGS:
+		req.ifr_flags = dev_get_flags(dev);
+		return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : 0;
+
+	case SIOCSIFFLAGS:
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+
+		if(!priv)
+			return -EPERM;
+
+		if (req.ifr_flags & (IFF_UP | IFF_RUNNING)) {
+			if (netif_running(dev)) {
+				pr_debug("device is already running\n");
+				return -EBUSY;
+			} else {
+				if(priv) {
+					sk->sk_user_data = dev;
+					priv->sk = sk;
+				}
+			}
+		}
+		return dev_change_flags(dev, req.ifr_flags);
+	case IEEE80215_SIOC_NETWORK_DISCOVERY:
+		break;
+	case IEEE80215_SIOC_NETWORK_FORMATION:
+		break;
+	case IEEE80215_SIOC_PERMIT_JOINING:
+		break;
+	case IEEE80215_SIOC_START_ROUTER:
+		break;
+	case IEEE80215_SIOC_JOIN:
+		break;
+	}
+	return 0;
+}
 static const struct proto_ops ieee80215_dgram_ops = {
 	.family		   = PF_IEEE80215,
 	.owner		   = THIS_MODULE,
@@ -1010,7 +1108,7 @@ static const struct proto_ops ieee80215_dgram_ops = {
 	.accept		   = sock_no_accept,
 	.getname	   = sock_no_getname,
 	.poll		   = sock_no_poll,
-	.ioctl		   = sock_no_ioctl,
+	.ioctl		   = ieee80215_sock_dgram_ioctl,
 	.listen		   = sock_no_listen,
 	.shutdown	   = sock_no_shutdown,
 	.setsockopt	   = sock_common_setsockopt,
