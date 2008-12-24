@@ -46,8 +46,8 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 {
 	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
 	struct raw_sock *ro = raw_sk(sk);
-	int ifindex = 0;
 	int err = 0;
+	struct net_device *dev;
 
 	if (len < sizeof(*addr))
 		return -EINVAL;
@@ -57,41 +57,36 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 
 	lock_sock(sk);
 	if (addr->ifindex) {
-		struct net_device *dev;
 		dev = dev_get_by_index(&init_net, addr->ifindex);
-
-		if (!dev) {
-			err = -ENODEV;
-			goto out;
-		}
-
-		if (dev->type != ARPHRD_IEEE80215) {
-			dev_put(dev);
-			err = -ENODEV;
-			goto out;
-		}
-
-		ifindex = dev->ifindex;
-		dev_put(dev);
 	} else if (addr->addr) {
-		struct net_device *dev;
 		rtnl_lock();
 		dev = dev_getbyhwaddr(&init_net, ARPHRD_IEEE80215, (u8*)&addr->addr);
-		dev_hold(dev);
+		if (dev)
+			dev_hold(dev);
 		rtnl_unlock();
-
-		if (!dev) {
-			err = -ENODEV;
-			goto out;
-		}
-
-		ifindex = dev->ifindex;
-		dev_put(dev);
+	}
+	if (!dev) {
+		err = -ENODEV;
+		goto out;
 	}
 
-	ro->ifindex = ifindex;
-	ro->bound = !!ifindex;
+	if (dev->master) {
+		struct net_device *old = dev;
+		dev = dev->master;
+		dev_hold(dev);
+		dev_put(old);
+	}
+
+	if (dev->type != ARPHRD_IEEE80215_PHY) {
+		err = -ENODEV;
+		goto out_put;
+	}
+
+	ro->ifindex = dev->ifindex;
+out_put:
+	dev_put(dev);
 out:
+	ro->bound = !!ro->ifindex;
 	release_sock(sk);
 
 	return err;
@@ -100,6 +95,7 @@ out:
 static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		       size_t size)
 {
+	struct raw_sock *ro = raw_sk(sk);
 	struct net_device *dev;
 	unsigned mtu;
 	struct sk_buff *skb;
@@ -110,7 +106,10 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		return -EOPNOTSUPP;
 	}
 
-	dev = dev_getfirstbyhwtype(&init_net, ARPHRD_IEEE80215);
+	if (!ro->bound)
+		dev = dev_getfirstbyhwtype(&init_net, ARPHRD_IEEE80215_PHY);
+	else
+		dev = dev_get_by_index(&init_net, ro->ifindex);
 	if (!dev) {
 		pr_debug("no dev\n");
 		return -ENXIO;
@@ -138,6 +137,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	}
 	skb->dev = dev;
 	skb->sk  = sk;
+	skb->protocol = htons(ETH_P_IEEE80215);
 
 	err = dev_queue_xmit(skb);
 

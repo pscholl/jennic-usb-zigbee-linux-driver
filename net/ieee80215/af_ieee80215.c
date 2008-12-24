@@ -1092,7 +1092,7 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	if(!netif_running(dev))
 		return -ENODEV;
 	pr_debug("got frame, type %d, dev %p master %p\n", dev->type, dev, dev->master);
-	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net)) {
+	if ((dev->type != ARPHRD_IEEE80215_PHY && dev->type != ARPHRD_IEEE80215) || !net_eq(dev_net(dev), &init_net)) {
 		kfree_skb(skb);
 		return NET_RX_DROP;
 	}

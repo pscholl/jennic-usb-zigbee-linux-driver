@@ -91,12 +91,12 @@ static struct net_device_stats *ieee80215_get_master_stats(struct net_device *de
 static void ieee80215_netdev_setup_master(struct net_device *dev)
 {
 	dev->addr_len		= 0;
-	memset(dev->broadcast, 0xff, IEEE80215_ADDR_LEN);
+	memset(dev->broadcast, 0xff, dev->addr_len);
 	dev->features		= NETIF_F_NO_CSUM;
 	dev->hard_header_len	= 0;
 	dev->mtu		= 127;
 	dev->tx_queue_len	= 10;
-	dev->type		= ARPHRD_IEEE80215;
+	dev->type		= ARPHRD_IEEE80215_PHY;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
 }
