@@ -47,7 +47,7 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
 	struct raw_sock *ro = raw_sk(sk);
 	int err = 0;
-	struct net_device *dev;
+	struct net_device *dev = NULL;
 
 	if (len < sizeof(*addr))
 		return -EINVAL;
@@ -100,6 +100,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	unsigned mtu;
 	struct sk_buff *skb;
 	int err;
+	int hh_len;
 
 	if (msg->msg_flags & MSG_OOB) {
 		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
@@ -122,12 +123,17 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		return -EINVAL;
 	}
 
-	skb = sock_alloc_send_skb(sk, size, msg->msg_flags & MSG_DONTWAIT,
+	hh_len = LL_ALLOCATED_SPACE(dev);
+	skb = sock_alloc_send_skb(sk, hh_len + size, msg->msg_flags & MSG_DONTWAIT,
 				  &err);
 	if (!skb) {
 		dev_put(dev);
 		return err;
 	}
+
+	skb_reserve(skb, hh_len);
+
+	skb_reset_mac_header(skb);
 
 	err = memcpy_fromiovec(skb_put(skb, size), msg->msg_iov, size);
 	if (err < 0) {
