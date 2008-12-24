@@ -1003,7 +1003,7 @@ static const struct proto_ops ieee80215_raw_ops = {
 static int ieee80215_sock_dgram_ioctl(struct socket *sock, unsigned int cmd, unsigned long argp)
 {
 	struct sock *sk = sock->sk;
-	void * arg = (void __user *) argp;
+	void __user *arg = (void __user *) argp;
 	struct ifreq req;
 	struct net_device *dev;
 	struct ieee80215_netdev_priv * priv;
@@ -1013,10 +1013,6 @@ static int ieee80215_sock_dgram_ioctl(struct socket *sock, unsigned int cmd, uns
 	struct ieee80215_user_data data;
 #endif
 	int ret;
-	if (copy_from_user(&req, arg, sizeof(req))) {
-		pr_debug("copy_from_user() failed\n");
-		return -EFAULT;
-	}
 	dev = __dev_get_by_name(&init_net, req.ifr_name);
 	if (!dev) {
 		pr_debug("no dev\n");
@@ -1034,7 +1030,11 @@ static int ieee80215_sock_dgram_ioctl(struct socket *sock, unsigned int cmd, uns
 	case SIOCSIFADDR:
 	case SIOCGIFFLAGS:
 	case SIOCSIFFLAGS:
-		ret =  dev->do_ioctl(dev, &req, cmd);
+		if (copy_from_user(&req, arg, sizeof(req))) {
+			pr_debug("copy_from_user() failed\n");
+			return -EFAULT;
+		}
+		ret = dev->do_ioctl(dev, &req, cmd);
 		return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : ret;
 	case SIOCGSTAMP:
 		return sock_get_timestamp(sk, (struct timeval __user *)argp);
