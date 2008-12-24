@@ -80,7 +80,6 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	BUG_ON(!skb);
 
 	skb->dev = priv->master;
-	skb->pkt_type = PACKET_HOST;
 	skb->protocol = htons(ETH_P_IEEE80215);
 
 	netif_rx(skb);
