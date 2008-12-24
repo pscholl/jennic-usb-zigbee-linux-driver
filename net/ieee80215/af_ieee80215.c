@@ -1045,6 +1045,10 @@ static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 		proto = &ieee80215_raw_prot;
 		ops = &ieee80215_raw_ops;
 		break;
+	case SOCK_DGRAM:
+		proto = &ieee80215_dgram_prot;
+		ops = &ieee80215_dgram_ops;
+		break;
 	default:
 		rc = -ESOCKTNOSUPPORT;
 		goto out;

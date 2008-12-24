@@ -2,51 +2,57 @@
 #include <linux/module.h>
 #include <linux/if_arp.h>
 #include <linux/list.h>
+#include <linux/crc-itu-t.h>
 #include <net/sock.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
 
 #if 0
-static HLIST_HEAD(raw_head);
-static DEFINE_RWLOCK(raw_lock);
+static HLIST_HEAD(dgram_head);
+static DEFINE_RWLOCK(dgram_lock);
+#endif
 
-struct raw_sock {
+struct dgram_sock {
 	struct sock sk;
 	int bound;
 	int ifindex;
 };
 
-static inline struct raw_sock *raw_sk(const struct sock *sk)
+static inline struct dgram_sock *dgram_sk(const struct sock *sk)
 {
-	return (struct raw_sock *)sk;
+	return (struct dgram_sock *)sk;
 }
 
 
-static void raw_hash(struct sock *sk)
+static void dgram_hash(struct sock *sk)
 {
-	write_lock_bh(&raw_lock);
-	sk_add_node(sk, &raw_head);
+#if 0
+	write_lock_bh(&dgram_lock);
+	sk_add_node(sk, &dgram_head);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, 1);
-	write_unlock_bh(&raw_lock);
+	write_unlock_bh(&dgram_lock);
+#endif
 }
 
-static void raw_unhash(struct sock *sk)
+static void dgram_unhash(struct sock *sk)
 {
-	write_lock_bh(&raw_lock);
+#if 0
+	write_lock_bh(&dgram_lock);
 	if (sk_del_node_init(sk))
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
-	write_unlock_bh(&raw_lock);
+	write_unlock_bh(&dgram_lock);
+#endif
 }
 
-static void raw_close(struct sock *sk, long timeout)
+static void dgram_close(struct sock *sk, long timeout)
 {
 	sk_common_release(sk);
 }
 
-static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
+static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 {
 	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
-	struct raw_sock *ro = raw_sk(sk);
+	struct dgram_sock *ro = dgram_sk(sk);
 	int ifindex = 0;
 	int err = 0;
 
@@ -60,6 +66,7 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 	if (addr->ifindex) {
 		struct net_device *dev;
 		dev = dev_get_by_index(&init_net, addr->ifindex);
+		printk(KERN_ERR "idev: %s\n ", dev->name);
 
 		if (!dev) {
 			err = -ENODEV;
@@ -72,17 +79,31 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 			goto out;
 		}
 
+		if (!dev->master) {
+			dev_put(dev);
+			err = -EINVAL;
+			goto out;
+		}
+
 		ifindex = dev->ifindex;
 		dev_put(dev);
 	} else if (addr->addr) {
 		struct net_device *dev;
 		rtnl_lock();
 		dev = dev_getbyhwaddr(&init_net, ARPHRD_IEEE80215, (u8*)&addr->addr);
-		dev_hold(dev);
+		printk(KERN_ERR "adev: %s\n ", dev->name);
+		if (dev)
+			dev_hold(dev);
 		rtnl_unlock();
 
 		if (!dev) {
 			err = -ENODEV;
+			goto out;
+		}
+
+		if (!dev->master) {
+			dev_put(dev);
+			err = -EINVAL;
 			goto out;
 		}
 
@@ -98,12 +119,27 @@ out:
 	return err;
 }
 
-static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
+#if 0
+static __inline__ u16 ieee80215_crc_itu(u8 *data, u8 len)
+{
+        u16 crc;
+        u32 reg;
+
+        reg = 0;
+        crc = crc_itu_t(0, data, len-2);
+        crc = crc_itu_t(crc, (u8*)&reg, 2);
+        return crc;
+}
+#endif
+
+static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		       size_t size)
 {
 	struct net_device *dev;
 	unsigned mtu;
 	struct sk_buff *skb;
+	struct dgram_sock *ro = dgram_sk(sk);
+	int hh_len;
 	int err;
 
 	if (msg->msg_flags & MSG_OOB) {
@@ -111,7 +147,10 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		return -EOPNOTSUPP;
 	}
 
-	dev = dev_getfirstbyhwtype(&init_net, ARPHRD_IEEE80215);
+	if (!ro->bound)
+		dev = dev_getfirstbyhwtype(&init_net, ARPHRD_IEEE80215);
+	else
+		dev = dev_get_by_index(&init_net, ro->ifindex);
 	if (!dev) {
 		pr_debug("no dev\n");
 		return -ENXIO;
@@ -124,12 +163,38 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		return -EINVAL;
 	}
 
-	skb = sock_alloc_send_skb(sk, size, msg->msg_flags & MSG_DONTWAIT,
+	// FIXME: extra_tx_headroom --- should be done from inside the mdev/dev via net_device setup
+	// FIXME: tx alignment ???
+	hh_len = LL_ALLOCATED_SPACE(dev);
+	skb = sock_alloc_send_skb(sk, hh_len + 2 + 1 + 20 + size + 2, msg->msg_flags & MSG_DONTWAIT,
 				  &err);
 	if (!skb) {
 		dev_put(dev);
 		return err;
 	}
+	skb_reserve(skb, hh_len);
+
+	skb_reset_mac_header(skb);
+
+	do {
+		u8 head[24] = {};
+		int len = 0;
+		head[len ++] = 1 /* data */
+			| (1 << 5) /* ack req */
+			;
+		head[len++] = 0
+			| (3 << (10 - 8)) /* dest addr = 64 */
+			| (3 << (14 - 8)) /* source addr = 64 */
+			;
+		// FIXME: DSN
+		head[len++] = 0xa5; /* seq number */
+		memcpy(head+len, dev->dev_addr, dev->addr_len); len += dev->addr_len;
+		memcpy(head+len, dev->dev_addr, dev->addr_len); len += dev->addr_len;
+		memcpy(skb_put(skb, len), head, len);
+
+	} while (0);
+
+	skb_reset_network_header(skb);
 
 	err = memcpy_fromiovec(skb_put(skb, size), msg->msg_iov, size);
 	if (err < 0) {
@@ -137,8 +202,13 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		dev_put(dev);
 		return err;
 	}
+	{
+		u16 crc = crc_itu_t(0, skb->data, skb->len);
+		memcpy(skb_put(skb, 2), &crc, 2);
+	}
 	skb->dev = dev;
 	skb->sk  = sk;
+	skb->protocol = htons(ETH_P_IEEE80215);
 
 	err = dev_queue_xmit(skb);
 
@@ -150,7 +220,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	return size;
 }
 
-static int raw_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
+static int dgram_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		       size_t len, int noblock, int flags, int *addr_len)
 {
 	size_t copied = 0;
@@ -167,6 +237,7 @@ static int raw_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		copied = len;
 	}
 
+	// FIXME: skip headers if necessary ?!
 	err = skb_copy_datagram_iovec(skb, 0, msg->msg_iov, copied);
 	if (err)
 		goto done;
@@ -183,7 +254,7 @@ out:
 	return copied;
 }
 
-static int raw_rcv_skb(struct sock * sk, struct sk_buff * skb)
+static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 {
 	if (sock_queue_rcv_skb(sk, skb) < 0) {
 		atomic_inc(&sk->sk_drops);
@@ -194,17 +265,16 @@ static int raw_rcv_skb(struct sock * sk, struct sk_buff * skb)
 	return NET_RX_SUCCESS;
 }
 
-#endif
 
 struct proto ieee80215_dgram_prot = {
 	.name		= "IEEE-802.15.4-MAC",
 	.owner		= THIS_MODULE,
 	.obj_size	= sizeof(struct sock),
-//	.close		= raw_close,
-//	.bind		= raw_bind,
-//	.sendmsg	= raw_sendmsg,
-//	.recvmsg	= raw_recvmsg,
-//	.hash		= raw_hash,
-//	.unhash		= raw_unhash,
+	.close		= dgram_close,
+	.bind		= dgram_bind,
+	.sendmsg	= dgram_sendmsg,
+	.recvmsg	= dgram_recvmsg,
+	.hash		= dgram_hash,
+	.unhash		= dgram_unhash,
 };
 
