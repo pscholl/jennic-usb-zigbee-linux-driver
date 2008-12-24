@@ -156,8 +156,9 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	dev_hold(ieee80215_to_priv(hw)->master);
 	dev->master = ieee80215_to_priv(hw)->master;
 	dev->do_ioctl = ieee80215_slave_ioctl;
-	mpriv = netdev_priv(ieee80215_to_priv(hw)->master);
-	list_add_tail_rcu(&priv->list, &mpriv->interfaces);
+//	mpriv = netdev_priv(ieee80215_to_priv(hw)->master);
+//	list_add_tail_rcu(&priv->list, &mpriv->interfaces);
+	list_add_tail_rcu(&priv->list, &ieee80215_to_priv(hw)->slaves);
 	register_netdev(dev);
 	return dev->ifindex;
 }

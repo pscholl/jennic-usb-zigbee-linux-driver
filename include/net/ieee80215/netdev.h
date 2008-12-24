@@ -51,6 +51,7 @@ void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv 
 extern struct proto ieee80215_raw_prot;
 extern struct proto ieee80215_dgram_prot;
 void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);
+void ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
 
 #endif
 

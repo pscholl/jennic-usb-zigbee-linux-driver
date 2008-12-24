@@ -42,7 +42,7 @@
 	int i; \
 	pr_debug("file %s: function: %s: data: len %d:\n", __FILE__, __FUNCTION__, len); \
 	for(i = 0; i < len; i++) {\
-		pr_debug("%02x: %02x\n", i, data[i]); \
+		pr_debug("%02x: %02x\n", i, (data)[i]); \
 	} \
 }
 
@@ -1140,6 +1140,35 @@ static struct net_proto_family ieee80215_family_ops = {
 	.owner		= THIS_MODULE,
 };
 
+static int ieee80215_subif_deliver(struct net_device *master, struct sk_buff *skb)
+{
+	struct ieee80215_mnetdev_priv *mpriv = netdev_priv(master);
+	struct ieee80215_priv *priv = mpriv->hw;
+	struct ieee80215_netdev_priv *ndp;
+
+	if (skb->len < 3 + 4 + 2)
+		return NET_RX_DROP;
+
+	list_for_each_entry_rcu(ndp, &priv->slaves, list)
+	{
+		// FIXME: correct address checking
+		unsigned char *head = skb->data;
+		skb_pull(skb, 3+8+8);
+		DBG_DUMP(head+3+8, 8);
+		DBG_DUMP(ndp->dev->dev_addr, 8);
+		// FIXME: check CRC if necessary
+		skb_trim(skb, skb->len - 2); // CRC
+		if (!memcmp(head + 3 + 8 , ndp->dev->dev_addr, IEEE80215_ADDR_LEN)) {
+			skb->iif = master->ifindex;
+			skb->dev = ndp->dev;
+			DBG_DUMP(skb->data, skb->len);
+			ieee80215_dgram_deliver(skb->dev, skb);
+		}
+	}
+
+	return 0;
+}
+
 static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
@@ -1155,6 +1184,7 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	}
 
 	ieee80215_raw_deliver(dev, skb);
+	return ieee80215_subif_deliver(dev, skb);
 #if 0
 	/* Control frame processing */
 	if(skb->len < 5 && !dev->master) {
@@ -1199,8 +1229,6 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 		mpriv->stats.tx_dropped++;
 	}
 #endif
-
-	return 0;
 }
 
 

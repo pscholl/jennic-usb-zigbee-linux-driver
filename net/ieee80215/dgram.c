@@ -259,6 +259,7 @@ static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 	return NET_RX_SUCCESS;
 }
 
+// FIXME: this should probably be moved to somewhere else
 void ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk;
