@@ -53,9 +53,11 @@ int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *o
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
 	int rc;
 
-	if (!dev || !dev->name)
-	if (!ops || ops->tx || !ops->cca || !ops->ed || !ops->ed || !ops->set_trx_state)
-		return -EINVAL;
+	if (!try_module_get(ops->owner))
+		return -EFAULT;
+
+	BUG_ON(!dev || !dev->name);
+	BUG_ON(!ops || !ops->tx || !ops->cca || !ops->ed || !ops->set_trx_state);
 
 	priv->ops = ops;
 	rc = ieee80215_register_netdev_master(priv);
@@ -70,6 +72,7 @@ void ieee80215_unregister_device(struct ieee80215_dev *dev)
 	list_for_each_entry_rcu(ndp, &priv->slaves, list)
 		ieee80215_del_slave(&priv->hw, ndp);
 	ieee80215_unregister_netdev_master(priv);
+	module_put(priv->ops->owner);
 }
 
 // FIXME: maybe move this:
