@@ -159,7 +159,7 @@ static phy_status_t
 hw_state(struct ieee80215_dev *dev, phy_status_t state)
 {
 	struct fake_priv *priv = dev->priv;
-	pr_debug("%s\n",__FUNCTION__);
+	pr_debug("%s %d %d\n",__FUNCTION__, priv->cur_state, state);
 	if (state != PHY_TRX_OFF && state != PHY_RX_ON && state != PHY_TX_ON && state != PHY_FORCE_TRX_OFF)
 		return PHY_INVAL;
 	else if (state == PHY_FORCE_TRX_OFF) {
