@@ -21,7 +21,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/etherdevice.h>
-#include <linux/list.h>
+#include <linux/rculist.h>
 
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/netdev.h>
@@ -69,11 +69,7 @@ static int ieee80215_master_open(struct net_device *dev)
 		return -EBUSY;
 	}
 
-	pr_debug("%s:%s &priv->interfaces->next = %p\n", __FILE__,
-				__FUNCTION__, &priv->interfaces.next);
-	pr_debug("%s:%s &priv->interfaces->prev = %p\n", __FILE__,
-				__FUNCTION__, &priv->interfaces.prev);
-	list_for_each_entry(subif, &priv->interfaces, list) {
+	list_for_each_entry_rcu(subif, &priv->hw->slaves, list) {
 		if(netif_running(subif->dev)) {
 			/* Doing nothing important for now */
 			res = 0;
@@ -90,7 +86,7 @@ static int ieee80215_master_close(struct net_device *dev)
 	struct ieee80215_netdev_priv *subif;
 	netif_stop_queue(dev);
 	priv = netdev_priv(dev);
-	list_for_each_entry(subif, &priv->interfaces, list) {
+	list_for_each_entry_rcu(subif, &priv->hw->slaves, list) {
 		if(netif_running(subif->dev))
 			dev_close(subif->dev);
 	}
@@ -166,7 +162,6 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 		return -ENOMEM;
 	}
 	priv = netdev_priv(dev);
-	INIT_LIST_HEAD(&priv->interfaces);
 	priv->dev = dev;
 	priv->hw = hw;
 	hw->master = dev;
