@@ -44,9 +44,6 @@
 #include <linux/rtnetlink.h>
 #include <linux/if_arp.h>
 */
-#include <net/ieee80215/ieee80215.h>
-#include <net/ieee80215/const.h>
-#include <net/ieee80215/mac.h>
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/netdev.h>
@@ -122,8 +119,7 @@ typedef enum {
 struct zb_device {
 	/* Relative devices */
 	struct tty_struct	*tty;
-	/*struct net_device	*netdev;*/
-	ieee80215_phy_t 	*phy;
+	struct ieee80215_dev	*dev;
 
 	/* Internal state */
 	struct list_head	list;
@@ -155,19 +151,9 @@ static struct list_head zbd_list_head;
  *****************************************************************************/
 
 static struct zb_device*
-get_zbd_by_phy(struct ieee80215_phy *phy)
+get_zbd_by_dev(struct ieee80215_dev *dev)
 {
-	struct list_head *itr;
-	struct zb_device *p, *ret = NULL;
-
-	list_for_each(itr, &zbd_list_head) {
-		p = list_entry(itr, struct zb_device, list);
-		if (phy == p->phy) {
-			ret = p;
-			break;
-		}
-	}
-	return ret;
+	return dev->priv;
 }
 
 static struct zb_device*
@@ -349,8 +335,8 @@ static void
 process_command(struct zb_device *zbdev)
 {
 	u8 status;
-	u8 data = 0;
-	struct ieee80215_phy * phy = zbdev->phy;
+//	u8 data = 0;
+//	struct ieee80215_dev * dev = zbdev->dev;
 
 	/* Command processing */
 	if (!_match_pending_id(zbdev)) {
@@ -384,10 +370,10 @@ process_command(struct zb_device *zbdev)
 	}
 	switch (zbdev->id) {
 	case RESP_SET_CHANNEL:
-		ieee80215_net_cmd(phy, IEEE80215_MSG_CHANNEL_CONFIRM, status, data);
+//		ieee80215_net_cmd(dev, IEEE80215_MSG_CHANNEL_CONFIRM, status, data);
 		break;
 	case RESP_ED:
-		ieee80215_net_cmd(phy, IEEE80215_MSG_ED_CONFIRM, status, data);
+//		ieee80215_net_cmd(dev, IEEE80215_MSG_ED_CONFIRM, status, data);
 		break;
 	case RESP_CCA:
 		/* zbdev->param1 is STATUS_ERR or STATUS_BUSY or STATUS_IDLE */
@@ -396,7 +382,7 @@ process_command(struct zb_device *zbdev)
 		} else {
 			status = IEEE80215_BUSY;
 		}
-		ieee80215_net_cmd(phy, IEEE80215_MSG_CCA_CONFIRM, status, data);
+//		ieee80215_net_cmd(dev, IEEE80215_MSG_CCA_CONFIRM, status, data);
 		break;
 	case RESP_SET_STATE:
 		if (STATUS_SUCCESS == zbdev->param1) {
@@ -418,17 +404,17 @@ process_command(struct zb_device *zbdev)
 				__FUNCTION__, zbdev->param1);
 			status = IEEE80215_ERROR;
 		}
-		ieee80215_net_cmd(phy, IEEE80215_MSG_CCA_CONFIRM, status, data);
+//		ieee80215_net_cmd(dev, IEEE80215_MSG_CCA_CONFIRM, status, data);
 		break;
 	case RESP_XMIT_BLOCK:
-		ieee80215_net_cmd(phy, IEEE80215_MSG_XMIT_BLOCK_CONFIRM, status, data);
+//		ieee80215_net_cmd(dev, IEEE80215_MSG_XMIT_BLOCK_CONFIRM, status, data);
 		break;
 	case RESP_XMIT_STREAM:
-		ieee80215_net_cmd(phy, IEEE80215_MSG_XMIT_STREAM_CONFIRM, status, data);
+//		ieee80215_net_cmd(dev, IEEE80215_MSG_XMIT_STREAM_CONFIRM, status, data);
 		break;
 	case DATA_RECV_BLOCK:
 		/* zbdev->param1 is LQ, zbdev->param2 is length */
-		ieee80215_net_rx(phy, zbdev->data, zbdev->param2, &zbdev->param1, 1);
+//		ieee80215_net_rx(dev, zbdev->data, zbdev->param2, &zbdev->param1, 1);
 		break;
 	case DATA_RECV_STREAM:
 		/* TODO: update firmware to use this */
@@ -545,11 +531,11 @@ static int _open_dev(struct zb_device *zbdev) {
 
 /* Valid channels: 1-16 */
 static void
-zb_serial_set_channel(ieee80215_phy_t *phy, u8 channel)
+zb_serial_set_channel(struct ieee80215_dev *dev, u8 channel)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_phy(phy);
+	zbdev = get_zbd_by_dev(dev);
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -557,13 +543,13 @@ zb_serial_set_channel(ieee80215_phy_t *phy, u8 channel)
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-			phy->set_channel_confirm(phy, IEEE80215_ERROR);
+//			dev->set_channel_confirm(dev, IEEE80215_ERROR);
 			return;
 		}
 	}
 
 	if (_prepare_cmd(zbdev, CMD_SET_CHANNEL, channel) != 0) {
-		phy->set_channel_confirm(phy, IEEE80215_ERROR);
+//		dev->set_channel_confirm(dev, IEEE80215_ERROR);
 		return;
 	}
 	/* schedule retransmission in 1 second */
@@ -572,11 +558,11 @@ zb_serial_set_channel(ieee80215_phy_t *phy, u8 channel)
 }
 
 static void
-zb_serial_ed(ieee80215_phy_t *phy)
+zb_serial_ed(struct ieee80215_dev *dev)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_phy(phy);
+	zbdev = get_zbd_by_dev(dev);
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -584,13 +570,13 @@ zb_serial_ed(ieee80215_phy_t *phy)
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-			phy->ed_confirm(phy, IEEE80215_ERROR, 0);
+//			dev->ed_confirm(dev, IEEE80215_ERROR, 0);
 			return;
 		}
 	}
 
 	if (_prepare_cmd(zbdev, CMD_ED, 0) != 0) {
-		phy->ed_confirm(phy, IEEE80215_ERROR, 0);
+//		dev->ed_confirm(dev, IEEE80215_ERROR, 0);
 		return;
 	}
 	/* schedule retransmission in 1 second */
@@ -599,11 +585,11 @@ zb_serial_ed(ieee80215_phy_t *phy)
 }
 
 static void
-zb_serial_cca(ieee80215_phy_t *phy, u8 mode)
+zb_serial_cca(struct ieee80215_dev *dev, u8 mode)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_phy(phy);
+	zbdev = get_zbd_by_dev(dev);
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -611,13 +597,13 @@ zb_serial_cca(ieee80215_phy_t *phy, u8 mode)
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-			phy->cca_confirm(phy, IEEE80215_ERROR);
+//			dev->cca_confirm(dev, IEEE80215_ERROR);
 			return;
 		}
 	}
 
 	if (_prepare_cmd(zbdev, CMD_CCA, 0) != 0) {
-		phy->cca_confirm(phy, IEEE80215_ERROR);
+//		dev->cca_confirm(dev, IEEE80215_ERROR);
 		return;
 	}
 	/* schedule retransmission in 1 second */
@@ -626,12 +612,12 @@ zb_serial_cca(ieee80215_phy_t *phy, u8 mode)
 }
 
 static void
-zb_serial_set_state(ieee80215_phy_t *phy, u8 state)
+zb_serial_set_state(struct ieee80215_dev *dev, u8 state)
 {
 	struct zb_device *zbdev;
 	unsigned char flag;
 
-	zbdev = get_zbd_by_phy(phy);
+	zbdev = get_zbd_by_dev(dev);
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -646,19 +632,19 @@ zb_serial_set_state(ieee80215_phy_t *phy, u8 state)
 	} else if (IEEE80215_FORCE_TRX_OFF == state) {
 		flag = FORCE_TRX_OFF;
 	} else {
-		phy->set_state_confirm(phy, IEEE80215_INVALID_PARAMETER);
+//		dev->set_state_confirm(dev, IEEE80215_INVALID_PARAMETER);
 		return;
 	}
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-			phy->set_state_confirm(phy, IEEE80215_ERROR);
+//			dev->set_state_confirm(dev, IEEE80215_ERROR);
 			return;
 		}
 	}
 
 	if (_prepare_cmd(zbdev, CMD_SET_STATE, flag) != 0) {
-		phy->set_state_confirm(phy, IEEE80215_ERROR);
+//		dev->set_state_confirm(dev, IEEE80215_ERROR);
 		return;
 	}
 	/* schedule retransmission in 1 second */
@@ -667,11 +653,11 @@ zb_serial_set_state(ieee80215_phy_t *phy, u8 state)
 }
 
 static void
-zb_serial_xmit(ieee80215_phy_t *phy, u8 *ppdu, size_t len)
+zb_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_phy(phy);
+	zbdev = get_zbd_by_dev(dev);
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -679,40 +665,19 @@ zb_serial_xmit(ieee80215_phy_t *phy, u8 *ppdu, size_t len)
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-			phy->xmit_confirm(phy, IEEE80215_ERROR);
+//			dev->xmit_confirm(dev, IEEE80215_ERROR);
 			return;
 		}
 	}
 
 	if (_prepare_block(zbdev, len, ppdu) != 0) {
-		phy->xmit_confirm(phy, IEEE80215_ERROR);
+//		dev->xmit_confirm(dev, IEEE80215_ERROR);
 		return;
 	}
 	/* schedule retransmission in 1 second */
 	schedule_delayed_work(&zbdev->resp_timeout, HZ);
 	_send_pending_data(zbdev);
 }
-
-static ieee80215_dev_op_t *alloc_ieee80215_dev(void)
-{
-	struct ieee80215_dev_ops *dev_op;
-
-	dev_op = kzalloc(sizeof(struct ieee80215_dev_ops), GFP_KERNEL);
-	if (!dev_op) {
- 		printk(KERN_ERR "%s: unable to allocate memory\n", __FUNCTION__);
- 		return NULL;
- 	}
-	dev_op->name 		= "fakedev";
-	dev_op->set_channel	= zb_serial_set_channel;
-	dev_op->ed		= zb_serial_ed;
-	dev_op->cca		= zb_serial_cca;
-	dev_op->set_state	= zb_serial_set_state;
-	dev_op->xmit		= zb_serial_xmit;
-	dev_op->flags		= IEEE80215_DEV_SINGLE;
-
-	return dev_op;
-}
-
 
 /*****************************************************************************
  * Line discipline interface for IEEE 802.15.4 serial device
@@ -730,9 +695,19 @@ static void _on_resp_timeout(struct work_struct *work)
 		_send_pending_data(zbdev);
 	}
 	/* TODO: count retries;
-	 * call appropriate phy->(...)_confirm with error code
+	 * call appropriate dev->(...)_confirm with error code
 	 * if retries count exceeds limit */
 }
+
+static struct ieee80215_ops serial_ops = {
+	.owner = THIS_MODULE,
+	.tx = zb_serial_xmit,
+	.ed = zb_serial_ed,
+	.cca = zb_serial_cca,
+	.set_trx_state = zb_serial_set_state,
+//	.set_channel	= zb_serial_set_channel,
+};
+
 
 /*
  * Called when a tty is put into ZB line discipline. Called in process context.
@@ -743,8 +718,6 @@ zb_tty_open(struct tty_struct *tty)
 {
 	struct zb_device *zbdev;
 	int err;
-	ieee80215_dev_op_t *dev_op;
-	ieee80215_phy_t *phy;
 	/*
 	ieee80215_mac_t *mac;
 	zb_nwk_t *nwk;
@@ -763,22 +736,18 @@ zb_tty_open(struct tty_struct *tty)
 	init_completion(&zbdev->open_done);
 	INIT_DELAYED_WORK(&zbdev->resp_timeout, _on_resp_timeout);
 
-	dev_op = alloc_ieee80215_dev();
-	if (!dev_op) {
-		kfree(zbdev);
-		return -ENOMEM;
-	}
+	zbdev->dev = ieee80215_alloc_device();
+	zbdev->dev->name		= "serialdev";
+	zbdev->dev->priv		= zbdev;
 
-	err = ieee80215_register_device(dev_op);
+	err = ieee80215_register_device(zbdev->dev, &serial_ops);
 	if (err) {
 		printk(KERN_ERR "%s: device register failed\n", __FUNCTION__);
-		kfree(dev_op);
+		ieee80215_free_device(zbdev->dev);
 		kfree(zbdev);
 		return err;
 	}
 
-	phy = (ieee80215_phy_t*)dev_op->priv;
-	zbdev->phy = phy;
 	zbdev->tty = tty;
 	cleanup(zbdev);
 
@@ -800,7 +769,6 @@ static void
 zb_tty_close(struct tty_struct *tty)
 {
 	struct zb_device *zbdev;
-	ieee80215_dev_op_t *dev_op;
 
 	zbdev = get_zbd_by_tty(tty);
 	if (NULL == zbdev) {
@@ -811,9 +779,8 @@ zb_tty_close(struct tty_struct *tty)
 	list_del(&zbdev->list);
 	tty->disc_data = NULL;
 
-	dev_op = zbdev->phy->dev_op;
-	ieee80215_unregister_device(dev_op);
-	kfree(dev_op);
+	ieee80215_unregister_device(zbdev->dev);
+	ieee80215_free_device(zbdev->dev);
 	kfree(zbdev);
 }
 
