@@ -87,6 +87,44 @@ static struct net_device_stats *ieee80215_get_master_stats(struct net_device *de
 	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
 	return &priv->stats;
 }
+static int ieee80215_master_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+{
+	struct ieee80215_mnetdev_priv * priv = netdev_priv(dev);
+	struct sockaddr * addr = &ifr->ifr_hwaddr;
+	if(!priv || !ifr)
+		return ENODEV;
+	switch(cmd) {
+	case SIOCGIFADDR:
+			addr->sa_family = AF_IEEE80215;
+			memcpy(&addr->sa_data,
+				dev->dev_addr, sizeof(u64));
+			break;
+
+	case SIOCSIFADDR:
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+		if (addr->sa_family != AF_IEEE80215)
+			return -EINVAL;
+		if (netif_running(dev)) {
+			pr_debug("hardware address may only be changed while device is down\n");
+			return -EINVAL;
+		}
+		memset(dev->dev_addr, 0, sizeof(dev->dev_addr));
+		memcpy(dev->dev_addr,
+			&addr->sa_data, sizeof(u64));
+		return 0;
+
+	case SIOCGIFFLAGS:
+		ifr->ifr_flags = dev_get_flags(dev);
+		break;
+
+	case SIOCSIFFLAGS:
+		if (!capable(CAP_NET_ADMIN))
+			return -EPERM;
+		return dev_change_flags(dev, ifr->ifr_flags);
+	}
+	return 0;
+}
 
 static void ieee80215_netdev_setup_master(struct net_device *dev)
 {
@@ -121,6 +159,7 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	dev->stop = ieee80215_master_close;
 	dev->hard_start_xmit = ieee80215_master_hard_start_xmit;
 	dev->get_stats = ieee80215_get_master_stats;
+	dev->do_ioctl = ieee80215_master_ioctl;
 	register_netdev(dev);
 	return 0;
 }
