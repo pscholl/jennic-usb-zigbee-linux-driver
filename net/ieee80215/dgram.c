@@ -7,10 +7,8 @@
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
 
-#if 0
 static HLIST_HEAD(dgram_head);
 static DEFINE_RWLOCK(dgram_lock);
-#endif
 
 struct dgram_sock {
 	struct sock sk;
@@ -26,22 +24,18 @@ static inline struct dgram_sock *dgram_sk(const struct sock *sk)
 
 static void dgram_hash(struct sock *sk)
 {
-#if 0
 	write_lock_bh(&dgram_lock);
 	sk_add_node(sk, &dgram_head);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, 1);
 	write_unlock_bh(&dgram_lock);
-#endif
 }
 
 static void dgram_unhash(struct sock *sk)
 {
-#if 0
 	write_lock_bh(&dgram_lock);
 	if (sk_del_node_init(sk))
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
 	write_unlock_bh(&dgram_lock);
-#endif
 }
 
 static void dgram_close(struct sock *sk, long timeout)
@@ -265,6 +259,23 @@ static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 	return NET_RX_SUCCESS;
 }
 
+void ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
+{
+	struct sock *sk;
+	struct hlist_node*node;
+
+	read_lock(&dgram_lock);
+	sk_for_each(sk, node, &dgram_head) {
+		struct dgram_sock *ro = dgram_sk(sk);
+		if (ro->bound && ro->ifindex == dev->ifindex) {
+			struct sk_buff *clone;
+			clone = skb_clone(skb, GFP_ATOMIC);
+			if (clone)
+				dgram_rcv_skb(sk, clone);
+		}
+	}
+	read_unlock(&dgram_lock);
+}
 
 struct proto ieee80215_dgram_prot = {
 	.name		= "IEEE-802.15.4-MAC",
