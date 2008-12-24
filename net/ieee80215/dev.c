@@ -49,9 +49,7 @@ static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 
 static int ieee80215_slave_open(struct net_device *dev)
 {
-	struct ieee80215_mnetdev_priv *mdev;
 	struct ieee80215_netdev_priv *priv;
-	int res = -EOPNOTSUPP;
 	priv = netdev_priv(dev);
 	netif_start_queue(dev);
 	return 0;
@@ -59,7 +57,6 @@ static int ieee80215_slave_open(struct net_device *dev)
 
 static int ieee80215_slave_close(struct net_device *dev)
 {
-	struct ieee80215_mnetdev_priv *mdev;
 	struct ieee80215_netdev_priv *priv;
 	netif_stop_queue(dev);
 	priv = netdev_priv(dev);
@@ -137,7 +134,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 {
 	struct net_device *dev;
 	struct ieee80215_netdev_priv *priv;
-	struct ieee80215_mnetdev_priv *mpriv;
+	struct net_device *master;
 
 	dev = alloc_netdev(sizeof(struct ieee80215_netdev_priv),
 			"wpan%d", ieee80215_netdev_setup);
@@ -153,13 +150,21 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	dev->stop = ieee80215_slave_close;
 	dev->hard_start_xmit = ieee80215_net_xmit;
 	dev->get_stats = ieee80215_get_stats;
-	dev_hold(ieee80215_to_priv(hw)->master);
-	dev->master = ieee80215_to_priv(hw)->master;
+
+	rtnl_lock();
+	master = ieee80215_to_priv(hw)->master;
+	dev_hold(master);
+	rtnl_unlock();
+
+	dev->needed_headroom = master->needed_headroom;
+
+	dev->master = master;
 	dev->do_ioctl = ieee80215_slave_ioctl;
-//	mpriv = netdev_priv(ieee80215_to_priv(hw)->master);
-//	list_add_tail_rcu(&priv->list, &mpriv->interfaces);
+
 	list_add_tail_rcu(&priv->list, &ieee80215_to_priv(hw)->slaves);
+
 	register_netdev(dev);
+
 	return dev->ifindex;
 }
 

@@ -158,6 +158,7 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	dev->open = ieee80215_master_open;
 	dev->stop = ieee80215_master_close;
 	dev->hard_start_xmit = ieee80215_master_hard_start_xmit;
+	dev->needed_headroom = hw->hw.extra_tx_headroom;
 	dev->get_stats = ieee80215_get_master_stats;
 	dev->do_ioctl = ieee80215_master_ioctl;
 	register_netdev(dev);
