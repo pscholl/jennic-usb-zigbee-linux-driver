@@ -179,6 +179,13 @@ hw_state(struct ieee80215_dev *dev, phy_status_t state)
 	}
 }
 
+static phy_status_t
+hw_channel(struct ieee80215_dev *dev, int channel)
+{
+	pr_debug("%s %d\n",__FUNCTION__, channel);
+	return PHY_SUCCESS;
+}
+
 static int
 hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
@@ -195,6 +202,7 @@ static struct ieee80215_ops fake_ops = {
 	.ed = hw_ed,
 	.cca = hw_cca,
 	.set_trx_state = hw_state,
+	.set_channel = hw_channel,
 };
 
 static int __devinit ieee80215fake_probe(struct platform_device *pdev)

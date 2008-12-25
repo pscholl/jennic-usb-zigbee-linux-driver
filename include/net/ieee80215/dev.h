@@ -36,6 +36,7 @@ struct ieee80215_ops {
 	phy_status_t (*cca)(struct ieee80215_dev *dev);
 	phy_status_t (*ed)(struct ieee80215_dev *dev, u8 *level);
 	phy_status_t (*set_trx_state)(struct ieee80215_dev *dev, phy_status_t state);
+	phy_status_t (*set_channel)(struct ieee80215_dev *dev, int channel);
 	// FIXME: PIB get/set ???
 };
 
