@@ -29,29 +29,10 @@
 #include <linux/kernel.h>
 #include <linux/completion.h>
 #include <linux/tty.h>
-#include <linux/poll.h>
-#include <linux/spinlock.h>
-#include <linux/init.h>
-#include <linux/jiffies.h>
 #include <linux/skbuff.h>
-#include <linux/delay.h>
-#include <asm/uaccess.h>
-#include <asm/string.h>
-#include <linux/if.h>
-#include <linux/netdevice.h>
-/*
-#include <linux/etherdevice.h>
-#include <linux/rtnetlink.h>
-#include <linux/if_arp.h>
-*/
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/netdev.h>
-#if 0
-#include <net/zb_aps.h>
-#include <net/zb_phy_serial.h>
-#include <net/zb_debug.h>
-#endif
 
 
 /* NOTE: be sure to use here the same values as in the firmware */
@@ -122,7 +103,6 @@ struct zb_device {
 	struct ieee80215_dev	*dev;
 
 	/* Internal state */
-	struct list_head	list;
 	struct completion	open_done;
 	unsigned char		opened;
 	struct delayed_work	resp_timeout;
@@ -144,45 +124,16 @@ static char	*name;
 module_param_named(dev_name, name, charp, 0);
 /*module_param_named(mac_addr, addr64, ulong, 0);*/
 
-static struct list_head zbd_list_head;
-
-/*****************************************************************************
- * Helper functions for ZigBee device structure identification
- *****************************************************************************/
-
-static struct zb_device*
-get_zbd_by_dev(struct ieee80215_dev *dev)
-{
-	return dev->priv;
-}
-
-static struct zb_device*
-get_zbd_by_tty(struct tty_struct *tty)
-{
-	struct list_head *itr;
-	struct zb_device *p, *ret = NULL;
-
-	list_for_each(itr, &zbd_list_head) {
-		p = list_entry(itr, struct zb_device, list);
-		if (tty == p->tty) {
-			ret = p;
-			break;
-		}
-	}
-	return ret;
-}
-
-
 /*****************************************************************************
  * ZigBee serial device protocol handling
  *****************************************************************************/
 
-static void 
+static int 
 _send_pending_data(struct zb_device *zbdev)
 {
 	unsigned int j;
 	struct tty_struct *tty;
-	
+
 	BUG_ON(!zbdev);
 	tty = zbdev->tty;
 	BUG_ON(!tty);
@@ -194,16 +145,12 @@ _send_pending_data(struct zb_device *zbdev)
 	}
 	printk("\n");
 
-	if (tty->driver->ops->write(tty, zbdev->pending_data, zbdev->pending_size) == zbdev->pending_size) {
-		/*
-		zbdev->netdev->stats.tx_packets++;
-		zbdev->netdev->stats.tx_bytes += zbdev->pending_size;
-		*/
-	} else {
-		/*zbdev->netdev->stats.tx_errors++;*/
+	if (tty->driver->ops->write(tty, zbdev->pending_data, zbdev->pending_size) != zbdev->pending_size) {
 		printk(KERN_ERR "%s: device write failed\n", __FUNCTION__);
+		return -1;
 	}
-	return;
+
+	return 0;
 }
 
 static int
@@ -353,10 +300,6 @@ process_command(struct zb_device *zbdev)
 		return;
 	}
 
-	/* Update statistics
-	zbdev->netdev->stats.rx_packets++;
-	*/
-
 	cancel_delayed_work(&zbdev->resp_timeout);
 	zbdev->pending_id = 0;
 	kfree(zbdev->pending_data);
@@ -425,10 +368,6 @@ process_command(struct zb_device *zbdev)
 static void
 process_char(struct zb_device *zbdev, unsigned char c)
 {
-	/* Update statistics
-	zbdev->netdev->stats.rx_bytes++;
-	*/
-
 	/* Data processing */
 	pr_debug("Char: %d\n", c);
 	switch (zbdev->state) {
@@ -535,7 +474,7 @@ zb_serial_set_channel(struct ieee80215_dev *dev, u8 channel)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_dev(dev);
+	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -562,7 +501,7 @@ zb_serial_ed(struct ieee80215_dev *dev)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_dev(dev);
+	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -589,7 +528,7 @@ zb_serial_cca(struct ieee80215_dev *dev, u8 mode)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_dev(dev);
+	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -617,7 +556,7 @@ zb_serial_set_state(struct ieee80215_dev *dev, u8 state)
 	struct zb_device *zbdev;
 	unsigned char flag;
 
-	zbdev = get_zbd_by_dev(dev);
+	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -657,7 +596,7 @@ zb_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_dev(dev);
+	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
 		return;
@@ -716,16 +655,15 @@ static struct ieee80215_ops serial_ops = {
 static int
 zb_tty_open(struct tty_struct *tty)
 {
-	struct zb_device *zbdev;
+	struct zb_device *zbdev = tty->disc_data;
 	int err;
-	/*
-	ieee80215_mac_t *mac;
-	zb_nwk_t *nwk;
-	*/
 
 	pr_debug("Openning ldisc\n");
 	if(!capable(CAP_NET_ADMIN))
 		return -EPERM;
+
+	if (zbdev)
+		return -EBUSY;
 
 	/* Allocate device structure */
 	zbdev = kzalloc(sizeof(struct zb_device), GFP_KERNEL);
@@ -740,6 +678,12 @@ zb_tty_open(struct tty_struct *tty)
 	zbdev->dev->name		= "serialdev";
 	zbdev->dev->priv		= zbdev;
 
+	zbdev->tty = tty;
+	cleanup(zbdev);
+
+	tty->disc_data = zbdev;
+	tty->receive_room = MAX_DATA_SIZE;
+
 	err = ieee80215_register_device(zbdev->dev, &serial_ops);
 	if (err) {
 		printk(KERN_ERR "%s: device register failed\n", __FUNCTION__);
@@ -748,13 +692,6 @@ zb_tty_open(struct tty_struct *tty)
 		return err;
 	}
 
-	zbdev->tty = tty;
-	cleanup(zbdev);
-
-	tty->disc_data = zbdev;
-	tty->receive_room = MAX_DATA_SIZE;
-
-	list_add(&zbdev->list, &zbd_list_head);
 	return 0;
 }
 
@@ -770,13 +707,12 @@ zb_tty_close(struct tty_struct *tty)
 {
 	struct zb_device *zbdev;
 
-	zbdev = get_zbd_by_tty(tty);
+	zbdev = tty->disc_data;
 	if (NULL == zbdev) {
 		printk(KERN_WARNING "%s: match is not found\n", __FUNCTION__);
 		return;
 	}
 
-	list_del(&zbdev->list);
 	tty->disc_data = NULL;
 
 	ieee80215_unregister_device(zbdev->dev);
@@ -801,35 +737,18 @@ static int
 zb_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct zb_device *zbdev;
-//	struct ieee80215_mac *mac;
-//	zb_nwk_t *nwk;
-//	zb_aps_t *aps;
-//	struct net_device *dev;
 	struct ifreq ifr;
 
 	pr_debug("cmd = 0x%x\n", cmd);
 	memset(&ifr, 0, sizeof(ifr));
 
-	zbdev = get_zbd_by_tty(tty);
+	zbdev = tty->disc_data;
 	if (NULL == zbdev) {
 		pr_debug("match is not found\n");
 		return -EINVAL;
 	}
 
-//	mac = _mac(zbdev->phy);
-//	nwk = _nhle(mac);
-//	aps = _apsme(nwk);
-//	dev = (struct net_device*)aps->priv;
 	switch (cmd) {
-#if 0
-	case ZIGBEE_GET_NETDEV_NAME:
-		strncpy(ifr.ifr_name, dev->name, min(strlen(dev->name), sizeof(ifr.ifr_name) - 1));
-		if (copy_to_user((void __user *)arg, &ifr, sizeof(ifr))) {
-			zb_err("copy_to_user() failed\n");
-			return -EINVAL;
-		}
-		return 0;
-#endif	
 	default:
 		pr_debug("Unknown ioctl cmd: %u\n", cmd);
 		return IEEE80215_ERROR;
@@ -845,7 +764,7 @@ zb_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsign
 static void
 zb_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, int count)
 {
-	struct zb_device *p_zbd;
+	struct zb_device *zbdev;
 	int i;
 
 	/* Debug info */
@@ -856,13 +775,13 @@ zb_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, i
 	printk("\n");
 
 	/* Actual processing */
-	p_zbd = get_zbd_by_tty(tty);
-	if (NULL == p_zbd) {
+	zbdev = tty->disc_data;
+	if (NULL == zbdev) {
 		printk(KERN_ERR "%s(): record for tty is not found\n", __FUNCTION__);
 		return;
 	}
 	for (i = 0; i < count; ++i) {
-		process_char(p_zbd, buf[i]);
+		process_char(zbdev, buf[i]);
 	}
 #if 0
 	if (tty->driver->flush_chars) {
@@ -879,14 +798,14 @@ zb_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, i
  * Line discipline device structure
  */
 static struct tty_ldisc_ops zb_ldisc = {
-	.owner  = THIS_MODULE,
-	.magic	= TTY_LDISC_MAGIC,
-	.name	= "zb-ldisc",
-	.open	= zb_tty_open,
-	.close	= zb_tty_close,
-	.hangup	= zb_tty_hangup,
-	.receive_buf = zb_tty_receive,
-	.ioctl	= zb_tty_ioctl,
+	.owner		= THIS_MODULE,
+	.magic		= TTY_LDISC_MAGIC,
+	.name		= "zb-ldisc",
+	.open		= zb_tty_open,
+	.close		= zb_tty_close,
+	.hangup		= zb_tty_hangup,
+	.receive_buf	= zb_tty_receive,
+	.ioctl		= zb_tty_ioctl,
 };
 
 /*****************************************************************************
@@ -897,7 +816,6 @@ static int __init zb_serial_init(void)
 {
 	printk(KERN_INFO "Initializing ZigBee TTY interface");
 
-	INIT_LIST_HEAD(&zbd_list_head);
 	/*init_completion(&ready);*/
 
 	if (tty_register_ldisc(N_IEEE80215, &zb_ldisc) != 0) {
@@ -926,5 +844,5 @@ module_init(zb_serial_init);
 module_exit(zb_serial_cleanup);
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_LDISC(N_ZB);
+MODULE_ALIAS_LDISC(N_IEEE80215);
 
