@@ -109,6 +109,7 @@ typedef enum {
 	PHY_READ_ONLY, /* pib get/set */
 
 	PHY_INVAL = -1, /* all */
+	PHY_ERROR = -2, /* all */
 } phy_status_t;
 
 #endif /* __KERNEL__ */

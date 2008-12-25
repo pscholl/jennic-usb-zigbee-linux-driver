@@ -102,6 +102,9 @@ struct zb_device {
 	struct tty_struct	*tty;
 	struct ieee80215_dev	*dev;
 
+	/* locks the tty for the command */
+	struct mutex		mutex;
+
 	/* Internal state */
 	struct completion	open_done;
 	unsigned char		opened;
@@ -306,7 +309,7 @@ _match_pending_id(struct zb_device *zbdev)
 static void
 process_command(struct zb_device *zbdev)
 {
-	u8 status;
+	phy_status_t status;
 //	u8 data = 0;
 //	struct ieee80215_dev * dev = zbdev->dev;
 
@@ -332,9 +335,9 @@ process_command(struct zb_device *zbdev)
 	zbdev->pending_size = 0;
 
 	if (STATUS_SUCCESS == zbdev->param1) {
-		status = IEEE80215_PHY_SUCCESS;
+		status = PHY_SUCCESS;
 	} else {
-		status = IEEE80215_ERROR;
+		status = PHY_ERROR;
 	}
 	switch (zbdev->id) {
 	case RESP_SET_CHANNEL:
@@ -346,31 +349,31 @@ process_command(struct zb_device *zbdev)
 	case RESP_CCA:
 		/* zbdev->param1 is STATUS_ERR or STATUS_BUSY or STATUS_IDLE */
 		if (STATUS_IDLE == zbdev->param1) {
-			status = IEEE80215_IDLE;
+			status = PHY_IDLE;
 		} else {
-			status = IEEE80215_BUSY;
+			status = PHY_BUSY;
 		}
 //		ieee80215_net_cmd(dev, IEEE80215_MSG_CCA_CONFIRM, status, data);
 		break;
 	case RESP_SET_STATE:
 		if (STATUS_SUCCESS == zbdev->param1) {
-			status = IEEE80215_PHY_SUCCESS;
+			status = PHY_SUCCESS;
 		} else if (STATUS_TRX_OFF == zbdev->param1) {
-			status = IEEE80215_TRX_OFF;
+			status = PHY_TRX_OFF;
 		} else if (STATUS_RX_ON == zbdev->param1) {
-			status = IEEE80215_RX_ON;
+			status = PHY_RX_ON;
 		} else if (STATUS_TX_ON == zbdev->param1) {
-			status = IEEE80215_TX_ON;
+			status = PHY_TX_ON;
 		} else if (STATUS_BUSY_RX == zbdev->param1) {
-			status = IEEE80215_BUSY_RX;
+			status = PHY_BUSY_RX;
 		} else if (STATUS_BUSY_TX == zbdev->param1) {
-			status = IEEE80215_BUSY_TX;
+			status = PHY_BUSY_TX;
 		} else if (STATUS_BUSY == zbdev->param1) {
-			status = IEEE80215_BUSY;
+			status = PHY_BUSY;
 		} else {
 			printk(KERN_ERR "%s: bad status received from firmware: %u\n",
 				__FUNCTION__, zbdev->param1);
-			status = IEEE80215_ERROR;
+			status = PHY_ERROR;
 		}
 //		ieee80215_net_cmd(dev, IEEE80215_MSG_CCA_CONFIRM, status, data);
 		break;
@@ -494,153 +497,200 @@ static int _open_dev(struct zb_device *zbdev) {
 }
 
 /* Valid channels: 1-16 */
-static void
-zb_serial_set_channel(struct ieee80215_dev *dev, u8 channel)
+static phy_status_t
+zb_serial_set_channel(struct ieee80215_dev *dev, int channel)
 {
 	struct zb_device *zbdev;
+	phy_status_t ret;
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
-		return;
+		return PHY_INVAL;
 	}
+
+	if (mutex_lock_interruptible(&zbdev->mutex))
+		return PHY_ERROR;
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-//			dev->set_channel_confirm(dev, IEEE80215_ERROR);
-			return;
+			ret = PHY_ERROR;
+			goto out;
 		}
 	}
 
 	if (_prepare_cmd2(zbdev, CMD_SET_CHANNEL, channel) != 0) {
-//		dev->set_channel_confirm(dev, IEEE80215_ERROR);
-		return;
+		ret = PHY_ERROR;
+		goto out;
 	}
 	/* schedule retransmission in 1 second */
 	schedule_delayed_work(&zbdev->resp_timeout, HZ);
 	_send_pending_data(zbdev);
+
+	// FIXME
+	ret = PHY_SUCCESS;
+out:
+	mutex_unlock(&zbdev->mutex);
+	return ret;
 }
 
-static void
-zb_serial_ed(struct ieee80215_dev *dev)
+static phy_status_t
+zb_serial_ed(struct ieee80215_dev *dev, u8 *level)
 {
 	struct zb_device *zbdev;
+	phy_status_t ret;
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
-		return;
+		return PHY_INVAL;
 	}
+
+	if (mutex_lock_interruptible(&zbdev->mutex))
+		return PHY_ERROR;
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-//			dev->ed_confirm(dev, IEEE80215_ERROR, 0);
-			return;
+			ret = PHY_ERROR;
+			goto out;
 		}
 	}
 
 	if (_prepare_cmd(zbdev, CMD_ED) != 0) {
-//		dev->ed_confirm(dev, IEEE80215_ERROR, 0);
-		return;
+		ret = PHY_ERROR;
+		goto out;
 	}
 	/* schedule retransmission in 1 second */
 	schedule_delayed_work(&zbdev->resp_timeout, HZ);
 	_send_pending_data(zbdev);
+
+	// FIXME
+	ret = PHY_SUCCESS;
+out:
+	mutex_unlock(&zbdev->mutex);
+	return ret;
 }
 
-static void
-zb_serial_cca(struct ieee80215_dev *dev, u8 mode)
+static phy_status_t
+zb_serial_cca(struct ieee80215_dev *dev)
 {
 	struct zb_device *zbdev;
+	phy_status_t ret;
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
-		return;
+		return PHY_INVAL;
 	}
+
+	if (mutex_lock_interruptible(&zbdev->mutex))
+		return PHY_ERROR;
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-//			dev->cca_confirm(dev, IEEE80215_ERROR);
-			return;
+			ret = PHY_ERROR;
+			goto out;
 		}
 	}
 
 	if (_prepare_cmd(zbdev, CMD_CCA) != 0) {
-//		dev->cca_confirm(dev, IEEE80215_ERROR);
-		return;
+		ret = PHY_ERROR;
+		goto out;
 	}
 	/* schedule retransmission in 1 second */
 	schedule_delayed_work(&zbdev->resp_timeout, HZ);
 	_send_pending_data(zbdev);
+
+	// FIXME
+	ret = PHY_SUCCESS;
+out:
+	mutex_unlock(&zbdev->mutex);
+	return ret;
 }
 
-static void
-zb_serial_set_state(struct ieee80215_dev *dev, u8 state)
+static phy_status_t
+zb_serial_set_state(struct ieee80215_dev *dev, phy_status_t state)
 {
 	struct zb_device *zbdev;
 	unsigned char flag;
+	phy_status_t ret;
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
-		return;
+		return PHY_INVAL;
 	}
 
-	if (IEEE80215_RX_ON == state) {
+	if (mutex_lock_interruptible(&zbdev->mutex))
+		return PHY_ERROR;
+
+	if (PHY_RX_ON == state) {
 		flag = RX_MODE;
-	} else if (IEEE80215_TX_ON == state) {
+	} else if (PHY_TX_ON == state) {
 		flag = TX_MODE;
-	} else if (IEEE80215_TRX_OFF == state) {
+	} else if (PHY_TRX_OFF == state) {
 		flag = IDLE_MODE;
-	} else if (IEEE80215_FORCE_TRX_OFF == state) {
+	} else if (PHY_FORCE_TRX_OFF == state) {
 		flag = FORCE_TRX_OFF;
 	} else {
-//		dev->set_state_confirm(dev, IEEE80215_INVALID_PARAMETER);
-		return;
+		ret = PHY_INVAL;
+		goto out;
 	}
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-//			dev->set_state_confirm(dev, IEEE80215_ERROR);
-			return;
+			ret = PHY_ERROR;
+			goto out;
 		}
 	}
 
 	if (_prepare_cmd2(zbdev, CMD_SET_STATE, flag) != 0) {
-//		dev->set_state_confirm(dev, IEEE80215_ERROR);
-		return;
+		ret = PHY_ERROR;
+		goto out;
 	}
 	/* schedule retransmission in 1 second */
 	schedule_delayed_work(&zbdev->resp_timeout, HZ);
 	_send_pending_data(zbdev);
+
+	// FIXME
+	ret = PHY_SUCCESS;
+out:
+	mutex_unlock(&zbdev->mutex);
+	return ret;
 }
 
-static void
+static phy_status_t
 zb_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
 {
 	struct zb_device *zbdev;
+	phy_status_t ret = PHY_ERROR;
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __FUNCTION__);
-		return;
+		return PHY_INVAL;
 	}
+
+	if (mutex_lock_interruptible(&zbdev->mutex))
+		return PHY_ERROR;
 
 	if (!zbdev->opened) {
 		if (!_open_dev(zbdev)) {
-//			dev->xmit_confirm(dev, IEEE80215_ERROR);
-			return;
+			ret = PHY_ERROR;
+			goto out;
 		}
 	}
 
 	if (_prepare_block(zbdev, len, ppdu) != 0) {
-//		dev->xmit_confirm(dev, IEEE80215_ERROR);
-		return;
+		goto out;
 	}
 	/* schedule retransmission in 1 second */
 	schedule_delayed_work(&zbdev->resp_timeout, HZ);
 	_send_pending_data(zbdev);
+
+out:
+	mutex_unlock(&zbdev->mutex);
+	return ret;
 }
 
 /*****************************************************************************
@@ -669,7 +719,7 @@ static struct ieee80215_ops serial_ops = {
 	.ed = zb_serial_ed,
 	.cca = zb_serial_cca,
 	.set_trx_state = zb_serial_set_state,
-//	.set_channel	= zb_serial_set_channel,
+	.set_channel	= zb_serial_set_channel,
 };
 
 
@@ -696,10 +746,16 @@ zb_tty_open(struct tty_struct *tty)
 		printk(KERN_ERR "%s: can't allocate zb_device structure.\n", __FUNCTION__);
 		return -ENOMEM;
 	}
+	mutex_init(&zbdev->mutex);
 	init_completion(&zbdev->open_done);
 	INIT_DELAYED_WORK(&zbdev->resp_timeout, _on_resp_timeout);
 
 	zbdev->dev = ieee80215_alloc_device();
+	if (!zbdev->dev) {
+		err = -ENOMEM;
+		goto out_free_zb;
+	}
+
 	zbdev->dev->name		= "serialdev";
 	zbdev->dev->priv		= zbdev;
 
@@ -712,12 +768,22 @@ zb_tty_open(struct tty_struct *tty)
 	err = ieee80215_register_device(zbdev->dev, &serial_ops);
 	if (err) {
 		printk(KERN_ERR "%s: device register failed\n", __FUNCTION__);
-		ieee80215_free_device(zbdev->dev);
-		kfree(zbdev);
-		return err;
+		goto out_free;
 	}
 
 	return 0;
+
+	ieee80215_unregister_device(zbdev->dev);
+
+out_free:
+	cancel_delayed_work_sync(&zbdev->resp_timeout);
+	tty->disc_data = NULL;
+
+	ieee80215_free_device(zbdev->dev);
+out_free_zb:
+	kfree(zbdev);
+
+	return err;
 }
 
 /*
@@ -738,9 +804,11 @@ zb_tty_close(struct tty_struct *tty)
 		return;
 	}
 
+	ieee80215_unregister_device(zbdev->dev);
+
+	cancel_delayed_work_sync(&zbdev->resp_timeout);
 	tty->disc_data = NULL;
 
-	ieee80215_unregister_device(zbdev->dev);
 	ieee80215_free_device(zbdev->dev);
 	kfree(zbdev);
 }
@@ -776,7 +844,7 @@ zb_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsign
 	switch (cmd) {
 	default:
 		pr_debug("Unknown ioctl cmd: %u\n", cmd);
-		return IEEE80215_ERROR;
+		return -EINVAL;
 	}
 	return 0;
 }
