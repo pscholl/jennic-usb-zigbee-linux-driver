@@ -665,7 +665,7 @@ out:
 }
 
 static phy_status_t
-ieee80215_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
+ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret = PHY_ERROR;
@@ -686,7 +686,10 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
 		}
 	}
 
-	if (_prepare_block(zbdev, len, ppdu) != 0) {
+	if(dev->extra_tx_headroom > 0)
+		memset(skb->data, 0, dev->extra_tx_headroom);
+
+	if (_prepare_block(zbdev, skb->len, skb->data) != 0) {
 		goto out;
 	}
 	/* schedule retransmission in 1 second */
@@ -763,6 +766,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 
 	zbdev->dev->name		= "serialdev";
 	zbdev->dev->priv		= zbdev;
+	zbdev->dev->extra_tx_headroom	= 0;
 
 	zbdev->tty = tty;
 	cleanup(zbdev);
