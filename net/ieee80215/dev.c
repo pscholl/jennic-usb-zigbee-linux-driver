@@ -153,7 +153,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 
 	rtnl_lock();
 	master = ieee80215_to_priv(hw)->master;
-	dev_hold(master);
+	netdev_set_master(dev, master);
 	rtnl_unlock();
 
 	dev->needed_headroom = master->needed_headroom;
@@ -171,8 +171,10 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv *ndp)
 {
 	struct net_device *dev = ndp->dev;
-	dev_put(ieee80215_to_priv(hw)->master);
-	unregister_netdevice(ndp->dev);
+	rtnl_lock();
+	netdev_set_master(dev, NULL);
+	rtnl_unlock();
+	unregister_netdev(ndp->dev);
 	list_del_rcu(&ndp->list);
 	free_netdev(dev);
 }
