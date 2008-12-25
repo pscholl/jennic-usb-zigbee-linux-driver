@@ -395,28 +395,38 @@ process_command(struct zb_device *zbdev)
 	kfree(zbdev->pending_data);
 	zbdev->pending_data = NULL;
 	zbdev->pending_size = 0;
-
-	if (STATUS_SUCCESS == zbdev->param1) {
+	switch(zbdev->param1) {
+	case STATUS_SUCCESS:
 		zbdev->status = PHY_SUCCESS;
-	} else if (STATUS_RX_ON == zbdev->param1) {
+		break;
+	case STATUS_RX_ON:
 		zbdev->status = PHY_RX_ON;
-	} else if (STATUS_TX_ON == zbdev->param1) {
+		break;
+	case STATUS_TX_ON:
 		zbdev->status = PHY_TX_ON;
-	} else if (STATUS_TRX_OFF == zbdev->param1) {
+		break;
+	case STATUS_TRX_OFF:
 		zbdev->status = PHY_TRX_OFF;
-	} else if (STATUS_BUSY == zbdev->param1) {
+		break;
+	case STATUS_BUSY:
 		zbdev->status = PHY_BUSY;
-	} else if (STATUS_IDLE == zbdev->param1) {
+		break;
+	case STATUS_IDLE:
 		zbdev->status = PHY_IDLE;
-	} else if (STATUS_BUSY_RX == zbdev->param1) {
+		break;
+	case STATUS_BUSY_RX:
 		zbdev->status = PHY_BUSY_RX;
-	} else if (STATUS_BUSY_TX == zbdev->param1) {
+		break;
+	case STATUS_BUSY_TX:
 		zbdev->status = PHY_BUSY_TX;
-	} else {
+		break;
+	default:
 		printk(KERN_ERR "%s: bad status received from firmware: %u\n",
 			__FUNCTION__, zbdev->param1);
 		zbdev->status = PHY_ERROR;
+		break;
 	}
+
 	switch (zbdev->id) {
 	case RESP_ED:
 		zbdev->ed = zbdev->param2;
