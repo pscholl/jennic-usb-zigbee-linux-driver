@@ -154,7 +154,7 @@ _send_pending_data(struct zb_device *zbdev)
 }
 
 static int
-_prepare_cmd(struct zb_device *zbdev, u8 id, u8 extra)
+_prepare_cmd(struct zb_device *zbdev, u8 id)
 {
 	u8 len = 0, buf[4];	/* 4 because of 2 start bytes, id and optional extra */
 
@@ -173,14 +173,39 @@ _prepare_cmd(struct zb_device *zbdev, u8 id, u8 extra)
 	buf[len++] = START_BYTE2;
 	buf[len++] = id;
 
-	switch (id) {
-	case CMD_SET_CHANNEL:
-	case CMD_SET_STATE:
-	case DATA_XMIT_STREAM:
-	case RESP_RECV_BLOCK:
-	case RESP_RECV_STREAM:
-		buf[len++] = extra;
+	zbdev->pending_id = id;
+	zbdev->pending_size = len;
+	zbdev->pending_data = kzalloc(zbdev->pending_size, GFP_KERNEL);
+	if (!zbdev->pending_data) {
+		printk(KERN_ERR "%s(): unable to allocate memory\n", __FUNCTION__);
+		zbdev->pending_id = 0;
+		zbdev->pending_size = 0;
+		return -ENOMEM;
 	}
+	memcpy(zbdev->pending_data, buf, len);
+	return 0;
+}
+
+static int
+_prepare_cmd2(struct zb_device *zbdev, u8 id, u8 extra)
+{
+	u8 len = 0, buf[4];	/* 4 because of 2 start bytes, id and optional extra */
+
+	/* Check arguments */
+	BUG_ON(!zbdev);
+
+	printk("%s(): id = %u\n", __FUNCTION__, id);
+	if (zbdev->pending_size) {
+		printk(KERN_ERR "%s(): cmd is already pending, id = %u\n",
+			__FUNCTION__, zbdev->pending_id);
+		BUG();
+	}
+
+	/* Prepare a message */
+	buf[len++] = START_BYTE1;
+	buf[len++] = START_BYTE2;
+	buf[len++] = id;
+	buf[len++] = extra;
 
 	zbdev->pending_id = id;
 	zbdev->pending_size = len;
@@ -445,7 +470,7 @@ process_char(struct zb_device *zbdev, unsigned char c)
 static int _open_dev(struct zb_device *zbdev) {
 	int retries;
 
-	if (_prepare_cmd(zbdev, CMD_OPEN, 0) != 0) {
+	if (_prepare_cmd(zbdev, CMD_OPEN) != 0) {
 		return 0;
 	}
 
@@ -487,7 +512,7 @@ zb_serial_set_channel(struct ieee80215_dev *dev, u8 channel)
 		}
 	}
 
-	if (_prepare_cmd(zbdev, CMD_SET_CHANNEL, channel) != 0) {
+	if (_prepare_cmd2(zbdev, CMD_SET_CHANNEL, channel) != 0) {
 //		dev->set_channel_confirm(dev, IEEE80215_ERROR);
 		return;
 	}
@@ -514,7 +539,7 @@ zb_serial_ed(struct ieee80215_dev *dev)
 		}
 	}
 
-	if (_prepare_cmd(zbdev, CMD_ED, 0) != 0) {
+	if (_prepare_cmd(zbdev, CMD_ED) != 0) {
 //		dev->ed_confirm(dev, IEEE80215_ERROR, 0);
 		return;
 	}
@@ -541,7 +566,7 @@ zb_serial_cca(struct ieee80215_dev *dev, u8 mode)
 		}
 	}
 
-	if (_prepare_cmd(zbdev, CMD_CCA, 0) != 0) {
+	if (_prepare_cmd(zbdev, CMD_CCA) != 0) {
 //		dev->cca_confirm(dev, IEEE80215_ERROR);
 		return;
 	}
@@ -582,7 +607,7 @@ zb_serial_set_state(struct ieee80215_dev *dev, u8 state)
 		}
 	}
 
-	if (_prepare_cmd(zbdev, CMD_SET_STATE, flag) != 0) {
+	if (_prepare_cmd2(zbdev, CMD_SET_STATE, flag) != 0) {
 //		dev->set_state_confirm(dev, IEEE80215_ERROR);
 		return;
 	}
