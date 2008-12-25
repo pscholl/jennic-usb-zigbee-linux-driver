@@ -21,7 +21,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/etherdevice.h>
-#include <linux/list.h>
+#include <linux/rculist.h>
 
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/netdev.h>
@@ -36,9 +36,16 @@ static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_devi
 		return 1;
 	}
 
+	res = priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_TX_ON);
+	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
+		pr_debug("set_trx_state returned %d\n", res);
+		return NETDEV_TX_BUSY;
+	}
+
 	res = priv->hw->ops->tx(&priv->hw->hw, skb);
 	if (res == PHY_SUCCESS) {
 		dev_kfree_skb(skb);
+		priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_RX_ON);
 		return NETDEV_TX_OK;
 	} else
 		return NETDEV_TX_BUSY;
@@ -49,17 +56,20 @@ static int ieee80215_master_open(struct net_device *dev)
 	struct ieee80215_mnetdev_priv *priv;
 	struct ieee80215_netdev_priv *subif;
 	int res = -EOPNOTSUPP;
+	phy_status_t status;
 	priv = netdev_priv(dev);
 	if(!priv) {
 		pr_debug("%s:%s: unable to get master private data\n",
 				__FILE__, __FUNCTION__);
 		return -ENODEV;
 	}
-	pr_debug("%s:%s &priv->interfaces->next = %p\n", __FILE__,
-				__FUNCTION__, &priv->interfaces.next);
-	pr_debug("%s:%s &priv->interfaces->prev = %p\n", __FILE__,
-				__FUNCTION__, &priv->interfaces.prev);
-	list_for_each_entry(subif, &priv->interfaces, list) {
+	status = priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_RX_ON);
+	if (status != PHY_SUCCESS) {
+		pr_debug("set_trx_state returned %d\n", status);
+		return -EBUSY;
+	}
+
+	list_for_each_entry_rcu(subif, &priv->hw->slaves, list) {
 		if(netif_running(subif->dev)) {
 			/* Doing nothing important for now */
 			res = 0;
@@ -76,10 +86,11 @@ static int ieee80215_master_close(struct net_device *dev)
 	struct ieee80215_netdev_priv *subif;
 	netif_stop_queue(dev);
 	priv = netdev_priv(dev);
-	list_for_each_entry(subif, &priv->interfaces, list) {
+	list_for_each_entry_rcu(subif, &priv->hw->slaves, list) {
 		if(netif_running(subif->dev))
 			dev_close(subif->dev);
 	}
+	priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_FORCE_TRX_OFF);
 	return 0;
 }
 static struct net_device_stats *ieee80215_get_master_stats(struct net_device *dev)
@@ -151,7 +162,6 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 		return -ENOMEM;
 	}
 	priv = netdev_priv(dev);
-	INIT_LIST_HEAD(&priv->interfaces);
 	priv->dev = dev;
 	priv->hw = hw;
 	hw->master = dev;
