@@ -628,16 +628,20 @@ ieee80215_serial_set_state(struct ieee80215_dev *dev, phy_status_t state)
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
-
-	if (PHY_RX_ON == state) {
+	switch(state) {
+	case PHY_RX_ON:
 		flag = RX_MODE;
-	} else if (PHY_TX_ON == state) {
+		break;
+	case PHY_TX_ON:
 		flag = TX_MODE;
-	} else if (PHY_TRX_OFF == state) {
+		break;
+	case PHY_TRX_OFF:
 		flag = IDLE_MODE;
-	} else if (PHY_FORCE_TRX_OFF == state) {
+		break;
+	case PHY_FORCE_TRX_OFF:
 		flag = FORCE_TRX_OFF;
-	} else {
+		break;
+	default:
 		ret = PHY_INVAL;
 		goto out;
 	}
