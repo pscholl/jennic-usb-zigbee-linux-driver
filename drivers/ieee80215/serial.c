@@ -402,7 +402,7 @@ static void
 process_char(struct zb_device *zbdev, unsigned char c)
 {
 	/* Data processing */
-	pr_debug("Char: %d\n", c);
+	pr_debug("Char: %d (0x%02x)\n", c, c);
 	switch (zbdev->state) {
 	case STATE_WAIT_START1:
 		if (START_BYTE1 == c) {
@@ -714,7 +714,7 @@ static void _on_resp_timeout(struct work_struct *work)
 	struct zb_device *zbdev = container_of(work, struct zb_device, resp_timeout.work);
 
 	if (zbdev->pending_size) {
-		printk(KERN_INFO "%lu %s(): device response timeout, retry\n",
+		pr_info("%lu %s(): device response timeout, retry\n",
 			jiffies, __FUNCTION__);
 		/* schedule retransmission in 1 second */
 		schedule_delayed_work(&zbdev->resp_timeout, HZ);
