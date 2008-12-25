@@ -618,16 +618,20 @@ ieee80215_serial_set_state(struct ieee80215_dev *dev, phy_status_t state)
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
-
-	if (PHY_RX_ON == state) {
+	switch(state) {
+	case PHY_RX_ON:
 		flag = RX_MODE;
-	} else if (PHY_TX_ON == state) {
+		break;
+	case PHY_TX_ON:
 		flag = TX_MODE;
-	} else if (PHY_TRX_OFF == state) {
+		break;
+	case PHY_TRX_OFF:
 		flag = IDLE_MODE;
-	} else if (PHY_FORCE_TRX_OFF == state) {
+		break;
+	case PHY_FORCE_TRX_OFF:
 		flag = FORCE_TRX_OFF;
-	} else {
+		break;
+	default:
 		ret = PHY_INVAL;
 		goto out;
 	}
@@ -648,7 +652,7 @@ out:
 }
 
 static phy_status_t
-ieee80215_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
+ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -664,7 +668,10 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
 
-	if (send_block(zbdev, len, ppdu) != 0) {
+	if(dev->extra_tx_headroom > 0)
+		memset(skb->data, 0, dev->extra_tx_headroom);
+
+	if (send_block(zbdev, skb->len, skb->data) != 0) {
 		ret = PHY_ERROR;
 		goto out;
 	}
@@ -728,6 +735,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 
 	zbdev->dev->name		= "serialdev";
 	zbdev->dev->priv		= zbdev;
+	zbdev->dev->extra_tx_headroom	= 0;
 
 	zbdev->tty = tty;
 	cleanup(zbdev);
