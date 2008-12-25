@@ -151,22 +151,23 @@ static void serial_tx_worker(struct work_struct *work)
 		container_of(work, struct zb_device, work);
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return; /* FIXME */
-	skb = skb_dequeue_tail(&zbdev->tx_queue);
-	BUG_ON(!skb);
-	if(zbdev->dev->extra_tx_headroom > 0)
-		memset(skb->data, 0, zbdev->dev->extra_tx_headroom);
+	while(skb_queue_len(&zbdev->tx_queue) > 0) {
+		skb = skb_dequeue_tail(&zbdev->tx_queue);
+		BUG_ON(!skb);
+		if(zbdev->dev->extra_tx_headroom > 0)
+			memset(skb->data, 0, zbdev->dev->extra_tx_headroom);
 
-	if (send_block(zbdev, skb->len, skb->data) != 0) {
-		ret = PHY_ERROR;
-		goto out;
-	}
-	if (wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
-		zbdev->status = PHY_ERROR;
-	/* FIXME */
-	complete(&zbdev->work_done);
-
+		if (send_block(zbdev, skb->len, skb->data) != 0) {
+			ret = PHY_ERROR;
+			goto out;
+		}
+		kfree_skb(dev);
+		if (wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
+			zbdev->status = PHY_ERROR;
+		/* FIXME */
+		complete(&zbdev->work_done);
 out:
-	mutex_unlock(&zbdev->mutex);
+		mutex_unlock(&zbdev->mutex);
 }
 
 static int _open_dev(struct zb_device *zbdev);
@@ -699,6 +700,7 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
+	struct sk_buff *dev_skb;
 
 	pr_debug("%s\n",__FUNCTION__);
 
@@ -710,7 +712,14 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
-	skb_queue_tail(&zbdev->tx_queue, skb);
+	init_completion(&zbdev->work_done);
+	dev_skb = skb_clone(skb, GFP_ATOMIC);
+	if(!dev_skb)
+		return PHY_ERROR;
+	/* WARNING: dev_skb is not owned by socket anymore, so it is not possible
+	 * to play around socket in device work function
+	 */
+	skb_queue_tail(&zbdev->tx_queue, dev_skb);
 	schedule_work(&zbdev->work);
 #if 0
 	if(dev->extra_tx_headroom > 0)
@@ -771,7 +780,6 @@ ieee80215_tty_open(struct tty_struct *tty)
 	}
 	mutex_init(&zbdev->mutex);
 	init_completion(&zbdev->open_done);
-	init_completion(&zbdev->work_done);
 	init_waitqueue_head(&zbdev->wq);
 	skb_queue_head_init(&zbdev->tx_queue);
 	INIT_WORK(&zbdev->work, serial_tx_worker);
