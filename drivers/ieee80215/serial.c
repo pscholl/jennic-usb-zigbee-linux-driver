@@ -113,6 +113,7 @@ struct zb_device {
 
 	/* Internal state */
 	struct completion	open_done;
+	struct completion	work_done;
 	unsigned char		opened;
 	volatile u8		pending_id;
 	volatile unsigned int	pending_size;
@@ -125,6 +126,10 @@ struct zb_device {
 	unsigned char		param2;
 	unsigned char		index;
 	unsigned char		data[MAX_DATA_SIZE];
+
+	/* simple TX queue implementation */
+	struct sk_buff_head	tx_queue;
+	struct work_struct	work;
 };
 
 static char	*name;
@@ -135,6 +140,34 @@ module_param_named(dev_name, name, charp, 0);
 /*****************************************************************************
  * ZigBee serial device protocol handling
  *****************************************************************************/
+static int
+send_block(struct zb_device *zbdev, u8 len, u8 *data);
+
+static void serial_tx_worker(struct work_struct *work)
+{
+	int ret;
+	struct sk_buff *skb;
+	struct zb_device *zbdev =
+		container_of(work, struct zb_device, work);
+	if (mutex_lock_interruptible(&zbdev->mutex))
+		return; /* FIXME */
+	skb = skb_dequeue_tail(&zbdev->tx_queue);
+	BUG_ON(!skb);
+	if(zbdev->dev->extra_tx_headroom > 0)
+		memset(skb->data, 0, zbdev->dev->extra_tx_headroom);
+
+	if (send_block(zbdev, skb->len, skb->data) != 0) {
+		ret = PHY_ERROR;
+		goto out;
+	}
+	if (wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
+		zbdev->status = PHY_ERROR;
+	/* FIXME */
+	complete(&zbdev->work_done);
+
+out:
+	mutex_unlock(&zbdev->mutex);
+}
 
 static int _open_dev(struct zb_device *zbdev);
 
@@ -667,7 +700,9 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
-
+	skb_queue_tail(&zbdev->tx_queue, skb);
+	schedule_work(&zbdev->work);
+#if 0
 	if(dev->extra_tx_headroom > 0)
 		memset(skb->data, 0, dev->extra_tx_headroom);
 
@@ -680,10 +715,11 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
+#endif
 out:
 	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n",__FUNCTION__);
-	return ret;
+	return zbdev->status;
 }
 
 /*****************************************************************************
@@ -725,7 +761,10 @@ ieee80215_tty_open(struct tty_struct *tty)
 	}
 	mutex_init(&zbdev->mutex);
 	init_completion(&zbdev->open_done);
+	init_completion(&zbdev->work_done);
 	init_waitqueue_head(&zbdev->wq);
+	skb_queue_head_init(&zbdev->tx_queue);
+	INIT_WORK(&zbdev->work, serial_tx_worker);
 
 	zbdev->dev = ieee80215_alloc_device();
 	if (!zbdev->dev) {
@@ -780,6 +819,8 @@ ieee80215_tty_close(struct tty_struct *tty)
 		printk(KERN_WARNING "%s: match is not found\n", __FUNCTION__);
 		return;
 	}
+	/* FIXME !!! */
+	flush_scheduled_work();
 
 	ieee80215_unregister_device(zbdev->dev);
 
