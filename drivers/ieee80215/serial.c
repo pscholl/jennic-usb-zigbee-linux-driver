@@ -32,6 +32,7 @@
 #include <linux/skbuff.h>
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 
 
@@ -347,6 +348,7 @@ process_command(struct zb_device *zbdev)
 //		ieee80215_net_cmd(dev, IEEE80215_MSG_ED_CONFIRM, status, data);
 		break;
 	case RESP_CCA:
+#if 0
 		/* zbdev->param1 is STATUS_ERR or STATUS_BUSY or STATUS_IDLE */
 		if (STATUS_IDLE == zbdev->param1) {
 			status = PHY_IDLE;
@@ -354,8 +356,10 @@ process_command(struct zb_device *zbdev)
 			status = PHY_BUSY;
 		}
 //		ieee80215_net_cmd(dev, IEEE80215_MSG_CCA_CONFIRM, status, data);
+#endif
 		break;
 	case RESP_SET_STATE:
+#if 0
 		if (STATUS_SUCCESS == zbdev->param1) {
 			status = PHY_SUCCESS;
 		} else if (STATUS_TRX_OFF == zbdev->param1) {
@@ -377,6 +381,7 @@ process_command(struct zb_device *zbdev)
 		}
 //		ieee80215_net_cmd(dev, IEEE80215_MSG_CCA_CONFIRM, status, data);
 		break;
+#endif
 	case RESP_XMIT_BLOCK:
 //		ieee80215_net_cmd(dev, IEEE80215_MSG_XMIT_BLOCK_CONFIRM, status, data);
 		break;
@@ -498,7 +503,7 @@ static int _open_dev(struct zb_device *zbdev) {
 
 /* Valid channels: 1-16 */
 static phy_status_t
-zb_serial_set_channel(struct ieee80215_dev *dev, int channel)
+ieee80215_serial_set_channel(struct ieee80215_dev *dev, int channel)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -535,7 +540,7 @@ out:
 }
 
 static phy_status_t
-zb_serial_ed(struct ieee80215_dev *dev, u8 *level)
+ieee80215_serial_ed(struct ieee80215_dev *dev, u8 *level)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -572,7 +577,7 @@ out:
 }
 
 static phy_status_t
-zb_serial_cca(struct ieee80215_dev *dev)
+ieee80215_serial_cca(struct ieee80215_dev *dev)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -609,7 +614,7 @@ out:
 }
 
 static phy_status_t
-zb_serial_set_state(struct ieee80215_dev *dev, phy_status_t state)
+ieee80215_serial_set_state(struct ieee80215_dev *dev, phy_status_t state)
 {
 	struct zb_device *zbdev;
 	unsigned char flag;
@@ -660,7 +665,7 @@ out:
 }
 
 static phy_status_t
-zb_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
+ieee80215_serial_xmit(struct ieee80215_dev *dev, u8 *ppdu, size_t len)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret = PHY_ERROR;
@@ -715,11 +720,11 @@ static void _on_resp_timeout(struct work_struct *work)
 
 static struct ieee80215_ops serial_ops = {
 	.owner = THIS_MODULE,
-	.tx = zb_serial_xmit,
-	.ed = zb_serial_ed,
-	.cca = zb_serial_cca,
-	.set_trx_state = zb_serial_set_state,
-	.set_channel	= zb_serial_set_channel,
+	.tx = ieee80215_serial_xmit,
+	.ed = ieee80215_serial_ed,
+	.cca = ieee80215_serial_cca,
+	.set_trx_state = ieee80215_serial_set_state,
+	.set_channel	= ieee80215_serial_set_channel,
 };
 
 
@@ -728,7 +733,7 @@ static struct ieee80215_ops serial_ops = {
  * Returns 0 on success.
  */
 static int
-zb_tty_open(struct tty_struct *tty)
+ieee80215_tty_open(struct tty_struct *tty)
 {
 	struct zb_device *zbdev = tty->disc_data;
 	int err;
@@ -794,7 +799,7 @@ out_free_zb:
  * interrupt or softirq context.
  */
 static void
-zb_tty_close(struct tty_struct *tty)
+ieee80215_tty_close(struct tty_struct *tty)
 {
 	struct zb_device *zbdev;
 
@@ -817,9 +822,9 @@ zb_tty_close(struct tty_struct *tty)
  * Called on tty hangup in process context.
  */
 static int
-zb_tty_hangup(struct tty_struct *tty)
+ieee80215_tty_hangup(struct tty_struct *tty)
 {
-	zb_tty_close(tty);
+	ieee80215_tty_close(tty);
 	return 0;
 }
 
@@ -827,7 +832,7 @@ zb_tty_hangup(struct tty_struct *tty)
  * Called in process context only. May be re-entered by multiple ioctl calling threads.
  */
 static int
-zb_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
+ieee80215_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct zb_device *zbdev;
 	struct ifreq ifr;
@@ -855,7 +860,7 @@ zb_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsign
  * as soft interrupt level or mainline.
  */
 static void
-zb_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, int count)
+ieee80215_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, int count)
 {
 	struct zb_device *zbdev;
 	int i;
@@ -890,28 +895,28 @@ zb_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, i
 /*
  * Line discipline device structure
  */
-static struct tty_ldisc_ops zb_ldisc = {
-	.owner		= THIS_MODULE,
-	.magic		= TTY_LDISC_MAGIC,
-	.name		= "zb-ldisc",
-	.open		= zb_tty_open,
-	.close		= zb_tty_close,
-	.hangup		= zb_tty_hangup,
-	.receive_buf	= zb_tty_receive,
-	.ioctl		= zb_tty_ioctl,
+static struct tty_ldisc_ops ieee80215_ldisc = {
+	.owner  = THIS_MODULE,
+	.magic	= TTY_LDISC_MAGIC,
+	.name	= "ieee80215-ldisc",
+	.open	= ieee80215_tty_open,
+	.close	= ieee80215_tty_close,
+	.hangup	= ieee80215_tty_hangup,
+	.receive_buf = ieee80215_tty_receive,
+	.ioctl	= ieee80215_tty_ioctl,
 };
 
 /*****************************************************************************
  * Module service routinues
  *****************************************************************************/
 
-static int __init zb_serial_init(void)
+static int __init ieee80215_serial_init(void)
 {
 	printk(KERN_INFO "Initializing ZigBee TTY interface");
 
 	/*init_completion(&ready);*/
 
-	if (tty_register_ldisc(N_IEEE80215, &zb_ldisc) != 0) {
+	if (tty_register_ldisc(N_IEEE80215, &ieee80215_ldisc) != 0) {
 		printk(KERN_ERR "%s: line discipline register failed\n", __FUNCTION__);
 		return -EINVAL;
 	}
@@ -927,14 +932,14 @@ static int __init zb_serial_init(void)
 	return 0;
 }
 
-static void __exit zb_serial_cleanup(void)
+static void __exit ieee80215_serial_cleanup(void)
 {
 	if (tty_unregister_ldisc(N_IEEE80215) != 0)
 		printk(KERN_CRIT "failed to unregister ZigBee line discipline.\n");
 }
 
-module_init(zb_serial_init);
-module_exit(zb_serial_cleanup);
+module_init(ieee80215_serial_init);
+module_exit(ieee80215_serial_cleanup);
 
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_LDISC(N_IEEE80215);
