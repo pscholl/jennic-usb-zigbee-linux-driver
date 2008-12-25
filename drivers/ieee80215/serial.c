@@ -166,6 +166,8 @@ static void serial_tx_worker(struct work_struct *work)
 			zbdev->status = PHY_ERROR;
 		/* FIXME */
 		complete(&zbdev->work_done);
+		netif_start_queue(skb->dev);
+		/* Here we're ready to receive frames */
 out:
 		mutex_unlock(&zbdev->mutex);
 }
@@ -713,9 +715,12 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
 	init_completion(&zbdev->work_done);
+	netif_stop_queue(skb->dev);
 	dev_skb = skb_clone(skb, GFP_ATOMIC);
 	if(!dev_skb)
 		return PHY_ERROR;
+	/* Check if that is needed */
+	dev_skb->dev = skb->dev;
 	/* WARNING: dev_skb is not owned by socket anymore, so it is not possible
 	 * to play around socket in device work function
 	 */
