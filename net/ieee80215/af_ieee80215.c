@@ -975,6 +975,18 @@ static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int 
 	return sock_no_bind(sock, uaddr, addr_len);
 }
 
+static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
+			int addr_len, int flags)
+{
+	struct sock *sk = sock->sk;
+
+	if (uaddr->sa_family == AF_UNSPEC) {
+		return sk->sk_prot->disconnect(sk, flags);
+	}
+
+	return sk->sk_prot->connect(sk, uaddr, addr_len);
+}
+
 static int ieee80215_sock_raw_ioctl(struct socket *sock, unsigned int cmd, unsigned long argp)
 {
 	struct sock *sk = sock->sk;
@@ -1024,7 +1036,7 @@ static const struct proto_ops ieee80215_raw_ops = {
 	.owner		   = THIS_MODULE,
 	.release	   = ieee80215_sock_release,
 	.bind		   = ieee80215_sock_bind,
-	.connect	   = sock_no_connect,
+	.connect	   = ieee80215_sock_connect,
 	.socketpair	   = sock_no_socketpair,
 	.accept		   = sock_no_accept,
 	.getname	   = sock_no_getname,
@@ -1102,7 +1114,7 @@ static const struct proto_ops ieee80215_dgram_ops = {
 	.owner		   = THIS_MODULE,
 	.release	   = ieee80215_sock_release,
 	.bind		   = ieee80215_sock_bind,
-	.connect	   = sock_no_connect,
+	.connect	   = ieee80215_sock_connect,
 	.socketpair	   = sock_no_socketpair,
 	.accept		   = sock_no_accept,
 	.getname	   = sock_no_getname,
@@ -1202,7 +1214,8 @@ static int ieee80215_subif_deliver(struct net_device *master, struct sk_buff *sk
 		DBG_DUMP(ndp->dev->dev_addr, 8);
 		// FIXME: check CRC if necessary
 		skb_trim(skb, skb->len - 2); // CRC
-		if (!memcmp(head + 3 + 8 , ndp->dev->dev_addr, IEEE80215_ADDR_LEN)) {
+		if (!memcmp(head + 3 + 8 , ndp->dev->dev_addr, IEEE80215_ADDR_LEN) ||
+		    !memcmp(head + 3 + 8 , ndp->dev->broadcast, IEEE80215_ADDR_LEN)) {
 			skb->iif = master->ifindex;
 			skb->dev = ndp->dev;
 			DBG_DUMP(skb->data, skb->len);

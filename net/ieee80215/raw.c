@@ -92,6 +92,17 @@ out:
 	return err;
 }
 
+static int raw_connect(struct sock *sk, struct sockaddr *uaddr,
+			int addr_len)
+{
+	return -ENOTSUPP;
+}
+
+static int raw_disconnect(struct sock *sk, int flags)
+{
+	return 0;
+}
+
 static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		       size_t size)
 {
@@ -231,5 +242,7 @@ struct proto ieee80215_raw_prot = {
 	.recvmsg	= raw_recvmsg,
 	.hash		= raw_hash,
 	.unhash		= raw_unhash,
+	.connect	= raw_connect,
+	.disconnect	= raw_disconnect,
 };
 

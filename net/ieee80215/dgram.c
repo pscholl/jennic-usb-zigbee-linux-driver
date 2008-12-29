@@ -14,6 +14,8 @@ struct dgram_sock {
 	struct sock sk;
 	int bound;
 	int ifindex;
+
+	u8 dst_addr[IEEE80215_ADDR_LEN];
 };
 
 static inline struct dgram_sock *dgram_sk(const struct sock *sk)
@@ -36,6 +38,14 @@ static void dgram_unhash(struct sock *sk)
 	if (sk_del_node_init(sk))
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
 	write_unlock_bh(&dgram_lock);
+}
+
+static int dgram_init(struct sock *sk)
+{
+	struct dgram_sock *ro = dgram_sk(sk);
+
+	memset(&ro->dst_addr, 0xff, sizeof(ro->dst_addr));
+	return 0;
 }
 
 static void dgram_close(struct sock *sk, long timeout)
@@ -113,6 +123,45 @@ out:
 	return err;
 }
 
+// FIXME: autobind
+static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
+			int len)
+{
+	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
+	struct dgram_sock *ro = dgram_sk(sk);
+	int err = 0;
+
+	if (len < sizeof(*addr))
+		return -EINVAL;
+
+	if (addr->family != AF_IEEE80215)
+		return -EINVAL;
+
+	lock_sock(sk);
+
+	if (!ro->bound) {
+		err = -ENETUNREACH;
+		goto out;
+	}
+
+	memcpy(ro->dst_addr, (u8*)&addr->addr, IEEE80215_ADDR_LEN);
+
+out:
+	release_sock(sk);
+	return err;
+}
+
+static int dgram_disconnect(struct sock *sk, int flags)
+{
+	struct dgram_sock *ro = dgram_sk(sk);
+
+	lock_sock(sk);
+	memset(ro->dst_addr, 0xff, IEEE80215_ADDR_LEN);
+	release_sock(sk);
+
+	return 0;
+}
+
 #if 0
 static __inline__ u16 ieee80215_crc_itu(u8 *data, u8 len)
 {
@@ -183,7 +232,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		// FIXME: DSN
 		head[len++] = 0xa5; /* seq number */
 		memcpy(head+len, dev->dev_addr, dev->addr_len); len += dev->addr_len;
-		memcpy(head+len, dev->dev_addr, dev->addr_len); len += dev->addr_len;
+		memcpy(head+len, ro->dst_addr, IEEE80215_ADDR_LEN); len += IEEE80215_ADDR_LEN;
 		memcpy(skb_put(skb, len), head, len);
 
 	} while (0);
@@ -282,11 +331,14 @@ struct proto ieee80215_dgram_prot = {
 	.name		= "IEEE-802.15.4-MAC",
 	.owner		= THIS_MODULE,
 	.obj_size	= sizeof(struct sock),
+	.init		= dgram_init,
 	.close		= dgram_close,
 	.bind		= dgram_bind,
 	.sendmsg	= dgram_sendmsg,
 	.recvmsg	= dgram_recvmsg,
 	.hash		= dgram_hash,
 	.unhash		= dgram_unhash,
+	.connect	= dgram_connect,
+	.disconnect	= dgram_disconnect,
 };
 
