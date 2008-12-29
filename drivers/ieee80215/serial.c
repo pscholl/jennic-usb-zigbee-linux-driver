@@ -161,15 +161,16 @@ static void serial_tx_worker(struct work_struct *work)
 			ret = PHY_ERROR;
 			goto out;
 		}
-		kfree_skb(dev);
+		kfree_skb(skb);
 		if (wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
 			zbdev->status = PHY_ERROR;
 		/* FIXME */
 		complete(&zbdev->work_done);
 		netif_start_queue(skb->dev);
 		/* Here we're ready to receive frames */
+	}
 out:
-		mutex_unlock(&zbdev->mutex);
+	mutex_unlock(&zbdev->mutex);
 }
 
 static int _open_dev(struct zb_device *zbdev);
