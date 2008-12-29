@@ -152,10 +152,12 @@ static void serial_tx_worker(struct work_struct *work)
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return; /* FIXME */
 	while(skb_queue_len(&zbdev->tx_queue) > 0) {
+		struct net_device *dev;
 		skb = skb_dequeue_tail(&zbdev->tx_queue);
 		BUG_ON(!skb);
 		if(zbdev->dev->extra_tx_headroom > 0)
 			memset(skb->data, 0, zbdev->dev->extra_tx_headroom);
+		dev = skb->dev;
 
 		if (send_block(zbdev, skb->len, skb->data) != 0) {
 			ret = PHY_ERROR;
@@ -166,7 +168,7 @@ static void serial_tx_worker(struct work_struct *work)
 			zbdev->status = PHY_ERROR;
 		/* FIXME */
 		complete(&zbdev->work_done);
-		netif_start_queue(skb->dev);
+		netif_start_queue(dev);
 		/* Here we're ready to receive frames */
 	}
 out:
