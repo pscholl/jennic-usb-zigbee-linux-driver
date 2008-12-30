@@ -987,48 +987,21 @@ static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 	return sk->sk_prot->connect(sk, uaddr, addr_len);
 }
 
-static int ieee80215_sock_raw_ioctl(struct socket *sock, unsigned int cmd, unsigned long argp)
+static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
 	struct sock *sk = sock->sk;
-	void __user *arg = (void __user *) argp;
-	struct ifreq req;
-	struct net_device *dev;
-	struct ieee80215_mnetdev_priv * priv;
-	int ret;
-	dev = __dev_get_by_name(&init_net, req.ifr_name);
-	if (!dev) {
-		pr_debug("no dev\n");
-		return -ENODEV;
-	}
-	BUG_ON(dev->master);
-	priv = netdev_priv(dev);
-	switch (cmd) {
-	case SIOCGIFADDR:
-	case SIOCSIFADDR:
-	case SIOCGIFFLAGS:
-	case SIOCSIFFLAGS:
-		if(!dev->do_ioctl)
-			return -ENOIOCTLCMD;
-		if (copy_from_user(&req, arg, sizeof(req))) {
-			pr_debug("copy_from_user() failed\n");
-			return -EFAULT;
-		}
-		ret = dev->do_ioctl(dev, &req, cmd);
-		return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : ret;
+	switch(cmd)
+	{
 	case SIOCGSTAMP:
-		return sock_get_timestamp(sk, (struct timeval __user *)argp);
-	case IEEE80215_SIOC_ADDMAC:
-		/* In this case we provide req, too */
-		if (copy_from_user(&req, arg, sizeof(req))) {
-			pr_debug("copy_from_user() failed\n");
-			return -EFAULT;
-		}
-		ieee80215_add_slave(&priv->hw->hw, (u8 *) &req.ifr_hwaddr.sa_data);
-		break;
+		return sock_get_timestamp(sk, (struct timeval __user *)arg);
+
+	case SIOCGSTAMPNS:
+		return sock_get_timestampns(sk, (struct timespec __user *)arg);
 	default:
-		return -ENOIOCTLCMD;
+		if (!sk->sk_prot->ioctl)
+			return -ENOIOCTLCMD;
+		return sk->sk_prot->ioctl(sk, cmd, arg);
 	}
-	return 0;
 }
 
 static const struct proto_ops ieee80215_raw_ops = {
@@ -1041,7 +1014,7 @@ static const struct proto_ops ieee80215_raw_ops = {
 	.accept		   = sock_no_accept,
 	.getname	   = sock_no_getname,
 	.poll		   = sock_no_poll,
-	.ioctl		   = ieee80215_sock_raw_ioctl,
+	.ioctl		   = ieee80215_sock_ioctl,
 	.listen		   = sock_no_listen,
 	.shutdown	   = sock_no_shutdown,
 	.setsockopt	   = sock_common_setsockopt,
@@ -1056,59 +1029,6 @@ static const struct proto_ops ieee80215_raw_ops = {
 #endif
 };
 
-static int ieee80215_sock_dgram_ioctl(struct socket *sock, unsigned int cmd, unsigned long argp)
-{
-	struct sock *sk = sock->sk;
-	void __user *arg = (void __user *) argp;
-	struct ifreq req;
-	struct net_device *dev;
-	struct ieee80215_netdev_priv * priv;
-	struct ieee80215_mnetdev_priv * mpriv;
-#if 0
-	/* Wil use it for protocol-level communication */
-	struct ieee80215_user_data data;
-#endif
-	int ret;
-	dev = __dev_get_by_name(&init_net, req.ifr_name);
-	if (!dev) {
-		pr_debug("no dev\n");
-		return -ENODEV;
-	}
-	if(dev->master) {
-		priv = netdev_priv(dev);
-		mpriv = netdev_priv(dev->master);
-	} else {
-		priv = NULL;
-		mpriv = netdev_priv(dev);
-	}
-	switch (cmd) {
-	case SIOCGIFADDR:
-	case SIOCSIFADDR:
-	case SIOCGIFFLAGS:
-	case SIOCSIFFLAGS:
-		if (copy_from_user(&req, arg, sizeof(req))) {
-			pr_debug("copy_from_user() failed\n");
-			return -EFAULT;
-		}
-		ret = dev->do_ioctl(dev, &req, cmd);
-		return copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : ret;
-	case SIOCGSTAMP:
-		return sock_get_timestamp(sk, (struct timeval __user *)argp);
-	case IEEE80215_SIOC_NETWORK_DISCOVERY:
-		break;
-	case IEEE80215_SIOC_NETWORK_FORMATION:
-		break;
-	case IEEE80215_SIOC_PERMIT_JOINING:
-		break;
-	case IEEE80215_SIOC_START_ROUTER:
-		break;
-	case IEEE80215_SIOC_JOIN:
-		break;
-	default:
-		return -ENOIOCTLCMD;
-	}
-	return 0;
-}
 static const struct proto_ops ieee80215_dgram_ops = {
 	.family		   = PF_IEEE80215,
 	.owner		   = THIS_MODULE,
@@ -1119,7 +1039,7 @@ static const struct proto_ops ieee80215_dgram_ops = {
 	.accept		   = sock_no_accept,
 	.getname	   = sock_no_getname,
 	.poll		   = sock_no_poll,
-	.ioctl		   = ieee80215_sock_dgram_ioctl,
+	.ioctl		   = ieee80215_sock_ioctl,
 	.listen		   = sock_no_listen,
 	.shutdown	   = sock_no_shutdown,
 	.setsockopt	   = sock_common_setsockopt,

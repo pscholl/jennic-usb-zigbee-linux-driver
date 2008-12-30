@@ -6,6 +6,7 @@
 #include <net/sock.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
+#include <asm/ioctls.h>
 
 static HLIST_HEAD(dgram_head);
 static DEFINE_RWLOCK(dgram_lock);
@@ -121,6 +122,50 @@ out:
 	release_sock(sk);
 
 	return err;
+}
+
+static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
+{
+	switch (cmd) {
+	case SIOCOUTQ:
+	{
+		int amount = atomic_read(&sk->sk_wmem_alloc);
+		return put_user(amount, (int __user *)arg);
+	}
+
+	case SIOCINQ:
+	{
+		struct sk_buff *skb;
+		unsigned long amount;
+
+		amount = 0;
+		spin_lock_bh(&sk->sk_receive_queue.lock);
+		skb = skb_peek(&sk->sk_receive_queue);
+		if (skb != NULL) {
+			/*
+			 * We will only return the amount
+			 * of this packet since that is all
+			 * that will be read.
+			 */
+			// FIXME: parse the header for more correct value
+			amount = skb->len - (3+8+8);
+		}
+		spin_unlock_bh(&sk->sk_receive_queue.lock);
+		return put_user(amount, (int __user *)arg);
+	}
+
+	case IEEE80215_SIOC_NETWORK_DISCOVERY:
+		break;
+	case IEEE80215_SIOC_NETWORK_FORMATION:
+		break;
+	case IEEE80215_SIOC_PERMIT_JOINING:
+		break;
+	case IEEE80215_SIOC_START_ROUTER:
+		break;
+	case IEEE80215_SIOC_JOIN:
+		break;
+	}
+	return -ENOIOCTLCMD;
 }
 
 // FIXME: autobind
@@ -340,5 +385,6 @@ struct proto ieee80215_dgram_prot = {
 	.unhash		= dgram_unhash,
 	.connect	= dgram_connect,
 	.disconnect	= dgram_disconnect,
+	.ioctl		= dgram_ioctl,
 };
 
