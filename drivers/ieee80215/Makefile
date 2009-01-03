@@ -1,3 +1,4 @@
-obj-y += fake.o
-obj-y += serial.o
+obj-$(CONFIG_IEEE802154_FAKE) += fake.o
+obj-$(CONFIG_IEEE802154_SERIAL) += serial.o
+
 EXTRA_CFLAGS += -DDEBUG -DCONFIG_FFD

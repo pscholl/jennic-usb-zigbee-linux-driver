@@ -1,0 +1,20 @@
+menuconfig IEEE802154_DRIVERS
+	bool "IEEE 802.15.4 drivers"
+	depends on NETDEVICES && IEEE802154
+	default y
+	---help---
+	  Say Y here to get to see options for IEEE 802.15.4 Low-Rate
+	  Wireless Personal Area Network device drivers. This option alone
+	  does not add any kernel code.
+
+	  If you say N, all options in this submenu will be skipped and disabled.
+
+if IEEE802154_DRIVERS && NETDEVICES && IEEE802154
+config IEEE802154_FAKE
+	tristate "Fake LR-WPAN driver"
+
+config IEEE802154_SERIAL
+	tristate "Simple LR-WPAN UART driver"
+
+endif
+

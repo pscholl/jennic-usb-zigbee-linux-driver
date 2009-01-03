@@ -1,6 +1,6 @@
-obj-y	+=	ieee80215.o af_80215.o
-ieee80215-objs	= main.o mdev.o dev.o
-af_80215-objs	= af_ieee80215.o raw.o dgram.o
+obj-$(CONFIG_IEEE802154) +=	ieee80215.o af_80215.o
+ieee80215-objs		:= main.o mdev.o dev.o
+af_80215-objs		:= af_ieee80215.o raw.o dgram.o
 
 #
 #obj-y	+= 	ieee80215_phy.o ieee80215_mac_lib.o ieee80215_mac.o \
