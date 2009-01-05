@@ -62,6 +62,8 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	tail_off = 2;
 	skb_trim(skb, skb->len - tail_off); // CRC
 
+	rcu_read_lock();
+
 	list_for_each_entry_rcu(ndp, &priv->slaves, list)
 	{
 		struct sk_buff *skb2 = NULL;
@@ -79,6 +81,8 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 		skb2->protocol = htons(ETH_P_IEEE80215);
 		netif_rx(skb2);
 	}
+
+	rcu_read_unlock();
 
 	skb_push(skb, head_off);
 	skb_put(skb, tail_off);
