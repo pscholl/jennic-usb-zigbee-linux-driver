@@ -533,102 +533,46 @@ static struct net_proto_family ieee80215_family_ops = {
 	.owner		= THIS_MODULE,
 };
 
-static int ieee80215_subif_deliver(struct net_device *master, struct sk_buff *skb)
-{
-	struct ieee80215_mnetdev_priv *mpriv = netdev_priv(master);
-	struct ieee80215_priv *priv = mpriv->hw;
-	struct ieee80215_netdev_priv *ndp;
-
-	if (skb->len < 3 + 4 + 2)
-		return NET_RX_DROP;
-
-	list_for_each_entry_rcu(ndp, &priv->slaves, list)
-	{
-		// FIXME: correct address checking
-		unsigned char *head = skb->data;
-		skb_pull(skb, 3+8+8);
-		DBG_DUMP(head+3+8, 8);
-		DBG_DUMP(ndp->dev->dev_addr, 8);
-		// FIXME: check CRC if necessary
-		skb_trim(skb, skb->len - 2); // CRC
-		if (!memcmp(head + 3 + 8 , ndp->dev->dev_addr, IEEE80215_ADDR_LEN) ||
-		    !memcmp(head + 3 + 8 , ndp->dev->broadcast, IEEE80215_ADDR_LEN)) {
-			skb->iif = master->ifindex;
-			skb->dev = ndp->dev;
-			DBG_DUMP(skb->data, skb->len);
-			ieee80215_dgram_deliver(skb->dev, skb);
-		}
-	}
-
-	return 0;
-}
-
 static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
-//	struct sock *sk;
-
 	DBG_DUMP(skb->data, skb->len);
 	if(!netif_running(dev))
 		return -ENODEV;
-	pr_debug("got frame, type %d, dev %p master %p\n", dev->type, dev, dev->master);
-	if ((dev->type != ARPHRD_IEEE80215_PHY && dev->type != ARPHRD_IEEE80215) || !net_eq(dev_net(dev), &init_net)) {
+	pr_debug("got frame, type %d, dev %p\n", dev->type, dev);
+	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net)) {
 		kfree_skb(skb);
 		return NET_RX_DROP;
 	}
 
-	ieee80215_raw_deliver(dev, skb);
-	return ieee80215_subif_deliver(dev, skb);
-#if 0
-	/* Control frame processing */
-	if(skb->len < 5 && !dev->master) {
-		struct ieee80215_netdev_priv *mpriv = netdev_priv(dev);
-		pr_debug("Got control frame %d %d %d\n", skb->data[1], skb->data[2], skb->data[3]);
-		/* We won't put control frames to socket buffer, no need to bother */
-		BUG_ON(!dev);
-		BUG_ON(!skb->data);
-		ieee80215_process_msg(dev, skb->data[1], skb->data[2], skb->data[3]);
-		mpriv->stats.tx_bytes += skb->len;
-		mpriv->stats.tx_packets++;
-		kfree_skb(skb);
-		return 0;
-	}
-
-	pr_debug("%s:%s dev->master = %p, skb->len = %d\n",
-			__FILE__, __FUNCTION__, dev->master, skb->len);
-	if(dev->master) {
-		struct ieee80215_netdev_priv *priv = netdev_priv(dev);
-		sk = priv->sk;
-		skb->sk = sk;
-		if(!sk) {/* Nothing is binded */
-				kfree_skb(skb);
-				priv->stats.tx_dropped++;
-		}
-
-	/* Write function to recognize frame addresses */
-
-		BUG_ON(!sk);
-		BUG_ON(!skb);
-		priv->mac->phy->receive_block(priv->mac->phy, skb->len, skb->data, skb->head[0]);
-		//ieee80215_pd_data_indicate(priv->mac, skb);
-		if (sock_queue_rcv_skb(sk, skb) < 0) {
-			kfree_skb(skb);
-			priv->stats.tx_dropped++;
-		}
-	} else {
-		struct ieee80215_mnetdev_priv *mpriv = netdev_priv(dev);
-		pr_debug("%s:%s: Got some junk from master interface\n",
-				__FILE__, __FUNCTION__);
-		kfree_skb(skb);
-		mpriv->stats.tx_dropped++;
-	}
-#endif
+	return ieee80215_dgram_deliver(dev, skb);
 }
 
 
 static struct packet_type ieee80215_packet_type = {
 	.type = __constant_htons(ETH_P_IEEE80215),
 	.func = ieee80215_rcv,
+};
+
+static int ieee80215_raw_rcv(struct sk_buff *skb, struct net_device *dev,
+	struct packet_type *pt, struct net_device *orig_dev)
+{
+	DBG_DUMP(skb->data, skb->len);
+	if(!netif_running(dev))
+		return -ENODEV;
+	pr_debug("got RAW frame, type %d, dev %p\n", dev->type, dev);
+	if (dev->type != ARPHRD_IEEE80215_PHY || !net_eq(dev_net(dev), &init_net)) {
+		kfree_skb(skb);
+		return NET_RX_DROP;
+	}
+
+	return ieee80215_raw_deliver(dev, skb);
+}
+
+
+static struct packet_type ieee80215_raw_packet_type = {
+	.type = __constant_htons(ETH_P_IEEE80215_MAC),
+	.func = ieee80215_raw_rcv,
 };
 
 static int __init af_ieee80215_init(void)
@@ -647,6 +591,7 @@ static int __init af_ieee80215_init(void)
 	rc = sock_register(&ieee80215_family_ops);
 	if (rc)
 		goto err_sock;
+	dev_add_pack(&ieee80215_raw_packet_type);
 	dev_add_pack(&ieee80215_packet_type);
 
 	rc = 0;
@@ -662,6 +607,7 @@ out:
 static void af_ieee80215_remove(void)
 {
 	dev_remove_pack(&ieee80215_packet_type);
+	dev_remove_pack(&ieee80215_raw_packet_type);
 	sock_unregister(PF_IEEE80215);
 	proto_unregister(&ieee80215_dgram_prot);
 	proto_unregister(&ieee80215_raw_prot);

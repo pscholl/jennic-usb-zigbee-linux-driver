@@ -1,6 +1,6 @@
 #ifndef  _AF_IEEE80215_H
 #define  _AF_IEEE80215_H
-#include <net/ieee80215/lib.h>
+//#include <net/ieee80215/lib.h>
 #define  IEEE80215_MSG_CHANNEL_CONFIRM		1
 #define  IEEE80215_MSG_ED_CONFIRM		2
 #define  IEEE80215_MSG_CCA_CONFIRM		3
@@ -31,7 +31,7 @@ struct ieee80215_user_data {
 	int power;
 	int mac_security;
 	u16 panid; 
-	struct ieee80215_dev_address addr; /**< Peer address */
+//	struct ieee80215_dev_address addr; /**< Peer address */
 };
 
 /* PF_IEEE80215, SOCK_DGRAM */

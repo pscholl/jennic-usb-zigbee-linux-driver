@@ -84,12 +84,6 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 			goto out;
 		}
 
-		if (!dev->master) {
-			dev_put(dev);
-			err = -EINVAL;
-			goto out;
-		}
-
 		ifindex = dev->ifindex;
 		dev_put(dev);
 	} else if (addr->addr) {
@@ -103,12 +97,6 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 
 		if (!dev) {
 			err = -ENODEV;
-			goto out;
-		}
-
-		if (!dev->master) {
-			dev_put(dev);
-			err = -EINVAL;
 			goto out;
 		}
 
@@ -353,23 +341,39 @@ static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 	return NET_RX_SUCCESS;
 }
 
-// FIXME: this should probably be moved to somewhere else
-void ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
+int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 {
-	struct sock *sk;
+	struct sock *sk, *prev = NULL;
 	struct hlist_node*node;
+	int ret = NET_RX_SUCCESS;
 
 	read_lock(&dgram_lock);
 	sk_for_each(sk, node, &dgram_head) {
 		struct dgram_sock *ro = dgram_sk(sk);
-		if (ro->bound && ro->ifindex == dev->ifindex) {
-			struct sk_buff *clone;
-			clone = skb_clone(skb, GFP_ATOMIC);
-			if (clone)
-				dgram_rcv_skb(sk, clone);
+		if (!ro->bound ||
+		  (ro->ifindex == dev->ifindex)) {
+
+			if (prev) {
+				struct sk_buff *clone;
+				clone = skb_clone(skb, GFP_ATOMIC);
+				if (clone)
+					dgram_rcv_skb(prev, clone);
+			}
+
+			prev = sk;
 		}
 	}
+
+	if (prev)
+		dgram_rcv_skb(prev, skb);
+	else {
+		kfree_skb(skb);
+		ret = NET_RX_DROP;
+	}
+
 	read_unlock(&dgram_lock);
+
+	return ret;
 }
 
 struct proto ieee80215_dgram_prot = {

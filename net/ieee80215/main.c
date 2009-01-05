@@ -75,15 +75,3 @@ void ieee80215_unregister_device(struct ieee80215_dev *dev)
 	module_put(priv->ops->owner);
 }
 
-// FIXME: maybe move this:
-void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
-{
-	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
-
-	BUG_ON(!skb);
-
-	skb->dev = priv->master;
-	skb->protocol = htons(ETH_P_IEEE80215);
-
-	netif_rx(skb);
-}

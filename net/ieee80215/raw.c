@@ -70,14 +70,7 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		goto out;
 	}
 
-	if (dev->master) {
-		struct net_device *old = dev;
-		dev = dev->master;
-		dev_hold(dev);
-		dev_put(old);
-	}
-
-	if (dev->type != ARPHRD_IEEE80215_PHY) {
+	if (dev->type != ARPHRD_IEEE80215_PHY || dev->type != ARPHRD_IEEE80215) {
 		err = -ENODEV;
 		goto out_put;
 	}
@@ -211,25 +204,39 @@ static int raw_rcv_skb(struct sock * sk, struct sk_buff * skb)
 }
 
 
-void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
+int ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 {
-	struct sock *sk;
+	struct sock *sk, *prev = NULL;
 	struct hlist_node*node;
+	int ret = NET_RX_SUCCESS;
 
 	read_lock(&raw_lock);
 	sk_for_each(sk, node, &raw_head) {
 		struct raw_sock *ro = raw_sk(sk);
 		if (!ro->bound ||
-		  (ro->ifindex == dev->ifindex ||
-		   (dev->master && ro->ifindex == dev->master->ifindex))) {
+		  ro->ifindex == dev->ifindex) {
 
-			struct sk_buff *clone;
-			clone = skb_clone(skb, GFP_ATOMIC);
-			if (clone)
-				raw_rcv_skb(sk, clone);
+			if (prev) {
+				struct sk_buff *clone;
+				clone = skb_clone(skb, GFP_ATOMIC);
+				if (clone)
+					raw_rcv_skb(prev, clone);
+			}
+
+			prev = sk;
 		}
 	}
+
+	if (prev)
+		raw_rcv_skb(prev, skb);
+	else {
+		kfree_skb(skb);
+		ret = NET_RX_DROP;
+	}
+
 	read_unlock(&raw_lock);
+
+	return ret;
 }
 
 struct proto ieee80215_raw_prot = {

@@ -27,6 +27,7 @@
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
+	struct ieee80215_priv *hw;
 	struct net_device *dev;
 	struct net_device_stats stats;
 };
@@ -47,8 +48,8 @@ void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv 
 // FIXME: this clearly should be moved somewhere else
 extern struct proto ieee80215_raw_prot;
 extern struct proto ieee80215_dgram_prot;
-void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);
-void ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
+int ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);
+int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
 
 #endif
 
