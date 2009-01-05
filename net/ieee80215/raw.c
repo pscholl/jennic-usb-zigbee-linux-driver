@@ -70,7 +70,7 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		goto out;
 	}
 
-	if (dev->type != ARPHRD_IEEE80215_PHY || dev->type != ARPHRD_IEEE80215) {
+	if (dev->type != ARPHRD_IEEE80215_PHY && dev->type != ARPHRD_IEEE80215) {
 		err = -ENODEV;
 		goto out_put;
 	}
