@@ -51,5 +51,8 @@ extern struct proto ieee80215_dgram_prot;
 void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);
 int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
 
+// FIXME: this clearly should be moved somewhere else
+void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
+
 #endif
 

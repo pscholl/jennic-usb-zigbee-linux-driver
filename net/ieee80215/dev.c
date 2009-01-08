@@ -109,7 +109,7 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	return pos;
 }
 
-int ieee80215_header_parse(const struct sk_buff *skb, unsigned char *haddr)
+static int ieee80215_header_parse(const struct sk_buff *skb, unsigned char *haddr)
 {
 	const char *hdr = skb_mac_header(skb);
 	memcpy(haddr, hdr + 3, IEEE80215_ADDR_LEN);
@@ -181,4 +181,52 @@ void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv 
 	unregister_netdev(ndp->dev);
 	list_del_rcu(&ndp->list);
 	free_netdev(dev);
+}
+
+void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
+{
+	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
+
+	struct ieee80215_netdev_priv *ndp;
+	unsigned char *head;
+	unsigned int head_off, tail_off;
+
+	if (skb->len < /*3 + 4 + 2*/ 3 + 8 + 8 + 2)
+		return;
+
+	/* FIXME: We currently support only simple 64bit addressing */
+	head_off = 3 + IEEE80215_ADDR_LEN + IEEE80215_ADDR_LEN;
+	head = skb->data;
+	skb_pull(skb, head_off);
+//	DBG_DUMP(head+3+IEEE80215_ADDR_LEN, 8);
+
+	// FIXME: check CRC if necessary
+	tail_off = 2;
+	skb_trim(skb, skb->len - tail_off); // CRC
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(ndp, &priv->slaves, list)
+	{
+		struct sk_buff *skb2 = NULL;
+//		DBG_DUMP(ndp->dev->dev_addr, 8);
+
+		skb2 = skb_clone(skb, GFP_ATOMIC);
+
+		if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
+			skb2->pkt_type = PACKET_HOST;
+		else if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->broadcast, IEEE80215_ADDR_LEN))
+			skb2->pkt_type = PACKET_BROADCAST;
+		else
+			skb2->pkt_type = PACKET_OTHERHOST;
+
+		skb2->dev = ndp->dev;
+		netif_rx(skb2);
+	}
+
+	rcu_read_unlock();
+
+	skb_push(skb, head_off);
+	skb_put(skb, tail_off);
+
 }

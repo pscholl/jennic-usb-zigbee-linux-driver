@@ -35,9 +35,6 @@
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
-	struct ieee80215_netdev_priv *ndp;
-	unsigned char *head;
-	unsigned int head_off, tail_off;
 
 	BUG_ON(!skb);
 
@@ -45,47 +42,10 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 	skb_reset_mac_header(skb);
 
-	if (skb->len < /*3 + 4 + 2*/ 3 + 8 + 8 + 2)
-		goto out_master;
-
 	skb->protocol = htons(ETH_P_IEEE80215);
 
-	/* FIXME: We currently support only simple 64bit addressing */
-	head_off = 3 + IEEE80215_ADDR_LEN + IEEE80215_ADDR_LEN;
-	head = skb->data;
-	skb_pull(skb, head_off);
-//	DBG_DUMP(head+3+IEEE80215_ADDR_LEN, 8);
+	ieee80215_subif_rx(dev, skb);
 
-	// FIXME: check CRC if necessary
-	tail_off = 2;
-	skb_trim(skb, skb->len - tail_off); // CRC
-
-	rcu_read_lock();
-
-	list_for_each_entry_rcu(ndp, &priv->slaves, list)
-	{
-		struct sk_buff *skb2 = NULL;
-//		DBG_DUMP(ndp->dev->dev_addr, 8);
-
-		skb2 = skb_clone(skb, GFP_ATOMIC);
-
-		if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
-			skb2->pkt_type = PACKET_HOST;
-		else if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->broadcast, IEEE80215_ADDR_LEN))
-			skb2->pkt_type = PACKET_BROADCAST;
-		else
-			skb2->pkt_type = PACKET_OTHERHOST;
-
-		skb2->dev = ndp->dev;
-		netif_rx(skb2);
-	}
-
-	rcu_read_unlock();
-
-	skb_push(skb, head_off);
-	skb_put(skb, tail_off);
-
-out_master:
 	skb->dev = priv->master;
 	netif_rx(skb);
 }
