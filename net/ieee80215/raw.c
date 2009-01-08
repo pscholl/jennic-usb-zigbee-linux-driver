@@ -104,7 +104,6 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	unsigned mtu;
 	struct sk_buff *skb;
 	int err;
-	int hh_len;
 
 	if (msg->msg_flags & MSG_OOB) {
 		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
@@ -127,17 +126,17 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		return -EINVAL;
 	}
 
-	hh_len = LL_ALLOCATED_SPACE(dev);
-	skb = sock_alloc_send_skb(sk, hh_len + size, msg->msg_flags & MSG_DONTWAIT,
+	skb = sock_alloc_send_skb(sk, LL_ALLOCATED_SPACE(dev) + size, msg->msg_flags & MSG_DONTWAIT,
 				  &err);
 	if (!skb) {
 		dev_put(dev);
 		return err;
 	}
 
-	skb_reserve(skb, hh_len);
+	skb_reserve(skb, LL_RESERVED_SPACE(dev));
 
 	skb_reset_mac_header(skb);
+	skb_reset_network_header(skb);
 
 	err = memcpy_fromiovec(skb_put(skb, size), msg->msg_iov, size);
 	if (err < 0) {
@@ -204,11 +203,10 @@ static int raw_rcv_skb(struct sock * sk, struct sk_buff * skb)
 }
 
 
-int ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
+void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 {
-	struct sock *sk, *prev = NULL;
+	struct sock *sk;
 	struct hlist_node*node;
-	int ret = NET_RX_SUCCESS;
 
 	read_lock(&raw_lock);
 	sk_for_each(sk, node, &raw_head) {
@@ -216,27 +214,14 @@ int ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 		if (!ro->bound ||
 		  ro->ifindex == dev->ifindex) {
 
-			if (prev) {
-				struct sk_buff *clone;
-				clone = skb_clone(skb, GFP_ATOMIC);
-				if (clone)
-					raw_rcv_skb(prev, clone);
-			}
+			struct sk_buff *clone;
 
-			prev = sk;
+			clone = skb_clone(skb, GFP_ATOMIC);
+			if (clone)
+				raw_rcv_skb(sk, clone);
 		}
 	}
-
-	if (prev)
-		raw_rcv_skb(prev, skb);
-	else {
-		kfree_skb(skb);
-		ret = NET_RX_DROP;
-	}
-
 	read_unlock(&raw_lock);
-
-	return ret;
 }
 
 struct proto ieee80215_raw_prot = {

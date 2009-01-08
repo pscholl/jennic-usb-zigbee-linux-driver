@@ -540,39 +540,23 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	if(!netif_running(dev))
 		return -ENODEV;
 	pr_debug("got frame, type %d, dev %p\n", dev->type, dev);
-	if (dev->type != ARPHRD_IEEE80215 || !net_eq(dev_net(dev), &init_net)) {
-		kfree_skb(skb);
-		return NET_RX_DROP;
-	}
+	if (!net_eq(dev_net(dev), &init_net))
+		goto drop;
 
-	return ieee80215_dgram_deliver(dev, skb);
+	ieee80215_raw_deliver(dev, skb);
+
+	if (skb->pkt_type != PACKET_OTHERHOST)
+		return ieee80215_dgram_deliver(dev, skb);
+
+drop:
+	kfree_skb(skb);
+	return NET_RX_DROP;
 }
 
 
 static struct packet_type ieee80215_packet_type = {
 	.type = __constant_htons(ETH_P_IEEE80215),
 	.func = ieee80215_rcv,
-};
-
-static int ieee80215_raw_rcv(struct sk_buff *skb, struct net_device *dev,
-	struct packet_type *pt, struct net_device *orig_dev)
-{
-	DBG_DUMP(skb->data, skb->len);
-	if(!netif_running(dev))
-		return -ENODEV;
-	pr_debug("got RAW frame, type %d, dev %p\n", dev->type, dev);
-	if (dev->type != ARPHRD_IEEE80215_PHY || !net_eq(dev_net(dev), &init_net)) {
-		kfree_skb(skb);
-		return NET_RX_DROP;
-	}
-
-	return ieee80215_raw_deliver(dev, skb);
-}
-
-
-static struct packet_type ieee80215_raw_packet_type = {
-	.type = __constant_htons(ETH_P_IEEE80215_MAC),
-	.func = ieee80215_raw_rcv,
 };
 
 static int __init af_ieee80215_init(void)
@@ -591,7 +575,6 @@ static int __init af_ieee80215_init(void)
 	rc = sock_register(&ieee80215_family_ops);
 	if (rc)
 		goto err_sock;
-	dev_add_pack(&ieee80215_raw_packet_type);
 	dev_add_pack(&ieee80215_packet_type);
 
 	rc = 0;
@@ -607,7 +590,6 @@ out:
 static void af_ieee80215_remove(void)
 {
 	dev_remove_pack(&ieee80215_packet_type);
-	dev_remove_pack(&ieee80215_raw_packet_type);
 	sock_unregister(PF_IEEE80215);
 	proto_unregister(&ieee80215_dgram_prot);
 	proto_unregister(&ieee80215_raw_prot);

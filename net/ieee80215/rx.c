@@ -43,20 +43,18 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 	skb->iif = skb->dev->ifindex;
 
+	skb_reset_mac_header(skb);
+
 	if (skb->len < /*3 + 4 + 2*/ 3 + 8 + 8 + 2)
 		goto out_master;
 
-	/*
-	 * We parse headers on our origin SKB, changing pointers.
-	 * Then we can restore them back just before passing the SKB
-	 * to netif_rx(master) for delivery.
-	 */
+	skb->protocol = htons(ETH_P_IEEE80215);
 
-	// FIXME: correct address checking
+	/* FIXME: We currently support only simple 64bit addressing */
 	head_off = 3 + IEEE80215_ADDR_LEN + IEEE80215_ADDR_LEN;
 	head = skb->data;
 	skb_pull(skb, head_off);
-	DBG_DUMP(head+3+IEEE80215_ADDR_LEN, 8);
+//	DBG_DUMP(head+3+IEEE80215_ADDR_LEN, 8);
 
 	// FIXME: check CRC if necessary
 	tail_off = 2;
@@ -67,18 +65,18 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	list_for_each_entry_rcu(ndp, &priv->slaves, list)
 	{
 		struct sk_buff *skb2 = NULL;
-		DBG_DUMP(ndp->dev->dev_addr, 8);
-
-		// FIXME: correct address checking
-		if (memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->dev_addr, IEEE80215_ADDR_LEN) &&
-		    memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->broadcast, IEEE80215_ADDR_LEN))
-			continue;
+//		DBG_DUMP(ndp->dev->dev_addr, 8);
 
 		skb2 = skb_clone(skb, GFP_ATOMIC);
-		skb_reset_mac_header(skb2);
+
+		if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
+			skb2->pkt_type = PACKET_HOST;
+		else if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->broadcast, IEEE80215_ADDR_LEN))
+			skb2->pkt_type = PACKET_BROADCAST;
+		else
+			skb2->pkt_type = PACKET_OTHERHOST;
 
 		skb2->dev = ndp->dev;
-		skb2->protocol = htons(ETH_P_IEEE80215);
 		netif_rx(skb2);
 	}
 
@@ -89,6 +87,5 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 out_master:
 	skb->dev = priv->master;
-	skb->protocol = htons(ETH_P_IEEE80215_MAC);
 	netif_rx(skb);
 }

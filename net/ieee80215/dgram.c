@@ -215,7 +215,6 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	unsigned mtu;
 	struct sk_buff *skb;
 	struct dgram_sock *ro = dgram_sk(sk);
-	int hh_len;
 	int err;
 
 	if (msg->msg_flags & MSG_OOB) {
@@ -239,38 +238,24 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		return -EINVAL;
 	}
 
-	// FIXME: extra_tx_headroom --- should be done from inside the mdev/dev via net_device setup
-	// FIXME: tx alignment ???
-	hh_len = LL_ALLOCATED_SPACE(dev);
-	skb = sock_alloc_send_skb(sk, hh_len + 2 + 1 + 20 + size + 2, msg->msg_flags & MSG_DONTWAIT,
+	skb = sock_alloc_send_skb(sk, LL_ALLOCATED_SPACE(dev) + size, msg->msg_flags & MSG_DONTWAIT,
 				  &err);
 	if (!skb) {
 		dev_put(dev);
 		return err;
 	}
-	skb_reserve(skb, hh_len);
-
-	skb_reset_mac_header(skb);
-
-	do {
-		u8 head[24] = {};
-		int len = 0;
-		head[len ++] = 1 /* data */
-			| (1 << 5) /* ack req */
-			;
-		head[len++] = 0
-			| (3 << (10 - 8)) /* dest addr = 64 */
-			| (3 << (14 - 8)) /* source addr = 64 */
-			;
-		// FIXME: DSN
-		head[len++] = 0xa5; /* seq number */
-		memcpy(head+len, dev->dev_addr, dev->addr_len); len += dev->addr_len;
-		memcpy(head+len, ro->dst_addr, IEEE80215_ADDR_LEN); len += IEEE80215_ADDR_LEN;
-		memcpy(skb_put(skb, len), head, len);
-
-	} while (0);
+	skb_reserve(skb, LL_RESERVED_SPACE(dev));
 
 	skb_reset_network_header(skb);
+
+	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, ro->dst_addr, NULL, size);
+	if (err < 0) {
+		kfree_skb(skb);
+		dev_put(dev);
+		return err;
+	}
+
+	skb_reset_mac_header(skb);
 
 	err = memcpy_fromiovec(skb_put(skb, size), msg->msg_iov, size);
 	if (err < 0) {

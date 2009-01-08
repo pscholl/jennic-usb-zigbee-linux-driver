@@ -83,12 +83,52 @@ static int ieee80215_slave_mac_addr(struct net_device *dev, void *p)
 	return 0;
 }
 
+static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
+			   unsigned short type, const void *daddr,
+			   const void *saddr, unsigned len)
+{
+	u8 head[24] = {};
+	int pos = 0;
+	head[pos ++] = 1 /* data */
+		| (1 << 5) /* ack req */
+		;
+	head[pos++] = 0
+		| (3 << (10 - 8)) /* dest addr = 64 */
+		| (3 << (14 - 8)) /* source addr = 64 */
+		;
+	// FIXME: DSN
+	head[pos++] = 0xa5; /* seq number */
+	if (!saddr)
+		saddr = dev->dev_addr;
+	memcpy(head+pos, saddr, dev->addr_len); pos += dev->addr_len;
+	if (daddr)
+		memcpy(head+pos, daddr, IEEE80215_ADDR_LEN); pos += IEEE80215_ADDR_LEN;
+
+	memcpy(skb_push(skb, pos), head, pos);
+
+	return pos;
+}
+
+int ieee80215_header_parse(const struct sk_buff *skb, unsigned char *haddr)
+{
+	const char *hdr = skb_mac_header(skb);
+	memcpy(haddr, hdr + 3, IEEE80215_ADDR_LEN);
+	return IEEE80215_ADDR_LEN;
+}
+
+static struct header_ops ieee80215_header_ops = {
+	.create		= ieee80215_header_create,
+	.parse		= ieee80215_header_parse,
+};
+
 static void ieee80215_netdev_setup(struct net_device *dev)
 {
 	dev->addr_len		= IEEE80215_ADDR_LEN;
 	memset(dev->broadcast, 0xff, IEEE80215_ADDR_LEN);
 	dev->features		= NETIF_F_NO_CSUM;
-	dev->hard_header_len	= 0;
+	dev->hard_header_len	= 2 + 1 + 20 + 14;
+	dev->header_ops		= &ieee80215_header_ops;
+	dev->needed_tailroom	= 2; // FCS
 	dev->set_mac_address	= ieee80215_slave_mac_addr;
 	dev->mtu		= 127;
 	dev->tx_queue_len	= 10;
