@@ -68,11 +68,7 @@ int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *o
 void ieee80215_unregister_device(struct ieee80215_dev *dev)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
-	struct ieee80215_netdev_priv *ndp;
-	rcu_read_lock();
-	list_for_each_entry_rcu(ndp, &priv->slaves, list)
-		ieee80215_del_slave(&priv->hw, ndp);
-	rcu_read_unlock();
+
 	ieee80215_unregister_netdev_master(priv);
 	module_put(priv->ops->owner);
 }

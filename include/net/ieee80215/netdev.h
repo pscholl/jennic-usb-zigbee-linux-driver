@@ -23,36 +23,22 @@
 #include <linux/netdevice.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/phy.h>
-//#include <net/ieee80215/mac.h>
-
-struct ieee80215_netdev_priv {
-	struct list_head list;
-	struct ieee80215_priv *hw;
-	struct net_device *dev;
-	struct net_device_stats stats;
-};
-
-struct ieee80215_mnetdev_priv {
-	struct ieee80215_priv *hw;
-	struct net_device *dev;
-	struct net_device_stats stats;
-};
 
 int ieee80215_register_netdev_master(struct ieee80215_priv *hw);
 void ieee80215_unregister_netdev_master(struct ieee80215_priv *hw);
 
 // FIXME: this header should be probably separated, as it contains both driver-specific and stack specific things
 int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr);
-void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv *ndp);
+//void ieee80215_del_slave(struct ieee80215_dev *hw, struct net_device *slave);
+void ieee80215_drop_slaves(struct ieee80215_dev *hw);
+void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
+
 
 // FIXME: this clearly should be moved somewhere else
 extern struct proto ieee80215_raw_prot;
 extern struct proto ieee80215_dgram_prot;
 void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);
 int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
-
-// FIXME: this clearly should be moved somewhere else
-void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
 
 #endif
 

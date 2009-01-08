@@ -27,6 +27,12 @@
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
 
+struct ieee80215_mnetdev_priv {
+	struct ieee80215_priv *hw;
+	struct net_device *dev;
+	struct net_device_stats stats;
+};
+
 static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
@@ -55,8 +61,6 @@ static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_devi
 static int ieee80215_master_open(struct net_device *dev)
 {
 	struct ieee80215_mnetdev_priv *priv;
-	struct ieee80215_netdev_priv *subif;
-	int res = -EOPNOTSUPP;
 	phy_status_t status;
 	priv = netdev_priv(dev);
 	if(!priv) {
@@ -70,13 +74,6 @@ static int ieee80215_master_open(struct net_device *dev)
 		return -EBUSY;
 	}
 
-	list_for_each_entry_rcu(subif, &priv->hw->slaves, list) {
-		if(netif_running(subif->dev)) {
-			/* Doing nothing important for now */
-			res = 0;
-			break;
-		}
-	}
 	netif_start_queue(dev);
 	return 0;
 }
@@ -84,13 +81,9 @@ static int ieee80215_master_open(struct net_device *dev)
 static int ieee80215_master_close(struct net_device *dev)
 {
 	struct ieee80215_mnetdev_priv *priv;
-	struct ieee80215_netdev_priv *subif;
 	netif_stop_queue(dev);
 	priv = netdev_priv(dev);
-	list_for_each_entry_rcu(subif, &priv->hw->slaves, list) {
-		if(netif_running(subif->dev))
-			dev_close(subif->dev);
-	}
+
 	priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_FORCE_TRX_OFF);
 	return 0;
 }

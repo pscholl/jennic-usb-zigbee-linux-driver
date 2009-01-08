@@ -34,6 +34,13 @@
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 
+struct ieee80215_netdev_priv {
+	struct list_head list;
+	struct ieee80215_priv *hw;
+	struct net_device *dev;
+	struct net_device_stats stats;
+};
+
 static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee80215_netdev_priv *priv;
@@ -172,7 +179,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	return dev->ifindex;
 }
 
-void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv *ndp)
+static void __ieee80215_del_slave(struct ieee80215_netdev_priv *ndp)
 {
 	struct net_device *dev = ndp->dev;
 	rtnl_lock();
@@ -181,6 +188,17 @@ void ieee80215_del_slave(struct ieee80215_dev *hw, struct ieee80215_netdev_priv 
 	unregister_netdev(ndp->dev);
 	list_del_rcu(&ndp->list);
 	free_netdev(dev);
+}
+
+void ieee80215_drop_slaves(struct ieee80215_dev *hw)
+{
+	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
+	struct ieee80215_netdev_priv *ndp;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(ndp, &priv->slaves, list)
+		__ieee80215_del_slave(ndp);
+	rcu_read_unlock();
 }
 
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
