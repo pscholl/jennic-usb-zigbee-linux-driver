@@ -58,8 +58,8 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 {
 	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
 	struct dgram_sock *ro = dgram_sk(sk);
-	int ifindex = 0;
 	int err = 0;
+	struct net_device *dev;
 
 	if (len < sizeof(*addr))
 		return -EINVAL;
@@ -68,44 +68,36 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		return -EINVAL;
 
 	lock_sock(sk);
-	if (addr->ifindex) {
-		struct net_device *dev;
-		dev = dev_get_by_index(&init_net, addr->ifindex);
-		printk(KERN_ERR "idev: %s\n ", dev->name);
 
-		if (!dev) {
-			err = -ENODEV;
-			goto out;
-		}
-
-		if (dev->type != ARPHRD_IEEE80215) {
-			dev_put(dev);
-			err = -ENODEV;
-			goto out;
-		}
-
-		ifindex = dev->ifindex;
-		dev_put(dev);
-	} else if (addr->addr) {
-		struct net_device *dev;
+	switch (addr->addr_type) {
+	case IEEE80215_ADDR_IFINDEX:
+		dev = dev_get_by_index(sock_net(sk), addr->ifindex);
+		break;
+	case IEEE80215_ADDR_LONG:
 		rtnl_lock();
-		dev = dev_getbyhwaddr(&init_net, ARPHRD_IEEE80215, (u8*)&addr->addr);
-		printk(KERN_ERR "adev: %s\n ", dev->name);
+		dev = dev_getbyhwaddr(sock_net(sk), ARPHRD_IEEE80215, (u8*)&addr->hwaddr);
 		if (dev)
 			dev_hold(dev);
 		rtnl_unlock();
-
-		if (!dev) {
-			err = -ENODEV;
-			goto out;
-		}
-
-		ifindex = dev->ifindex;
-		dev_put(dev);
+		break;
+	default:
+		err = -ENOTSUPP;
+		goto out;
+	}
+	if (!dev) {
+		err = -ENODEV;
+		goto out;
 	}
 
-	ro->ifindex = ifindex;
-	ro->bound = !!ifindex;
+	if (dev->type != ARPHRD_IEEE80215) {
+		err = -ENODEV;
+		goto out_put;
+	}
+
+	ro->ifindex = dev->ifindex;
+out_put:
+	dev_put(dev);
+	ro->bound = !!ro->ifindex;
 out:
 	release_sock(sk);
 
@@ -177,7 +169,14 @@ static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
 		goto out;
 	}
 
-	memcpy(ro->dst_addr, (u8*)&addr->addr, IEEE80215_ADDR_LEN);
+	switch (addr->addr_type) {
+	case IEEE80215_ADDR_LONG:
+		memcpy(ro->dst_addr, (u8*)&addr->hwaddr, IEEE80215_ADDR_LEN);
+		break;
+	default:
+		err = -ENOTSUPP;
+		goto out;
+	}
 
 out:
 	release_sock(sk);
@@ -223,9 +222,9 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	}
 
 	if (!ro->bound)
-		dev = dev_getfirstbyhwtype(&init_net, ARPHRD_IEEE80215);
+		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE80215);
 	else
-		dev = dev_get_by_index(&init_net, ro->ifindex);
+		dev = dev_get_by_index(sock_net(sk), ro->ifindex);
 	if (!dev) {
 		pr_debug("no dev\n");
 		return -ENXIO;

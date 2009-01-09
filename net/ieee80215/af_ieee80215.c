@@ -86,6 +86,25 @@ static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 	return sk->sk_prot->connect(sk, uaddr, addr_len);
 }
 
+int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int cmd)
+{
+	struct ifreq ifr;
+	int ret;
+	struct net_device *dev;
+
+	if (copy_from_user(&ifr, arg, sizeof(struct ifreq)))
+		return -EFAULT;
+
+	ifr.ifr_name[IFNAMSIZ-1] = 0;
+
+	dev_load(sock_net(sk), ifr.ifr_name);
+	dev = dev_get_by_name(sock_net(sk), ifr.ifr_name);
+	ret = dev->do_ioctl(dev, &ifr, cmd);
+	dev_put(dev);
+
+	return ret;
+}
+
 static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
 	struct sock *sk = sock->sk;
@@ -96,6 +115,8 @@ static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned 
 
 	case SIOCGSTAMPNS:
 		return sock_get_timestampns(sk, (struct timespec __user *)arg);
+	case SIOCGIFADDR:
+		return ieee80215_dev_ioctl(sk, (struct ifreq __user *)arg, cmd);
 	default:
 		if (!sk->sk_prot->ioctl)
 			return -ENOIOCTLCMD;
@@ -165,6 +186,7 @@ static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 	struct proto *proto;
 	const struct proto_ops *ops;
 
+	// FIXME: init_net
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
 
@@ -222,6 +244,7 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	if(!netif_running(dev))
 		return -ENODEV;
 	pr_debug("got frame, type %d, dev %p\n", dev->type, dev);
+	// FIXME: init_net
 	if (!net_eq(dev_net(dev), &init_net))
 		goto drop;
 

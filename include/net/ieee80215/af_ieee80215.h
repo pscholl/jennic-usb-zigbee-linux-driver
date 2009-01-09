@@ -11,14 +11,23 @@
 #define  IEEE80215_MSG_RECV_STREAM		8
 #endif
 
-/*
- * Fill either one of them for bind(),
- * and of course only addr is applicable for connect()
- */
+enum {
+	IEEE80215_ADDR_LONG, /* 64-bit address */
+	IEEE80215_ADDR_SHORT, /* 16-bit address + PANid */
+	IEEE80215_ADDR_IFINDEX, /* interface index, mainly for debugging only */
+};
+
 struct sockaddr_ieee80215 {
 	sa_family_t family; /* AF_IEEE80215 */
-	int ifindex;
-	__le64 addr; /* little endian */
+	int addr_type;
+	union {
+		__le64 hwaddr;
+		struct {
+			__le16 pan_id;
+			__le16 short_addr;
+		};
+		int ifindex;
+	};
 };
 
 struct ieee80215_user_data {

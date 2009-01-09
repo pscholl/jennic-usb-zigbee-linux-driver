@@ -56,14 +56,20 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		return -EINVAL;
 
 	lock_sock(sk);
-	if (addr->ifindex) {
-		dev = dev_get_by_index(&init_net, addr->ifindex);
-	} else if (addr->addr) {
+	switch (addr->addr_type) {
+	case IEEE80215_ADDR_IFINDEX:
+		dev = dev_get_by_index(sock_net(sk), addr->ifindex);
+		break;
+	case IEEE80215_ADDR_LONG:
 		rtnl_lock();
-		dev = dev_getbyhwaddr(&init_net, ARPHRD_IEEE80215, (u8*)&addr->addr);
+		dev = dev_getbyhwaddr(sock_net(sk), ARPHRD_IEEE80215, (u8*)&addr->hwaddr);
 		if (dev)
 			dev_hold(dev);
 		rtnl_unlock();
+		break;
+	default:
+		err = -ENOTSUPP;
+		goto out;
 	}
 	if (!dev) {
 		err = -ENODEV;
@@ -111,9 +117,9 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	}
 
 	if (!ro->bound)
-		dev = dev_getfirstbyhwtype(&init_net, ARPHRD_IEEE80215_PHY);
+		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE80215_PHY);
 	else
-		dev = dev_get_by_index(&init_net, ro->ifindex);
+		dev = dev_get_by_index(sock_net(sk), ro->ifindex);
 	if (!dev) {
 		pr_debug("no dev\n");
 		return -ENXIO;

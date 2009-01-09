@@ -33,12 +33,16 @@
 #include <net/route.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
+#include <net/ieee80215/af_ieee80215.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
 	struct ieee80215_priv *hw;
 	struct net_device *dev;
 	struct net_device_stats stats;
+
+	__le16 panid;
+	__le16 shortaddr;
 };
 
 static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -77,6 +81,25 @@ static struct net_device_stats *ieee80215_get_stats(struct net_device *dev)
 {
 	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
 	return &priv->stats;
+}
+
+static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+{
+	struct ieee80215_netdev_priv * priv = netdev_priv(dev);
+	struct sockaddr_ieee80215 *sa = (struct sockaddr_ieee80215 *)&ifr->ifr_addr;
+	switch (cmd) {
+	case SIOCGIFADDR:
+		// FIXME: use constants
+		if (priv->panid == 0xffff || priv->shortaddr == 0xffff)
+			return -EADDRNOTAVAIL;
+
+		sa->family = AF_IEEE80215;
+		sa->addr_type = IEEE80215_ADDR_SHORT;
+		sa->pan_id = priv->panid;
+		sa->short_addr = priv->shortaddr;
+		return 0;
+	}
+	return -ENOIOCTLCMD;
 }
 
 static int ieee80215_slave_mac_addr(struct net_device *dev, void *p)
@@ -165,6 +188,11 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	dev->hard_start_xmit = ieee80215_net_xmit;
 	dev->get_stats = ieee80215_get_stats;
 	dev->priv_flags = IFF_SLAVE_INACTIVE;
+	dev->do_ioctl = ieee80215_slave_ioctl;
+
+	// FIXME: constants
+	priv->panid = 0xfafa;
+	priv->shortaddr = 0xfefe;
 
 	rtnl_lock();
 	dev_hold(priv->hw->master);
