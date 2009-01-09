@@ -13,6 +13,9 @@ if IEEE802154_DRIVERS && NETDEVICES && IEEE802154
 config IEEE802154_FAKE
 	tristate "Fake LR-WPAN driver"
 
+config IEEE802154_FAKELB
+	tristate "Fake LR-WPAN driver with two interconnected devices"
+
 config IEEE802154_SERIAL
 	tristate "Simple LR-WPAN UART driver"
 

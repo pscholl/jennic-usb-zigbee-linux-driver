@@ -26,16 +26,6 @@
 #ifndef IEEE80215_CONST_H
 #define IEEE80215_CONST_H
 
-#ifdef __KERNEL__
-#include <linux/random.h>
-static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
-{
-	u8 ret;
-	get_random_bytes(&ret, 1);
-	return ret;
-}
-#endif /*__KERNEL__*/
-
 /* address length, octets */
 #define IEEE80215_ADDR_LEN	8
 
@@ -160,9 +150,7 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
 /** Indication of whether a coordinator is currently allowing association.
  * A value of TRUE indicates that association is permitted.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_ASSOCIATION_PERMIT	0x41
-#endif
 
 /** Indication of whether a device automatically sends a data request command
  * if its address is listed in the beacon frame. A value of TRUE indicates that
@@ -185,23 +173,17 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
 #define IEEE80215_BAT_LIFE_EXT_PERIOD	0x44
 
 /** The contents of the beacon payload.*/
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_PAYLOAD		0x45
-#endif
 
 /** The length, in octets, of the beacon payload.*/
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_PAYLOAD_LEN	0x46
-#endif
 
 /** Specification of how often the coordinator transmits a beacon. The
  * macBeaconOrder, BO, and the beacon interval, BI, are related as follows:
  * for 0 ≤ BO ≤ 14, BI = aBaseSuperframeDuration * 2BO symbols. If BO = 15,
  * the coordinator will not transmit a beacon.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_ORDER		0x47
-#endif
 
 /** The time that the device transmitted its last beacon frame, in symbol
  * periods. The measurement shall be taken at the same symbol boundary within
@@ -209,14 +191,10 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * specific. The precision of this value shall be a minimum of 20 bits, with the
  * lowest four bits being the least significant.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_TX_TIME		0x48
-#endif
 
 /** The sequence number added to the transmitted beacon frame. */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BSN			0x49
-#endif
 
 /** The 64 bit address of the coordinator with which the device is associated. */
 #define IEEE80215_COORD_EXTENDED_ADDRESS	0x4a
@@ -232,9 +210,7 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
 #define IEEE80215_DSN			0x4c
 
 /** TRUE if the PAN coordinator is to accept GTS requests. FALSE otherwise. */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_GTS_PERMIT		0x4d
-#endif
 
 /** The maximum number of backoffs the CSMA-CA algorithm will attempt before
  * declaring a channel access failure.
@@ -259,9 +235,7 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * mode. A value of TRUE indicates that the MAC sublayer accepts all frames
  * received from the PHY.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_PROMISCOUS_MODE		0x51
-#endif
 
 /** This indicates whether the MAC sublayer is to enable its receiver during
  * idle periods.
@@ -282,16 +256,12 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * SD, are related as follows: for 0 ≤ SO ≤ BO ≤ 14, SD = aBaseSuperframeDuration * 2SO
  * symbols. If SO = 15, the superframe will not be active following the beacon.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_SUPERFRAME_ORDER		0x54
-#endif
 
 /** The maximum time (in superframe periods) that a transaction is stored by a
  * coordinator and indicated in its beacon.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_TRANSACTION_PERSISTENSE_TIME	0x55
-#endif
 
 /******************************************************************************/
 /* PAN Information Base (PIB), MAC attribute ranges */
@@ -311,9 +281,7 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * Indication of whether a coordinator is currently allowing association. A
  * value of TRUE indicates that association is permitted.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_ASSOCIATION_PERMIT_DEF	false
-#endif
 
 /**
  * Indication of whether a device automatically sends a data request command if
@@ -343,18 +311,14 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
 /**
  * The contents of the beacon payload.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_PAYLOAD_DEF	NULL
-#endif
 
 /**
  * The length, in octets, of the beacon payload.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_PAYLOAD_LEN_DEF	0x0
 #define IEEE80215_BEACON_PAYLOAD_LEN_MIN	0x0
 #define IEEE80215_BEACON_PAYLOAD_LEN_MAX	IEEE80215_BEACON_PAYLOAD_LEN
-#endif
 
 /**
  * Specification of how often the coordinator transmits a beacon. The
@@ -362,11 +326,9 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * for 0 ≤ BO ≤ 14, BI = aBaseSuperframeDuration * 2BO symbols. If BO = 15, the
  * coordinator will not transmit a beacon.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_ORDER_DEF		0xf
 #define IEEE80215_BEACON_ORDER_MIN		0x0
 #define IEEE80215_BEACON_ORDER_MAX		0xf
-#endif
 
 /**
  * The time that the device transmitted its last beacon frame, in symbol periods.
@@ -375,20 +337,16 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * The precision of this value shall be a minimum of 20 bits, with the lowest
  * four bits being the least significant.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_BEACON_TX_TIME_DEF	0x0
 #define IEEE80215_BEACON_TX_TIME_MIN	0x0
 #define IEEE80215_BEACON_TX_TIME_MAX	0xffffffff
-#endif
 
 /**
  * The sequence number added to the transmitted beacon frame.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
-#define IEEE80215_BSN_DEF			ieee80215_random_range(0, 0xf)
+//#define IEEE80215_BSN_DEF			ieee80215_random_range(0, 0xf)
 #define IEEE80215_BSN_MIN			0x0
 #define IEEE80215_BSN_MAX			0xff
-#endif
 
 /**
  * The 16 bit short address assigned to the coordinator with which the device is
@@ -406,16 +364,14 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
 /**
  * The sequence number added to the transmitted data or MAC command frame.
  */
-#define IEEE80215_DSN_DEF			ieee80215_random_range(0, 0xf)
+//#define IEEE80215_DSN_DEF			ieee80215_random_range(0, 0xf)
 #define IEEE80215_DSN_MIN			0x0
 #define IEEE80215_DSN_MAX			0xff
 
 /**
  * TRUE if the PAN coordinator is to accept GTS requests. FALSE otherwise.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_GTS_PERMIT_DEF		true
-#endif
 
 /**
  * The maximum number of backoffs the CSMA-CA algorithm will attempt before
@@ -449,9 +405,7 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * mode. A value of TRUE indicates that the MAC sublayer accepts all frames
  * received from the PHY.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_PROMISCOUS_MODE_DEF	false
-#endif
 
 /**
  * This indicates whether the MAC sublayer is to enable its receiver during idle
@@ -478,21 +432,17 @@ static __inline__ u8 ieee80215_random_range(u8 beg, u8 end)
  * SD = aBaseSuperframeDuration * 2SO symbols. If SO = 15, the superframe will
  * not be active following the beacon.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_SUPERFRAME_ORDER_DEF	0xf
 #define IEEE80215_SUPERFRAME_ORDER_MIN	0x0
 #define IEEE80215_SUPERFRAME_ORDER_MAX	0xf
-#endif
 
 /**
  * The maximum time (in superframe periods) that a transaction is stored by a
  * coordinator and indicated in its beacon.
  */
-#ifndef CONFIG_IEEE80215_RFD_NOOPT
 #define IEEE80215_TRANSACTION_PERSISTENSE_TIME_DEF	0x1f4
 #define IEEE80215_TRANSACTION_PERSISTENSE_TIME_MIN	0x0
 #define IEEE80215_TRANSACTION_PERSISTENSE_TIME_MAX	0xffff
-#endif
 
 /******************************************************************************/
 /* PAN Information Base (PIB), MAC security attribute identifiers */
@@ -640,7 +590,6 @@ enum ieee80215_rcodes {
 	 */
 	IEEE80215_UNSUPPORTED_ATTRIBUTE = 0xa,
 };
-typedef enum ieee80215_rcodes ieee80215_rcodes_t;
 
 /**
  * \brief MAC return codes description
@@ -732,7 +681,6 @@ enum ieee80215_mac_rcodes {
 	 */
 	IEEE80215_SCAN_IN_PROGRESS = 0xfc,
 };
-typedef enum ieee80215_mac_rcodes ieee80215_mac_rcodes_t;
 
 /**
  * other errors
