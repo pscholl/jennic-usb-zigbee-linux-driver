@@ -37,6 +37,7 @@ struct ieee80215_dev *ieee80215_alloc_device(void)
 	INIT_LIST_HEAD(&priv->slaves);
 	return &priv->hw;
 }
+EXPORT_SYMBOL(ieee80215_alloc_device);
 
 void ieee80215_free_device(struct ieee80215_dev *hw)
 {
@@ -47,6 +48,7 @@ void ieee80215_free_device(struct ieee80215_dev *hw)
 
 	kfree(priv);
 }
+EXPORT_SYMBOL(ieee80215_free_device);
 
 int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *ops)
 {
@@ -64,14 +66,17 @@ int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *o
 
 	return rc;
 }
+EXPORT_SYMBOL(ieee80215_register_device);
 
 void ieee80215_unregister_device(struct ieee80215_dev *dev)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
 
+	ieee80215_drop_slaves(dev);
 	ieee80215_unregister_netdev_master(priv);
 	module_put(priv->ops->owner);
 }
+EXPORT_SYMBOL(ieee80215_unregister_device);
 
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
@@ -90,3 +95,8 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	skb->dev = priv->master;
 	netif_rx(skb);
 }
+EXPORT_SYMBOL(ieee80215_rx);
+
+MODULE_DESCRIPTION("IEEE 802.15.4 implementation");
+MODULE_LICENSE("GPL v2");
+

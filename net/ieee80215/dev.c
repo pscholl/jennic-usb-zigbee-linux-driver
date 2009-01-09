@@ -98,6 +98,15 @@ static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int 
 		sa->pan_id = priv->panid;
 		sa->short_addr = priv->shortaddr;
 		return 0;
+	case SIOCSIFADDR:
+		dev_warn(&dev->dev, "Using DEBUGing ioctl SIOCSIFADDR isn't recommened!\n");
+		if (sa->family != AF_IEEE80215 || sa->addr_type != IEEE80215_ADDR_SHORT ||
+			sa->pan_id == 0xffff || sa->short_addr == 0xffff || sa->short_addr == 0xfffe)
+			return -EINVAL;
+
+		priv->panid = sa->pan_id;
+		priv->shortaddr = sa->short_addr;
+		return 0;
 	}
 	return -ENOIOCTLCMD;
 }
@@ -206,6 +215,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 
 	return dev->ifindex;
 }
+EXPORT_SYMBOL(ieee80215_add_slave);
 
 static void __ieee80215_del_slave(struct ieee80215_netdev_priv *ndp)
 {
@@ -228,6 +238,7 @@ void ieee80215_drop_slaves(struct ieee80215_dev *hw)
 		__ieee80215_del_slave(ndp);
 	rcu_read_unlock();
 }
+EXPORT_SYMBOL(ieee80215_drop_slaves);
 
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 {

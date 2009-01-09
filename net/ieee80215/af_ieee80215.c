@@ -86,7 +86,7 @@ static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 	return sk->sk_prot->connect(sk, uaddr, addr_len);
 }
 
-int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int cmd)
+static int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int cmd)
 {
 	struct ifreq ifr;
 	int ret = -EINVAL;
@@ -120,6 +120,7 @@ static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned 
 	case SIOCGSTAMPNS:
 		return sock_get_timestampns(sk, (struct timespec __user *)arg);
 	case SIOCGIFADDR:
+	case SIOCSIFADDR:
 		return ieee80215_dev_ioctl(sk, (struct ifreq __user *)arg, cmd);
 	default:
 		if (!sk->sk_prot->ioctl)
@@ -306,5 +307,6 @@ static void af_ieee80215_remove(void)
 
 module_init(af_ieee80215_init);
 module_exit(af_ieee80215_remove);
-MODULE_LICENSE("GPL");
 
+MODULE_LICENSE("GPL");
+MODULE_ALIAS_NETPROTO(PF_INET6);
