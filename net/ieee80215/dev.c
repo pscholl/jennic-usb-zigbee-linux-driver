@@ -191,8 +191,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	dev->do_ioctl = ieee80215_slave_ioctl;
 
 	// FIXME: constants
-	priv->panid = 0xfafa;
-	priv->shortaddr = 0xfefe;
+	priv->panid = 0xffff;
+	priv->shortaddr = 0xffff;
 
 	rtnl_lock();
 	dev_hold(priv->hw->master);

@@ -89,7 +89,7 @@ static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int cmd)
 {
 	struct ifreq ifr;
-	int ret;
+	int ret = -EINVAL;
 	struct net_device *dev;
 
 	if (copy_from_user(&ifr, arg, sizeof(struct ifreq)))
@@ -99,7 +99,11 @@ int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int 
 
 	dev_load(sock_net(sk), ifr.ifr_name);
 	dev = dev_get_by_name(sock_net(sk), ifr.ifr_name);
-	ret = dev->do_ioctl(dev, &ifr, cmd);
+	if (dev->type == ARPHRD_IEEE80215 || dev->type == ARPHRD_IEEE80215_PHY)
+		ret = dev->do_ioctl(dev, &ifr, cmd);
+
+	if (!ret && copy_to_user(arg, &ifr, sizeof(struct ifreq)))
+		ret = -EFAULT;
 	dev_put(dev);
 
 	return ret;
@@ -108,11 +112,11 @@ int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int 
 static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
 	struct sock *sk = sock->sk;
+
 	switch(cmd)
 	{
 	case SIOCGSTAMP:
 		return sock_get_timestamp(sk, (struct timeval __user *)arg);
-
 	case SIOCGSTAMPNS:
 		return sock_get_timestampns(sk, (struct timespec __user *)arg);
 	case SIOCGIFADDR:
