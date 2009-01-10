@@ -33,6 +33,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr);
 void ieee80215_drop_slaves(struct ieee80215_dev *hw);
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
 
+struct sockaddr_ieee80215;
+struct net_device *ieee80215_get_dev(struct net *net, struct sockaddr_ieee80215 *sa);
 
 // FIXME: this clearly should be moved somewhere else
 extern struct proto ieee80215_raw_prot;

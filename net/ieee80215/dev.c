@@ -41,8 +41,8 @@ struct ieee80215_netdev_priv {
 	struct net_device *dev;
 	struct net_device_stats stats;
 
-	__le16 panid;
-	__le16 shortaddr;
+	__le16 pan_id;
+	__le16 short_addr;
 };
 
 static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -90,13 +90,13 @@ static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int 
 	switch (cmd) {
 	case SIOCGIFADDR:
 		// FIXME: use constants
-		if (priv->panid == 0xffff || priv->shortaddr == 0xffff)
+		if (priv->pan_id == 0xffff || priv->short_addr == 0xffff)
 			return -EADDRNOTAVAIL;
 
 		sa->family = AF_IEEE80215;
 		sa->addr_type = IEEE80215_ADDR_SHORT;
-		sa->pan_id = priv->panid;
-		sa->short_addr = priv->shortaddr;
+		sa->pan_id = priv->pan_id;
+		sa->short_addr = priv->short_addr;
 		return 0;
 	case SIOCSIFADDR:
 		dev_warn(&dev->dev, "Using DEBUGing ioctl SIOCSIFADDR isn't recommened!\n");
@@ -104,8 +104,8 @@ static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int 
 			sa->pan_id == 0xffff || sa->short_addr == 0xffff || sa->short_addr == 0xfffe)
 			return -EINVAL;
 
-		priv->panid = sa->pan_id;
-		priv->shortaddr = sa->short_addr;
+		priv->pan_id = sa->pan_id;
+		priv->short_addr = sa->short_addr;
 		return 0;
 	}
 	return -ENOIOCTLCMD;
@@ -200,8 +200,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	dev->do_ioctl = ieee80215_slave_ioctl;
 
 	// FIXME: constants
-	priv->panid = 0xffff;
-	priv->shortaddr = 0xffff;
+	priv->pan_id = 0xffff;
+	priv->short_addr = 0xffff;
 
 	rtnl_lock();
 	dev_hold(priv->hw->master);
@@ -286,4 +286,47 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	skb_push(skb, head_off);
 	skb_put(skb, tail_off);
 
+}
+
+struct net_device *ieee80215_get_dev(struct net *net, struct sockaddr_ieee80215 *addr)
+{
+	struct net_device *dev = NULL;
+
+	switch (addr->addr_type) {
+	case IEEE80215_ADDR_IFINDEX:
+		dev = dev_get_by_index(net, addr->ifindex);
+		break;
+	case IEEE80215_ADDR_LONG:
+		rtnl_lock();
+		dev = dev_getbyhwaddr(net, ARPHRD_IEEE80215, (u8*)&addr->hwaddr);
+		if (dev)
+			dev_hold(dev);
+		rtnl_unlock();
+		break;
+	case IEEE80215_ADDR_SHORT:
+		if (addr->pan_id != 0xffff && addr->short_addr != 0xfffe && addr->short_addr != 0xffff) {
+			struct net_device *tmp;
+
+			rtnl_lock();
+
+			for_each_netdev(net, tmp) {
+				if (tmp->type == ARPHRD_IEEE80215) {
+					struct ieee80215_netdev_priv *priv = netdev_priv(tmp);
+					if (priv->pan_id == addr->pan_id && priv->short_addr == addr->short_addr) {
+						dev = tmp;
+						dev_hold(dev);
+						break;
+					}
+				}
+			}
+
+			rtnl_unlock();
+		}
+		break;
+	default:
+		pr_warning("Unsupported ieee80215 address type: %d\n", addr->addr_type);
+		break;
+	}
+
+	return dev;
 }
