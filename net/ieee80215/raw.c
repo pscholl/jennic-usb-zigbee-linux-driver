@@ -9,18 +9,6 @@
 static HLIST_HEAD(raw_head);
 static DEFINE_RWLOCK(raw_lock);
 
-struct raw_sock {
-	struct sock sk;
-	int bound;
-	int ifindex;
-};
-
-static inline struct raw_sock *raw_sk(const struct sock *sk)
-{
-	return (struct raw_sock *)sk;
-}
-
-
 static void raw_hash(struct sock *sk)
 {
 	write_lock_bh(&raw_lock);
@@ -45,7 +33,6 @@ static void raw_close(struct sock *sk, long timeout)
 static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 {
 	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
-	struct raw_sock *ro = raw_sk(sk);
 	int err = 0;
 	struct net_device *dev = NULL;
 
@@ -68,11 +55,12 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		goto out_put;
 	}
 
-	ro->ifindex = dev->ifindex;
+	sk->sk_bound_dev_if = dev->ifindex;
+	sk_dst_reset(sk);
+
 out_put:
 	dev_put(dev);
 out:
-	ro->bound = !!ro->ifindex;
 	release_sock(sk);
 
 	return err;
@@ -92,7 +80,6 @@ static int raw_disconnect(struct sock *sk, int flags)
 static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		       size_t size)
 {
-	struct raw_sock *ro = raw_sk(sk);
 	struct net_device *dev;
 	unsigned mtu;
 	struct sk_buff *skb;
@@ -103,28 +90,32 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		return -EOPNOTSUPP;
 	}
 
-	if (!ro->bound)
+	lock_sock(sk);
+	if (!sk->sk_bound_dev_if)
 		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE80215_PHY);
 	else
-		dev = dev_get_by_index(sock_net(sk), ro->ifindex);
+		dev = dev_get_by_index(sock_net(sk), sk->sk_bound_dev_if);
+	release_sock(sk);
+
 	if (!dev) {
 		pr_debug("no dev\n");
-		return -ENXIO;
+		err = -ENXIO;
+		goto out;
 	}
+
 	mtu = dev->mtu;
 	pr_debug("name = %s, mtu = %u\n", dev->name, mtu);
 
 	if (size > mtu) {
 		pr_debug("size = %u, mtu = %u\n", size, mtu);
-		return -EINVAL;
+		err = -EINVAL;
+		goto out_dev;
 	}
 
 	skb = sock_alloc_send_skb(sk, LL_ALLOCATED_SPACE(dev) + size, msg->msg_flags & MSG_DONTWAIT,
 				  &err);
-	if (!skb) {
-		dev_put(dev);
-		return err;
-	}
+	if (!skb)
+		goto out_dev;
 
 	skb_reserve(skb, LL_RESERVED_SPACE(dev));
 
@@ -132,11 +123,9 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	skb_reset_network_header(skb);
 
 	err = memcpy_fromiovec(skb_put(skb, size), msg->msg_iov, size);
-	if (err < 0) {
-		kfree_skb(skb);
-		dev_put(dev);
-		return err;
-	}
+	if (err < 0)
+		goto out_skb;
+
 	skb->dev = dev;
 	skb->sk  = sk;
 	skb->protocol = htons(ETH_P_IEEE80215);
@@ -145,10 +134,14 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 	dev_put(dev);
 
-	if (err)
-		return err;
-
 	return size;
+
+out_skb:
+	kfree_skb(skb);
+out_dev:
+	dev_put(dev);
+out:
+	return err;
 }
 
 static int raw_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
@@ -203,9 +196,8 @@ void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 
 	read_lock(&raw_lock);
 	sk_for_each(sk, node, &raw_head) {
-		struct raw_sock *ro = raw_sk(sk);
-		if (!ro->bound ||
-		  ro->ifindex == dev->ifindex) {
+		bh_lock_sock(sk);
+		if (!sk->sk_bound_dev_if || sk->sk_bound_dev_if == dev->ifindex) {
 
 			struct sk_buff *clone;
 
@@ -213,6 +205,7 @@ void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 			if (clone)
 				raw_rcv_skb(sk, clone);
 		}
+		bh_unlock_sock(sk);
 	}
 	read_unlock(&raw_lock);
 }
@@ -220,7 +213,7 @@ void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 struct proto ieee80215_raw_prot = {
 	.name		= "IEEE-802.15.4-RAW",
 	.owner		= THIS_MODULE,
-	.obj_size	= sizeof(struct raw_sock),
+	.obj_size	= sizeof(struct sock),
 	.close		= raw_close,
 	.bind		= raw_bind,
 	.sendmsg	= raw_sendmsg,
