@@ -2,14 +2,26 @@
 #include <linux/socket.h>
 #include <linux/errno.h>
 #include <linux/uaccess.h>
+#include <net/sock.h>
 
 #include <net/ieee80215/af_ieee80215.h>
-int ioctl_network_discovery(struct ieee80215_user_data *data)
+#include <net/ieee80215/mac_struct.h>
+
+int ieee80215_nlme_scan_req(struct ieee80215_mac *mac, u32 channels, u8 duration)
+{
+	return 0;
+}
+int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data *data)
 {
 	struct ieee80215_user_data kdata;
+	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		return -EFAULT;
 	}
+	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
+	if(!dev->master)
+		return -ENODEV;
 /*
 int zb_nwk_nlme_discovery(zb_nwk_t *nwk, u32 channels, u8 duration)
 {
@@ -32,14 +44,20 @@ int zb_nwk_nlme_discovery(zb_nwk_t *nwk, u32 channels, u8 duration)
 		return 0;
 	}
 */
+	dev_put(dev);
 	return -ENOIOCTLCMD;
 }
-int ioctl_network_formation(struct ieee80215_user_data *data)
+int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data *data)
 {
 	struct ieee80215_user_data kdata;
+	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		return -EFAULT;
 	}
+	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
+	if(!dev->master)
+		return -ENODEV;
 /*
 	case ZB_SIOC_NETWORK_FORMATION: {
 		zb_sioc_network_formation_t data;
@@ -57,14 +75,20 @@ int ioctl_network_formation(struct ieee80215_user_data *data)
 		return 0;
 	}
 */
+	dev_put(dev);
 	return -ENOIOCTLCMD;
 }
-int ioctl_permit_joining(struct ieee80215_user_data *data)
+int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data *data)
 {
 	struct ieee80215_user_data kdata;
+	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		return -EFAULT;
 	}
+	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
+	if(!dev->master)
+		return -ENODEV;
 /*
 	case ZB_SIOC_PERMIT_JOINING: {
 		u8 duration;
@@ -76,14 +100,20 @@ int ioctl_permit_joining(struct ieee80215_user_data *data)
 		return 0;
 	}
 */
+	dev_put(dev);
 	return -ENOIOCTLCMD;
 }
-int ioctl_start_router(struct ieee80215_user_data *data)
+int ioctl_start_router(struct sock *sk, struct ieee80215_user_data *data)
 {
 	struct ieee80215_user_data kdata;
+	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		return -EFAULT;
 	}
+	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
+	if(!dev->master)
+		return -ENODEV;
 /*
 	case ZB_SIOC_START_ROUTER: {
 		zb_sioc_start_router_t data;
@@ -98,14 +128,20 @@ int ioctl_start_router(struct ieee80215_user_data *data)
 		return 0;
 	}
 */
+	dev_put(dev);
 	return -ENOIOCTLCMD;
 }
-int ioctl_mac_join(struct ieee80215_user_data *data)
+int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data *data)
 {
 	struct ieee80215_user_data kdata;
+	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		return -EFAULT;
 	}
+	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
+	if(!dev->master)
+		return -ENODEV;
 /*
 	case ZB_SIOC_JOIN: {
 		zb_sioc_join_t data;
@@ -125,16 +161,23 @@ int ioctl_mac_join(struct ieee80215_user_data *data)
 		return 0;
 	}
 */
+	dev_put(dev);
 	return -ENOIOCTLCMD;
 }
-int ioctl_mac_cmd(struct ieee80215_user_data *data)
+int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data *data)
 {
 	struct ieee80215_user_data kdata;
+	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		return -EFAULT;
 	}
+	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
+	if(!dev->master)
+		return -ENODEV;
 /*
 */
+	dev_put(dev);
 	return -ENOIOCTLCMD;
 }
 

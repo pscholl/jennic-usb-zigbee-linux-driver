@@ -1,5 +1,6 @@
 #ifndef  _AF_IEEE80215_H
 #define  _AF_IEEE80215_H
+#include <linux/if.h>
 //#include <net/ieee80215/lib.h>
 #define  IEEE80215_MSG_CHANNEL_CONFIRM		1
 #define  IEEE80215_MSG_ED_CONFIRM		2
@@ -31,6 +32,11 @@ struct sockaddr_ieee80215 {
 };
 
 struct ieee80215_user_data {
+	/* This is used as ifr_name */
+	union
+	{
+		char	ifrn_name[IFNAMSIZ];		/* if name, e.g. "en0" */
+	} ifr_ifrn;
 	int channels;
 	int channel;
 	int duration;
@@ -54,10 +60,10 @@ struct ieee80215_user_data {
 /* master device */
 #define IEEE80215_SIOC_ADD_SLAVE		(SIOCDEVPRIVATE + 0)
 
-int ioctl_network_discovery(struct ieee80215_user_data *data);
-int ioctl_network_formation(struct ieee80215_user_data *data);
-int ioctl_permit_joining(struct ieee80215_user_data *data);
-int ioctl_start_router(struct ieee80215_user_data *data);
-int ioctl_mac_join(struct ieee80215_user_data *data);
-int ioctl_mac_cmd(struct ieee80215_user_data *data);
+int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data *data);
+int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data *data);
+int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data *data);
+int ioctl_start_router(struct sock *sk, struct ieee80215_user_data *data);
+int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data *data);
+int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data *data);
 
