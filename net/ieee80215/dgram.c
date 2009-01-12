@@ -121,14 +121,23 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 	}
 
 	case IEEE80215_SIOC_NETWORK_DISCOVERY:
+		return ioctl_network_discovery((struct ieee80215_user_data __user *) arg);
 		break;
 	case IEEE80215_SIOC_NETWORK_FORMATION:
+		return ioctl_network_formation((struct ieee80215_user_data __user *) arg);
 		break;
 	case IEEE80215_SIOC_PERMIT_JOINING:
+		return ioctl_permit_joining((struct ieee80215_user_data __user *) arg);
 		break;
 	case IEEE80215_SIOC_START_ROUTER:
+		return ioctl_start_router((struct ieee80215_user_data __user *) arg);
 		break;
 	case IEEE80215_SIOC_JOIN:
+		return ioctl_mac_join((struct ieee80215_user_data __user *) arg);
+		break;
+	case IEEE80215_SIOC_MAC_CMD:
+		return ioctl_mac_cmd((struct ieee80215_user_data __user *) arg);
+		
 		break;
 	}
 	return -ENOIOCTLCMD;

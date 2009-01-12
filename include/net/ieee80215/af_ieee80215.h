@@ -49,7 +49,15 @@ struct ieee80215_user_data {
 #define IEEE80215_SIOC_PERMIT_JOINING		(SIOCPROTOPRIVATE + 2)
 #define IEEE80215_SIOC_START_ROUTER		(SIOCPROTOPRIVATE + 3)
 #define IEEE80215_SIOC_JOIN			(SIOCPROTOPRIVATE + 4)
+#define IEEE80215_SIOC_MAC_CMD			(SIOCPROTOPRIVATE + 5)
 
 /* master device */
 #define IEEE80215_SIOC_ADD_SLAVE		(SIOCDEVPRIVATE + 0)
+
+int ioctl_network_discovery(struct ieee80215_user_data *data);
+int ioctl_network_formation(struct ieee80215_user_data *data);
+int ioctl_permit_joining(struct ieee80215_user_data *data);
+int ioctl_start_router(struct ieee80215_user_data *data);
+int ioctl_mac_join(struct ieee80215_user_data *data);
+int ioctl_mac_cmd(struct ieee80215_user_data *data);
 
