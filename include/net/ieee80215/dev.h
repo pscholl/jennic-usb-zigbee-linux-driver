@@ -56,6 +56,7 @@ struct ieee80215_dev *ieee80215_alloc_device(void);
 int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *ops);
 void ieee80215_unregister_device(struct ieee80215_dev *dev);
 void ieee80215_free_device(struct ieee80215_dev *dev);
+struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev);
 
 // FIXME: move to correct places:
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb);

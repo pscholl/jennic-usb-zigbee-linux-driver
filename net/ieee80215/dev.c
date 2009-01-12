@@ -40,6 +40,7 @@ struct ieee80215_netdev_priv {
 	struct ieee80215_priv *hw;
 	struct net_device *dev;
 	struct net_device_stats stats;
+	struct ieee80215_mac mac;
 
 	__le16 pan_id;
 	__le16 short_addr;
@@ -330,3 +331,14 @@ struct net_device *ieee80215_get_dev(struct net *net, struct sockaddr_ieee80215 
 
 	return dev;
 }
+
+struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev)
+{
+	struct ieee80215_netdev_priv *priv;
+	priv = netdev_priv(dev);
+	BUG_ON(!priv);
+	BUG_ON(!priv->mac);
+	return &priv->mac;
+}
+EXPORT_SYMBOL(ieee80215_get_mac_bydev);
+
