@@ -36,6 +36,10 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
 struct sockaddr_ieee80215;
 struct net_device *ieee80215_get_dev(struct net *net, struct sockaddr_ieee80215 *sa);
 
+// FIXME: should be dropped in favour of MIB getting
+u16 ieee80215_dev_get_pan_id(struct net_device *dev);
+u16 ieee80215_dev_get_short_addr(struct net_device *dev);
+
 // FIXME: this clearly should be moved somewhere else
 extern struct proto ieee80215_raw_prot;
 extern struct proto ieee80215_dgram_prot;

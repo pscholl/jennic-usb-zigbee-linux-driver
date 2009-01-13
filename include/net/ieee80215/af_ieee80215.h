@@ -2,6 +2,7 @@
 #define  _AF_IEEE80215_H
 #include <linux/if.h>
 //#include <net/ieee80215/lib.h>
+#include <net/ieee80215/const.h>
 #define  IEEE80215_MSG_CHANNEL_CONFIRM		1
 #define  IEEE80215_MSG_ED_CONFIRM		2
 #define  IEEE80215_MSG_CCA_CONFIRM		3
@@ -10,24 +11,21 @@
 #define  IEEE80215_MSG_XMIT_STREAM_CONFIRM	6
 #define  IEEE80215_MSG_RECV_BLOCK		7
 #define  IEEE80215_MSG_RECV_STREAM		8
-#endif
 
 enum {
-	IEEE80215_ADDR_LONG, /* 64-bit address */
-	IEEE80215_ADDR_SHORT, /* 16-bit address + PANid */
-	IEEE80215_ADDR_IFINDEX, /* interface index, mainly for debugging only */
+	IEEE80215_ADDR_NONE = 0x0,
+	// RESERVER = 0x01,
+	IEEE80215_ADDR_LONG = 0x2, /* 64-bit address + PANid */
+	IEEE80215_ADDR_SHORT = 0x3, /* 16-bit address + PANid */
 };
 
 struct sockaddr_ieee80215 {
 	sa_family_t family; /* AF_IEEE80215 */
 	int addr_type;
+	u16 pan_id;
 	union {
-		__le64 hwaddr;
-		struct {
-			__le16 pan_id;
-			__le16 short_addr;
-		};
-		int ifindex;
+		u8 hwaddr[IEEE80215_ADDR_LEN];
+		u16 short_addr;
 	};
 };
 
@@ -67,3 +65,4 @@ int ioctl_start_router(struct sock *sk, struct ieee80215_user_data *data);
 int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data *data);
 int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data *data);
 
+#endif

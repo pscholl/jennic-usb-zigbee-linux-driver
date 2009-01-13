@@ -34,6 +34,7 @@
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee80215/mac_struct.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
@@ -124,25 +125,81 @@ static int ieee80215_slave_mac_addr(struct net_device *dev, void *p)
 }
 
 static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
-			   unsigned short type, const void *daddr,
-			   const void *saddr, unsigned len)
+			   unsigned short type, const void *_daddr,
+			   const void *_saddr, unsigned len)
 {
 	u8 head[24] = {};
 	int pos = 0;
-	head[pos ++] = 1 /* data */
+
+	u8 fc1, fc2;
+	const struct sockaddr_ieee80215 *saddr = _saddr;
+	const struct sockaddr_ieee80215 *daddr = _daddr;
+	struct sockaddr_ieee80215 dev_addr;
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+
+	fc1 = 1 << 0 /* data */
 		| (1 << 5) /* ack req */
 		;
-	head[pos++] = 0
-		| (3 << (10 - 8)) /* dest addr = 64 */
-		| (3 << (14 - 8)) /* source addr = 64 */
-		;
+	fc2 = 0;
+
+	pos = 2;
+
 	// FIXME: DSN
-	head[pos++] = 0xa5; /* seq number */
-	if (!saddr)
-		saddr = dev->dev_addr;
-	memcpy(head+pos, saddr, dev->addr_len); pos += dev->addr_len;
-	if (daddr)
-		memcpy(head+pos, daddr, IEEE80215_ADDR_LEN); pos += IEEE80215_ADDR_LEN;
+	head[pos++] = 0xa5;
+
+	if (!daddr)
+		return -EINVAL;
+
+	if (!saddr) {
+		// FIXME: constants
+		if (priv->short_addr == 0xffff || priv->short_addr == 0xfffe) {
+			dev_addr.addr_type = IEEE80215_ADDR_LONG;
+			memcpy(dev_addr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
+		} else {
+			dev_addr.addr_type = IEEE80215_ADDR_SHORT;
+			dev_addr.short_addr = priv->short_addr;
+		}
+
+		dev_addr.pan_id = priv->pan_id;
+		saddr = &dev_addr;
+	}
+
+	if (saddr->addr_type != IEEE80215_ADDR_NONE) {
+		fc2 |= (saddr->addr_type << (14 - 8));
+
+		if ((saddr->pan_id == daddr->pan_id) && (saddr->pan_id != 0xffff))
+			fc1 |= 1 << 6; /* PANID compression/ intra PAN */
+		else {
+			head[pos++] = saddr->pan_id & 0xff;
+			head[pos++] = saddr->pan_id >> 8;
+		}
+
+		if (saddr->addr_type == IEEE80215_ADDR_SHORT) {
+			head[pos++] = saddr->short_addr & 0xff;
+			head[pos++] = saddr->short_addr >> 8;
+		} else {
+			memcpy(head + pos, saddr->hwaddr, IEEE80215_ADDR_LEN);
+			pos += IEEE80215_ADDR_LEN;
+		}
+	}
+
+	if (daddr->addr_type != IEEE80215_ADDR_NONE) {
+		fc2 |= (daddr->addr_type << (10 - 8));
+
+		head[pos++] = daddr->pan_id & 0xff;
+		head[pos++] = daddr->pan_id >> 8;
+
+		if (daddr->addr_type == IEEE80215_ADDR_SHORT) {
+			head[pos++] = daddr->short_addr & 0xff;
+			head[pos++] = daddr->short_addr >> 8;
+		} else {
+			memcpy(head + pos, daddr->hwaddr, IEEE80215_ADDR_LEN);
+			pos += IEEE80215_ADDR_LEN;
+		}
+	}
+
+	head[0] = fc1;
+	head[1] = fc2;
 
 	memcpy(skb_push(skb, pos), head, pos);
 
@@ -247,16 +304,41 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	struct ieee80215_netdev_priv *ndp;
 	unsigned char *head;
-	unsigned int head_off, tail_off;
+	unsigned int tail_off;
 
-	if (skb->len < /*3 + 4 + 2*/ 3 + 8 + 8 + 2)
+	if (skb->len < 3 + 2)
 		return;
 
-	/* FIXME: We currently support only simple 64bit addressing */
-	head_off = 3 + IEEE80215_ADDR_LEN + IEEE80215_ADDR_LEN;
 	head = skb->data;
-	skb_pull(skb, head_off);
-//	DBG_DUMP(head+3+IEEE80215_ADDR_LEN, 8);
+	skb_pull(skb, 3);
+
+	printk("%s: %02x %02x dsn%02x\n", __func__, head[0], head[1], head[2]);
+
+	switch ((head[1] >> (14 - 8)) & 0x3) { // src addr
+	case IEEE80215_ADDR_SHORT:
+		if (!(head[0] & (1 << 6))) // ! panid compress
+			skb_pull(skb, 2);
+
+		skb_pull(skb, 2);
+		break;
+	case IEEE80215_ADDR_LONG:
+		if (!(head[0] & (1 << 6))) // ! panid compress
+			skb_pull(skb, 2);
+
+		skb_pull(skb, 8);
+		break;
+	}
+
+	switch ((head[1] >> (10 - 8)) & 0x3) { // dst addr
+	case IEEE80215_ADDR_SHORT:
+		skb_pull(skb, 2);
+		skb_pull(skb, 2);
+		break;
+	case IEEE80215_ADDR_LONG:
+		skb_pull(skb, 2);
+		skb_pull(skb, 8);
+		break;
+	}
 
 	// FIXME: check CRC if necessary
 	tail_off = 2;
@@ -284,7 +366,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	rcu_read_unlock();
 
-	skb_push(skb, head_off);
+	skb_push(skb, skb->data - head);
 	skb_put(skb, tail_off);
 
 }
@@ -294,12 +376,9 @@ struct net_device *ieee80215_get_dev(struct net *net, struct sockaddr_ieee80215 
 	struct net_device *dev = NULL;
 
 	switch (addr->addr_type) {
-	case IEEE80215_ADDR_IFINDEX:
-		dev = dev_get_by_index(net, addr->ifindex);
-		break;
 	case IEEE80215_ADDR_LONG:
 		rtnl_lock();
-		dev = dev_getbyhwaddr(net, ARPHRD_IEEE80215, (u8*)&addr->hwaddr);
+		dev = dev_getbyhwaddr(net, ARPHRD_IEEE80215, addr->hwaddr);
 		if (dev)
 			dev_hold(dev);
 		rtnl_unlock();
@@ -337,8 +416,26 @@ struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev)
 	struct ieee80215_netdev_priv *priv;
 	priv = netdev_priv(dev);
 	BUG_ON(!priv);
-	BUG_ON(!priv->mac);
+//	BUG_ON(!priv->mac);
 	return &priv->mac;
 }
 EXPORT_SYMBOL(ieee80215_get_mac_bydev);
+
+u16 ieee80215_dev_get_pan_id(struct net_device *dev)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE80215);
+
+	return priv->pan_id;
+}
+
+u16 ieee80215_dev_get_short_addr(struct net_device *dev)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE80215);
+
+	return priv->short_addr;
+}
 

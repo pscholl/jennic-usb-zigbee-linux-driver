@@ -255,6 +255,9 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	ieee80215_raw_deliver(dev, skb);
 
+	if (dev->type != ARPHRD_IEEE80215)
+		goto drop;
+
 	if (skb->pkt_type != PACKET_OTHERHOST)
 		return ieee80215_dgram_deliver(dev, skb);
 

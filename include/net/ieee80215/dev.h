@@ -23,6 +23,7 @@
 
 #include <linux/skbuff.h>
 #include <net/ieee80215/phy.h>
+#include <net/ieee80215/const.h>
 
 struct ieee80215_dev {
 	char	*name;
@@ -60,6 +61,5 @@ struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev);
 
 // FIXME: move to correct places:
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb);
-#define IEEE80215_ADDR_LEN	8
 
 #endif
