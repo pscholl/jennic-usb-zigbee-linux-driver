@@ -314,30 +314,37 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	printk("%s: %02x %02x dsn%02x\n", __func__, head[0], head[1], head[2]);
 
-	switch ((head[1] >> (14 - 8)) & 0x3) { // src addr
-	case IEEE80215_ADDR_SHORT:
-		if (!(head[0] & (1 << 6))) // ! panid compress
+	MAC_CB(skb)->sa.addr_type = (head[1] >> (14 - 8)) & 0x3;
+	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
+		if (!(head[0] & (1 << 6))) { // ! panid compress
+			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
 			skb_pull(skb, 2);
+		}
 
-		skb_pull(skb, 2);
-		break;
-	case IEEE80215_ADDR_LONG:
-		if (!(head[0] & (1 << 6))) // ! panid compress
+		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
+			MAC_CB(skb)->sa.short_addr = skb->data[0] | (skb->data[1] << 8);
 			skb_pull(skb, 2);
-
-		skb_pull(skb, 8);
-		break;
+		} else {
+			memcpy(MAC_CB(skb)->sa.hwaddr, skb->data, IEEE80215_ADDR_LEN);
+			skb_pull(skb, IEEE80215_ADDR_LEN);
+		}
 	}
 
-	switch ((head[1] >> (10 - 8)) & 0x3) { // dst addr
-	case IEEE80215_ADDR_SHORT:
+	MAC_CB(skb)->da.addr_type = (head[1] >> (10 - 8)) & 0x3;
+	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
+		if ((head[0] & (1 << 6))) { // ! panid compress
+			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
+		}
+		MAC_CB(skb)->da.pan_id = skb->data[0] | (skb->data[1] << 8);
 		skb_pull(skb, 2);
-		skb_pull(skb, 2);
-		break;
-	case IEEE80215_ADDR_LONG:
-		skb_pull(skb, 2);
-		skb_pull(skb, 8);
-		break;
+
+		if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_SHORT) {
+			MAC_CB(skb)->da.short_addr = skb->data[0] | (skb->data[1] << 8);
+			skb_pull(skb, 2);
+		} else {
+			memcpy(MAC_CB(skb)->da.hwaddr, skb->data, IEEE80215_ADDR_LEN);
+			skb_pull(skb, IEEE80215_ADDR_LEN);
+		}
 	}
 
 	// FIXME: check CRC if necessary
@@ -349,16 +356,35 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	list_for_each_entry_rcu(ndp, &priv->slaves, list)
 	{
 		struct sk_buff *skb2 = NULL;
-//		DBG_DUMP(ndp->dev->dev_addr, 8);
 
 		skb2 = skb_clone(skb, GFP_ATOMIC);
 
-		if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
-			skb2->pkt_type = PACKET_HOST;
-		else if (!memcmp(head + 3 + IEEE80215_ADDR_LEN , ndp->dev->broadcast, IEEE80215_ADDR_LEN))
-			skb2->pkt_type = PACKET_BROADCAST;
-		else
+		switch (MAC_CB(skb2)->da.addr_type) {
+		case IEEE80215_ADDR_NONE:
+			// FIXME: check if we are PAN coordinator :)
 			skb2->pkt_type = PACKET_OTHERHOST;
+			break;
+		case IEEE80215_ADDR_LONG:
+			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != 0xffff)
+				skb2->pkt_type = PACKET_OTHERHOST;
+			else if (!memcmp(MAC_CB(skb2)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
+				skb2->pkt_type = PACKET_HOST;
+			else if (!memcmp(MAC_CB(skb2)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN)) // FIXME: is this correct?
+				skb2->pkt_type = PACKET_BROADCAST;
+			else
+				skb2->pkt_type = PACKET_OTHERHOST;
+			break;
+		case IEEE80215_ADDR_SHORT:
+			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != 0xffff)
+				skb2->pkt_type = PACKET_OTHERHOST;
+			else if (MAC_CB(skb2)->da.short_addr == ndp->short_addr)
+				skb2->pkt_type = PACKET_HOST;
+			else if (MAC_CB(skb2)->da.short_addr == 0xffff)
+				skb2->pkt_type = PACKET_BROADCAST;
+			else
+				skb2->pkt_type = PACKET_OTHERHOST;
+			break;
+		}
 
 		skb2->dev = ndp->dev;
 		netif_rx(skb2);

@@ -23,6 +23,7 @@
 #include <linux/netdevice.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/phy.h>
+#include <net/ieee80215/af_ieee80215.h>
 
 int ieee80215_register_netdev_master(struct ieee80215_priv *hw);
 void ieee80215_unregister_netdev_master(struct ieee80215_priv *hw);
@@ -45,6 +46,13 @@ extern struct proto ieee80215_raw_prot;
 extern struct proto ieee80215_dgram_prot;
 void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);
 int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
+
+struct ieee80215_mac_cb {
+	struct ieee80215_phy_cb phy;
+	struct ieee80215_addr sa;
+	struct ieee80215_addr da;
+};
+#define MAC_CB(skb)	((struct ieee80215_mac_cb *)(skb)->cb)
 
 #endif
 
