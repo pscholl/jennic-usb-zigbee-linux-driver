@@ -182,6 +182,9 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 {
 	struct net_device *dev;
 	struct ieee80215_netdev_priv *priv;
+	int err;
+
+	ASSERT_RTNL();
 
 	dev = alloc_netdev(sizeof(struct ieee80215_netdev_priv),
 			"wpan%d", ieee80215_netdev_setup);
@@ -205,17 +208,28 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	priv->pan_id = 0xffff;
 	priv->short_addr = 0xffff;
 
-	rtnl_lock();
 	dev_hold(priv->hw->master);
-	rtnl_unlock();
 
 	dev->needed_headroom = priv->hw->master->needed_headroom;
 
 	list_add_tail_rcu(&priv->list, &ieee80215_to_priv(hw)->slaves);
+	/*
+	 * If the name is a format string the caller wants us to do a
+	 * name allocation.
+	 */
+	if (strchr(dev->name, '%')) {
+		err = dev_alloc_name(dev, dev->name);
+		if (err < 0)
+			goto out;
+	}
 
-	register_netdev(dev);
+	err = register_netdevice(dev);
+	if(err < 0)
+		goto out;
 
 	return dev->ifindex;
+out:
+	return err;
 }
 EXPORT_SYMBOL(ieee80215_add_slave);
 

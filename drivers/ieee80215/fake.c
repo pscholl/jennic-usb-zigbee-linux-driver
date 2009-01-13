@@ -2,6 +2,7 @@
 #include <linux/timer.h>
 #include <linux/platform_device.h>
 #include <linux/netdevice.h>
+#include <linux/rtnetlink.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 
@@ -227,7 +228,9 @@ static int __devinit ieee80215fake_probe(struct platform_device *pdev)
 		kfree(priv);
 		return err;
 	}
+	rtnl_lock();
 	ieee80215_add_slave(priv->dev, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
+	rtnl_unlock();
 //	rx_init(dev_op->priv);
 	platform_set_drvdata(pdev, priv);
 	dev_info(&pdev->dev, "Added ieee80215 hardware\n");
