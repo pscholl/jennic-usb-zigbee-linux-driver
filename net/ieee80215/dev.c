@@ -34,6 +34,7 @@
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee80215/mac_struct.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
@@ -337,7 +338,6 @@ struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev)
 	struct ieee80215_netdev_priv *priv;
 	priv = netdev_priv(dev);
 	BUG_ON(!priv);
-	BUG_ON(!priv->mac);
 	return &priv->mac;
 }
 EXPORT_SYMBOL(ieee80215_get_mac_bydev);
