@@ -13,10 +13,10 @@ static DEFINE_RWLOCK(dgram_lock);
 
 struct dgram_sock {
 	struct sock sk;
-	int bound;
-	int ifindex;
 
-	u8 dst_addr[IEEE80215_ADDR_LEN];
+	int bound;
+	struct ieee80215_addr src_addr;
+	struct ieee80215_addr dst_addr;
 };
 
 static inline struct dgram_sock *dgram_sk(const struct sock *sk)
@@ -45,7 +45,9 @@ static int dgram_init(struct sock *sk)
 {
 	struct dgram_sock *ro = dgram_sk(sk);
 
-	memset(&ro->dst_addr, 0xff, sizeof(ro->dst_addr));
+	ro->dst_addr.addr_type = IEEE80215_ADDR_LONG;
+	ro->dst_addr.pan_id = 0xffff;
+	memset(&ro->dst_addr.hwaddr, 0xff, sizeof(ro->dst_addr.hwaddr));
 	return 0;
 }
 
@@ -61,6 +63,8 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 	int err = 0;
 	struct net_device *dev;
 
+	ro->bound = 0;
+
 	if (len < sizeof(*addr))
 		return -EINVAL;
 
@@ -69,7 +73,7 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 
 	lock_sock(sk);
 
-	dev = ieee80215_get_dev(sock_net(sk), addr);
+	dev = ieee80215_get_dev(sock_net(sk), &addr->addr);
 	if (!dev) {
 		err = -ENODEV;
 		goto out;
@@ -80,10 +84,11 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		goto out_put;
 	}
 
-	ro->ifindex = dev->ifindex;
+	memcpy(&ro->src_addr, &addr->addr, sizeof(struct ieee80215_addr));
+
+	ro->bound = 1;
 out_put:
 	dev_put(dev);
-	ro->bound = !!ro->ifindex;
 out:
 	release_sock(sk);
 
@@ -164,14 +169,7 @@ static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
 		goto out;
 	}
 
-	switch (addr->addr_type) {
-	case IEEE80215_ADDR_LONG:
-		memcpy(ro->dst_addr, (u8*)&addr->hwaddr, IEEE80215_ADDR_LEN);
-		break;
-	default:
-		err = -ENOTSUPP;
-		goto out;
-	}
+	memcpy(&ro->dst_addr, &addr->addr, sizeof(struct ieee80215_addr));
 
 out:
 	release_sock(sk);
@@ -183,24 +181,14 @@ static int dgram_disconnect(struct sock *sk, int flags)
 	struct dgram_sock *ro = dgram_sk(sk);
 
 	lock_sock(sk);
-	memset(ro->dst_addr, 0xff, IEEE80215_ADDR_LEN);
+
+	ro->dst_addr.addr_type = IEEE80215_ADDR_LONG;
+	memset(&ro->dst_addr.hwaddr, 0xff, sizeof(ro->dst_addr.hwaddr));
+
 	release_sock(sk);
 
 	return 0;
 }
-
-#if 0
-static __inline__ u16 ieee80215_crc_itu(u8 *data, u8 len)
-{
-        u16 crc;
-        u32 reg;
-
-        reg = 0;
-        crc = crc_itu_t(0, data, len-2);
-        crc = crc_itu_t(crc, (u8*)&reg, 2);
-        return crc;
-}
-#endif
 
 static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		       size_t size)
@@ -219,18 +207,14 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	if (!ro->bound)
 		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE80215);
 	else
-		dev = dev_get_by_index(sock_net(sk), ro->ifindex);
+		dev = ieee80215_get_dev(sock_net(sk), &ro->src_addr);
+
 	if (!dev) {
 		pr_debug("no dev\n");
 		return -ENXIO;
 	}
 	mtu = dev->mtu;
 	pr_debug("name = %s, mtu = %u\n", dev->name, mtu);
-
-	if (size > mtu) {
-		pr_debug("size = %u, mtu = %u\n", size, mtu);
-		return -EINVAL;
-	}
 
 	skb = sock_alloc_send_skb(sk, LL_ALLOCATED_SPACE(dev) + size, msg->msg_flags & MSG_DONTWAIT,
 				  &err);
@@ -242,7 +226,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 
 	skb_reset_network_header(skb);
 
-	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, ro->dst_addr, NULL, size);
+	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
 	if (err < 0) {
 		kfree_skb(skb);
 		dev_put(dev);
@@ -257,6 +241,13 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		dev_put(dev);
 		return err;
 	}
+
+	if (size > mtu) {
+		pr_debug("size = %u, mtu = %u\n", size, mtu);
+		return -EINVAL;
+	}
+
+	// FIXME: skip computing CRC if not necessary (i.e. handled by the device)?
 	{
 		u16 crc = crc_itu_t(0, skb->data, skb->len);
 		memcpy(skb_put(skb, 2), &crc, 2);
@@ -330,8 +321,11 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	sk_for_each(sk, node, &dgram_head) {
 		struct dgram_sock *ro = dgram_sk(sk);
 		if (!ro->bound ||
-		  (ro->ifindex == dev->ifindex)) {
-
+		  (ro->src_addr.addr_type == IEEE80215_ADDR_LONG &&
+		     !memcmp(ro->src_addr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN)) ||
+		  (ro->src_addr.addr_type == IEEE80215_ADDR_SHORT &&
+		     ieee80215_dev_get_pan_id(dev) == ro->src_addr.pan_id &&
+		     ieee80215_dev_get_short_addr(dev) == ro->src_addr.short_addr)) {
 			if (prev) {
 				struct sk_buff *clone;
 				clone = skb_clone(skb, GFP_ATOMIC);

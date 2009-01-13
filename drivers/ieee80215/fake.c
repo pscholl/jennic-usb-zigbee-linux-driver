@@ -193,6 +193,7 @@ hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	struct sk_buff *newskb;
 	pr_debug("%s\n",__FUNCTION__);
 	newskb = pskb_copy(skb, GFP_ATOMIC);
+	PHY_CB(newskb)->lqi = 0xcc;
 	ieee80215_rx(dev, newskb);
 	return PHY_SUCCESS;
 }

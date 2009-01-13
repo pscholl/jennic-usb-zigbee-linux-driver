@@ -78,6 +78,7 @@ hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	struct fake_priv *fake;
 	pr_debug("%s\n",__FUNCTION__);
 	newskb = pskb_copy(skb, GFP_ATOMIC);
+	PHY_CB(newskb)->lqi = 0xcc;
 	if (priv->id == 1) {
 		fake = container_of(priv, struct fake_priv, dev1);
 		ieee80215_rx(fake->dev2.dev, newskb);

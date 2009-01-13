@@ -44,7 +44,7 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 
 	lock_sock(sk);
 
-	dev = ieee80215_get_dev(sock_net(sk), addr);
+	dev = ieee80215_get_dev(sock_net(sk), &addr->addr);
 	if (!dev) {
 		err = -ENODEV;
 		goto out;
