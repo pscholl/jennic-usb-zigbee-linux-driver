@@ -416,7 +416,6 @@ struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev)
 	struct ieee80215_netdev_priv *priv;
 	priv = netdev_priv(dev);
 	BUG_ON(!priv);
-//	BUG_ON(!priv->mac);
 	return &priv->mac;
 }
 EXPORT_SYMBOL(ieee80215_get_mac_bydev);
