@@ -96,18 +96,18 @@ static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int 
 			return -EADDRNOTAVAIL;
 
 		sa->family = AF_IEEE80215;
-		sa->addr_type = IEEE80215_ADDR_SHORT;
-		sa->pan_id = priv->pan_id;
-		sa->short_addr = priv->short_addr;
+		sa->addr.addr_type = IEEE80215_ADDR_SHORT;
+		sa->addr.pan_id = priv->pan_id;
+		sa->addr.short_addr = priv->short_addr;
 		return 0;
 	case SIOCSIFADDR:
 		dev_warn(&dev->dev, "Using DEBUGing ioctl SIOCSIFADDR isn't recommened!\n");
-		if (sa->family != AF_IEEE80215 || sa->addr_type != IEEE80215_ADDR_SHORT ||
-			sa->pan_id == 0xffff || sa->short_addr == 0xffff || sa->short_addr == 0xfffe)
+		if (sa->family != AF_IEEE80215 || sa->addr.addr_type != IEEE80215_ADDR_SHORT ||
+			sa->addr.pan_id == 0xffff || sa->addr.short_addr == 0xffff || sa->addr.short_addr == 0xfffe)
 			return -EINVAL;
 
-		priv->pan_id = sa->pan_id;
-		priv->short_addr = sa->short_addr;
+		priv->pan_id = sa->addr.pan_id;
+		priv->short_addr = sa->addr.short_addr;
 		return 0;
 	}
 	return -ENOIOCTLCMD;
@@ -132,9 +132,9 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	int pos = 0;
 
 	u8 fc1, fc2;
-	const struct sockaddr_ieee80215 *saddr = _saddr;
-	const struct sockaddr_ieee80215 *daddr = _daddr;
-	struct sockaddr_ieee80215 dev_addr;
+	const struct ieee80215_addr *saddr = _saddr;
+	const struct ieee80215_addr *daddr = _daddr;
+	struct ieee80215_addr dev_addr;
 	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
 
 	fc1 = 1 << 0 /* data */
@@ -371,7 +371,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 }
 
-struct net_device *ieee80215_get_dev(struct net *net, struct sockaddr_ieee80215 *addr)
+struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *addr)
 {
 	struct net_device *dev = NULL;
 

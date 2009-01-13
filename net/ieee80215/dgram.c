@@ -15,8 +15,8 @@ struct dgram_sock {
 	struct sock sk;
 
 	int bound;
-	struct sockaddr_ieee80215 src_addr;
-	struct sockaddr_ieee80215 dst_addr;
+	struct ieee80215_addr src_addr;
+	struct ieee80215_addr dst_addr;
 };
 
 static inline struct dgram_sock *dgram_sk(const struct sock *sk)
@@ -73,7 +73,7 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 
 	lock_sock(sk);
 
-	dev = ieee80215_get_dev(sock_net(sk), addr);
+	dev = ieee80215_get_dev(sock_net(sk), &addr->addr);
 	if (!dev) {
 		err = -ENODEV;
 		goto out;
@@ -84,7 +84,7 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		goto out_put;
 	}
 
-	memcpy(&ro->src_addr, addr, sizeof(struct sockaddr_ieee80215));
+	memcpy(&ro->src_addr, &addr->addr, sizeof(struct ieee80215_addr));
 
 	ro->bound = 1;
 out_put:
@@ -169,7 +169,7 @@ static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
 		goto out;
 	}
 
-	memcpy(&ro->dst_addr, addr, sizeof(struct sockaddr_ieee80215));
+	memcpy(&ro->dst_addr, &addr->addr, sizeof(struct ieee80215_addr));
 
 out:
 	release_sock(sk);

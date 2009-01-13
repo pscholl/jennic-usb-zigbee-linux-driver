@@ -33,8 +33,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr);
 void ieee80215_drop_slaves(struct ieee80215_dev *hw);
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
 
-struct sockaddr_ieee80215;
-struct net_device *ieee80215_get_dev(struct net *net, struct sockaddr_ieee80215 *sa);
+struct ieee80215_addr;
+struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *sa);
 
 // FIXME: should be dropped in favour of MIB getting
 u16 ieee80215_dev_get_pan_id(struct net_device *dev);
