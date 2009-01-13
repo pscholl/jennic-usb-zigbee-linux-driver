@@ -60,10 +60,10 @@ struct ieee80215_user_data {
 /* master device */
 #define IEEE80215_SIOC_ADD_SLAVE		(SIOCDEVPRIVATE + 0)
 
-int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data *data);
-int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data *data);
-int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data *data);
-int ioctl_start_router(struct sock *sk, struct ieee80215_user_data *data);
-int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data *data);
-int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data *data);
+int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *data);
+int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data __user *data);
+int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data __user *data);
+int ioctl_start_router(struct sock *sk, struct ieee80215_user_data __user *data);
+int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data);
+int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data);
 
