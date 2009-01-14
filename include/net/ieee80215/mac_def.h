@@ -36,7 +36,7 @@
 #define IEEE80215_FC_TYPE_MAC_CMD	0x3	/* Frame is MAC command */
 
 #define IEEE80215_FC_TYPE_SHIFT		0
-#define IEEE80215_FC_TYPE_MASK		((1 << 4) - 1)
+#define IEEE80215_FC_TYPE_MASK		((1 << 3) - 1)
 
 #define IEEE80215_FC_SECEN		(1 << 3)
 #define IEEE80215_FC_FRPEND		(1 << 4)
