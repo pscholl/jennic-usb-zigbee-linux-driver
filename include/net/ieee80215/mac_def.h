@@ -38,6 +38,8 @@
 #define IEEE80215_FC_TYPE_SHIFT		0
 #define IEEE80215_FC_TYPE_MASK		((1 << 4) - 1)
 
+#define IEEE80215_FC_SECEN		(1 << 3)
+#define IEEE80215_FC_FRPEND		(1 << 4)
 #define IEEE80215_FC_ACK_REQ		(1 << 5)
 #define IEEE80215_FC_INTRA_PAN		(1 << 6)
 
