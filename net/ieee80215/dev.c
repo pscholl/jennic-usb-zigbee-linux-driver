@@ -35,6 +35,7 @@
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
+#include <net/ieee80215/mac_def.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
@@ -91,8 +92,7 @@ static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int 
 	struct sockaddr_ieee80215 *sa = (struct sockaddr_ieee80215 *)&ifr->ifr_addr;
 	switch (cmd) {
 	case SIOCGIFADDR:
-		// FIXME: use constants
-		if (priv->pan_id == 0xffff || priv->short_addr == 0xffff)
+		if (priv->pan_id == IEEE80215_PANID_BROADCAST || priv->short_addr == IEEE80215_ADDR_BROADCAST)
 			return -EADDRNOTAVAIL;
 
 		sa->family = AF_IEEE80215;
@@ -103,7 +103,7 @@ static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int 
 	case SIOCSIFADDR:
 		dev_warn(&dev->dev, "Using DEBUGing ioctl SIOCSIFADDR isn't recommened!\n");
 		if (sa->family != AF_IEEE80215 || sa->addr.addr_type != IEEE80215_ADDR_SHORT ||
-			sa->addr.pan_id == 0xffff || sa->addr.short_addr == 0xffff || sa->addr.short_addr == 0xfffe)
+			sa->addr.pan_id == IEEE80215_PANID_BROADCAST || sa->addr.short_addr == IEEE80215_ADDR_BROADCAST || sa->addr.short_addr == IEEE80215_ADDR_UNDEF)
 			return -EINVAL;
 
 		priv->pan_id = sa->addr.pan_id;
@@ -131,16 +131,14 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	u8 head[24] = {};
 	int pos = 0;
 
-	u8 fc1, fc2;
+	u16 fc;
 	const struct ieee80215_addr *saddr = _saddr;
 	const struct ieee80215_addr *daddr = _daddr;
 	struct ieee80215_addr dev_addr;
 	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
 
-	fc1 = 1 << 0 /* data */
-		| (1 << 5) /* ack req */
-		;
-	fc2 = 0;
+	fc = (IEEE80215_FC_TYPE_DATA << IEEE80215_FC_TYPE_SHIFT)
+		| IEEE80215_FC_ACK_REQ;
 
 	pos = 2;
 
@@ -151,8 +149,7 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 		return -EINVAL;
 
 	if (!saddr) {
-		// FIXME: constants
-		if (priv->short_addr == 0xffff || priv->short_addr == 0xfffe) {
+		if (priv->short_addr == IEEE80215_ADDR_BROADCAST || priv->short_addr == IEEE80215_ADDR_UNDEF) {
 			dev_addr.addr_type = IEEE80215_ADDR_LONG;
 			memcpy(dev_addr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
 		} else {
@@ -165,10 +162,10 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	}
 
 	if (saddr->addr_type != IEEE80215_ADDR_NONE) {
-		fc2 |= (saddr->addr_type << (14 - 8));
+		fc |= (saddr->addr_type << IEEE80215_FC_SAMODE_SHIFT);
 
-		if ((saddr->pan_id == daddr->pan_id) && (saddr->pan_id != 0xffff))
-			fc1 |= 1 << 6; /* PANID compression/ intra PAN */
+		if ((saddr->pan_id == daddr->pan_id) && (saddr->pan_id != IEEE80215_PANID_BROADCAST))
+			fc |= IEEE80215_FC_INTRA_PAN; /* PANID compression/ intra PAN */
 		else {
 			head[pos++] = saddr->pan_id & 0xff;
 			head[pos++] = saddr->pan_id >> 8;
@@ -184,7 +181,7 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	}
 
 	if (daddr->addr_type != IEEE80215_ADDR_NONE) {
-		fc2 |= (daddr->addr_type << (10 - 8));
+		fc |= (daddr->addr_type << IEEE80215_FC_DAMODE_SHIFT);
 
 		head[pos++] = daddr->pan_id & 0xff;
 		head[pos++] = daddr->pan_id >> 8;
@@ -198,8 +195,8 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 		}
 	}
 
-	head[0] = fc1;
-	head[1] = fc2;
+	head[0] = fc;
+	head[1] = fc >> 8;
 
 	memcpy(skb_push(skb, pos), head, pos);
 
@@ -260,9 +257,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	dev->priv_flags = IFF_SLAVE_INACTIVE;
 	dev->do_ioctl = ieee80215_slave_ioctl;
 
-	// FIXME: constants
-	priv->pan_id = 0xffff;
-	priv->short_addr = 0xffff;
+	priv->pan_id = IEEE80215_PANID_DEF;
+	priv->short_addr = IEEE80215_SHORT_ADDRESS_DEF;
 
 	dev_hold(priv->hw->master);
 
@@ -320,17 +316,21 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	unsigned char *head;
 	unsigned int tail_off;
 
+	u16 fc;
+
 	if (skb->len < 3 + 2)
 		return;
 
 	head = skb->data;
 	skb_pull(skb, 3);
 
-	printk("%s: %02x %02x dsn%02x\n", __func__, head[0], head[1], head[2]);
+	fc = head[0] | (head[1] << 8);
 
-	MAC_CB(skb)->sa.addr_type = (head[1] >> (14 - 8)) & 0x3;
+	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
+
+	MAC_CB(skb)->sa.addr_type = (fc & IEEE80215_FC_SAMODE_MASK) >> IEEE80215_FC_SAMODE_SHIFT;
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
-		if (!(head[0] & (1 << 6))) { // ! panid compress
+		if (!(fc & IEEE80215_FC_INTRA_PAN)) { // ! panid compress
 			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
 			skb_pull(skb, 2);
 		}
@@ -344,9 +344,9 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 		}
 	}
 
-	MAC_CB(skb)->da.addr_type = (head[1] >> (10 - 8)) & 0x3;
+	MAC_CB(skb)->da.addr_type = (fc & IEEE80215_FC_DAMODE_MASK) >> IEEE80215_FC_DAMODE_SHIFT;
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
-		if ((head[0] & (1 << 6))) { // ! panid compress
+		if (fc & IEEE80215_FC_INTRA_PAN) { // ! panid compress
 			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
 		}
 		MAC_CB(skb)->da.pan_id = skb->data[0] | (skb->data[1] << 8);
@@ -379,7 +379,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 			skb2->pkt_type = PACKET_OTHERHOST;
 			break;
 		case IEEE80215_ADDR_LONG:
-			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != 0xffff)
+			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != IEEE80215_PANID_BROADCAST)
 				skb2->pkt_type = PACKET_OTHERHOST;
 			else if (!memcmp(MAC_CB(skb2)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
 				skb2->pkt_type = PACKET_HOST;
@@ -389,11 +389,11 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 				skb2->pkt_type = PACKET_OTHERHOST;
 			break;
 		case IEEE80215_ADDR_SHORT:
-			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != 0xffff)
+			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != IEEE80215_PANID_BROADCAST)
 				skb2->pkt_type = PACKET_OTHERHOST;
 			else if (MAC_CB(skb2)->da.short_addr == ndp->short_addr)
 				skb2->pkt_type = PACKET_HOST;
-			else if (MAC_CB(skb2)->da.short_addr == 0xffff)
+			else if (MAC_CB(skb2)->da.short_addr == IEEE80215_ADDR_BROADCAST)
 				skb2->pkt_type = PACKET_BROADCAST;
 			else
 				skb2->pkt_type = PACKET_OTHERHOST;
@@ -424,7 +424,7 @@ struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *add
 		rtnl_unlock();
 		break;
 	case IEEE80215_ADDR_SHORT:
-		if (addr->pan_id != 0xffff && addr->short_addr != 0xfffe && addr->short_addr != 0xffff) {
+		if (addr->pan_id != 0xffff && addr->short_addr != IEEE80215_ADDR_UNDEF && addr->short_addr != 0xffff) {
 			struct net_device *tmp;
 
 			rtnl_lock();
