@@ -212,10 +212,9 @@ send_cmd(struct zb_device *zbdev, u8 id)
 	/* Check arguments */
 	BUG_ON(!zbdev);
 
-	if (!zbdev->opened && id != CMD_OPEN) {
-		if (!_open_dev(zbdev)) {
-			return -1;
-		}
+	if (!zbdev->opened) {
+		_open_dev(zbdev);
+		return -EAGAIN;
 	}
 
 	printk("%s(): id = %u\n", __FUNCTION__, id);
@@ -253,9 +252,8 @@ send_cmd2(struct zb_device *zbdev, u8 id, u8 extra)
 	BUG_ON(!zbdev);
 
 	if (!zbdev->opened) {
-		if (!_open_dev(zbdev)) {
-			return -1;
-		}
+		_open_dev(zbdev);
+		return -EAGAIN;
 	}
 
 	printk("%s(): id = %u\n", __FUNCTION__, id);
@@ -294,9 +292,8 @@ send_block(struct zb_device *zbdev, u8 len, u8 *data)
 	BUG_ON(!zbdev);
 
 	if (!zbdev->opened) {
-		if (!_open_dev(zbdev)) {
-			return -1;
-		}
+		_open_dev(zbdev);
+		return -EAGAIN;
 	}
 
 	printk("%s(): id = %u\n", __FUNCTION__, DATA_XMIT_BLOCK);
@@ -389,7 +386,15 @@ process_command(struct zb_device *zbdev)
 
 	if (RESP_OPEN == zbdev->id && STATUS_SUCCESS == zbdev->param1) {
 		zbdev->opened = 1;
+		pr_debug("Opened device\n");
+#if 0
 		complete(&zbdev->open_done);
+		/* Input is not processed during output, so
+		 * using completion is not possible during output.
+		 * so we need to handle open as any other command
+		 * and hope for best
+		 */
+#endif
 		return;
 	}
 
@@ -528,16 +533,45 @@ process_char(struct zb_device *zbdev, unsigned char c)
 
 static int _open_dev(struct zb_device *zbdev) {
 	int retries;
+	u8 len = 0, buf[4];	/* 4 because of 2 start bytes, id and optional extra */
 
-	if (send_cmd(zbdev, CMD_OPEN) != 0) {
-		return 0;
+	/* Check arguments */
+	BUG_ON(!zbdev);
+	if(zbdev->opened)
+		return 1;
+
+	printk("%s()\n", __FUNCTION__);
+	if (zbdev->pending_size) {
+		printk(KERN_ERR "%s(): cmd is already pending, id = %u\n",
+			__FUNCTION__, zbdev->pending_id);
+		BUG();
 	}
 
+	/* Prepare a message */
+	buf[len++] = START_BYTE1;
+	buf[len++] = START_BYTE2;
+	buf[len++] = CMD_OPEN;
+
+	zbdev->pending_id = CMD_OPEN;
+	zbdev->pending_size = len;
+	zbdev->pending_data = kzalloc(zbdev->pending_size, GFP_KERNEL);
+	if (!zbdev->pending_data) {
+		printk(KERN_ERR "%s(): unable to allocate memory\n", __FUNCTION__);
+		zbdev->pending_id = 0;
+		zbdev->pending_size = 0;
+		return -ENOMEM;
+	}
+	memcpy(zbdev->pending_data, buf, len);
+
+	if(_send_pending_data(zbdev) != 0)
+		return 0;
+
+#if 0
 	retries = 5;
 	while (!zbdev->opened && retries) {
 		_send_pending_data(zbdev);
-		/* 1 second before retransmission */
-		wait_for_completion_interruptible_timeout(&zbdev->open_done, HZ);
+		/* 3 second before retransmission */
+		wait_for_completion_interruptible_timeout(&zbdev->open_done, HZ * 3);
 		--retries;
 	}
 
@@ -549,6 +583,15 @@ static int _open_dev(struct zb_device *zbdev) {
 	if (zbdev->opened) {
 		return 1;
 	}
+#endif
+	/* We always fail here, hoping commands will retry their stuff
+	 * as soon as device is open
+	 */
+
+	zbdev->pending_id = 0;
+	kfree(zbdev->pending_data);
+	zbdev->pending_data = NULL;
+	zbdev->pending_size = 0;
 	return 0;
 }
 
@@ -787,7 +830,9 @@ ieee80215_tty_open(struct tty_struct *tty)
 		return -ENOMEM;
 	}
 	mutex_init(&zbdev->mutex);
+#if 0
 	init_completion(&zbdev->open_done);
+#endif
 	init_waitqueue_head(&zbdev->wq);
 	skb_queue_head_init(&zbdev->tx_queue);
 	INIT_WORK(&zbdev->work, serial_tx_worker);
