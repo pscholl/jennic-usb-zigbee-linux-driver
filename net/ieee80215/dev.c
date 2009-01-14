@@ -318,8 +318,12 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	u16 fc;
 
-	if (skb->len < 3 + 2)
+	if (skb->len < 3 + 2) {
+		pr_debug("%s(): got too short frame\n", __FUNCTION__);
 		return;
+	}
+
+	pr_debug("%s()\n", __FUNCTION__);
 
 	head = skb->data;
 	skb_pull(skb, 3);

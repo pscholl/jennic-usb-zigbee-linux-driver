@@ -213,8 +213,8 @@ send_cmd(struct zb_device *zbdev, u8 id)
 	BUG_ON(!zbdev);
 
 	if (!zbdev->opened) {
-		_open_dev(zbdev);
-		return -EAGAIN;
+		if (!_open_dev(zbdev))
+			return -EAGAIN;
 	}
 
 	printk("%s(): id = %u\n", __FUNCTION__, id);
@@ -252,8 +252,8 @@ send_cmd2(struct zb_device *zbdev, u8 id, u8 extra)
 	BUG_ON(!zbdev);
 
 	if (!zbdev->opened) {
-		_open_dev(zbdev);
-		return -EAGAIN;
+		if (!_open_dev(zbdev))
+			return -EAGAIN;
 	}
 
 	printk("%s(): id = %u\n", __FUNCTION__, id);
@@ -292,8 +292,8 @@ send_block(struct zb_device *zbdev, u8 len, u8 *data)
 	BUG_ON(!zbdev);
 
 	if (!zbdev->opened) {
-		_open_dev(zbdev);
-		return -EAGAIN;
+		if (!_open_dev(zbdev))
+			return -EAGAIN;
 	}
 
 	printk("%s(): id = %u\n", __FUNCTION__, DATA_XMIT_BLOCK);
@@ -372,6 +372,20 @@ _match_pending_id(struct zb_device *zbdev)
 	return 0;
 }
 
+void serial_net_rx(struct zb_device *zbdev)
+{
+	/* zbdev->param1 is LQI
+	 * zbdev->param2 is length of data
+	 * zbdev->data is data itself
+	 */
+	struct sk_buff *skb;
+	skb = alloc_skb(zbdev->param2, GFP_ATOMIC);
+	PHY_CB(skb)->lqi = zbdev->param1;
+	/* FIXME: proper function and sanity checking */
+	memcpy(skb->data, zbdev->data, zbdev->param2);
+	ieee80215_rx(zbdev->dev, skb);
+}
+
 static void
 process_command(struct zb_device *zbdev)
 {
@@ -387,14 +401,12 @@ process_command(struct zb_device *zbdev)
 	if (RESP_OPEN == zbdev->id && STATUS_SUCCESS == zbdev->param1) {
 		zbdev->opened = 1;
 		pr_debug("Opened device\n");
-#if 0
 		complete(&zbdev->open_done);
 		/* Input is not processed during output, so
 		 * using completion is not possible during output.
 		 * so we need to handle open as any other command
 		 * and hope for best
 		 */
-#endif
 		return;
 	}
 
@@ -406,45 +418,47 @@ process_command(struct zb_device *zbdev)
 	kfree(zbdev->pending_data);
 	zbdev->pending_data = NULL;
 	zbdev->pending_size = 0;
-	switch(zbdev->param1) {
-	case STATUS_SUCCESS:
-		zbdev->status = PHY_SUCCESS;
-		break;
-	case STATUS_RX_ON:
-		zbdev->status = PHY_RX_ON;
-		break;
-	case STATUS_TX_ON:
-		zbdev->status = PHY_TX_ON;
-		break;
-	case STATUS_TRX_OFF:
-		zbdev->status = PHY_TRX_OFF;
-		break;
-	case STATUS_BUSY:
-		zbdev->status = PHY_BUSY;
-		break;
-	case STATUS_IDLE:
-		zbdev->status = PHY_IDLE;
-		break;
-	case STATUS_BUSY_RX:
-		zbdev->status = PHY_BUSY_RX;
-		break;
-	case STATUS_BUSY_TX:
-		zbdev->status = PHY_BUSY_TX;
-		break;
-	default:
-		printk(KERN_ERR "%s: bad status received from firmware: %u\n",
-			__FUNCTION__, zbdev->param1);
-		zbdev->status = PHY_ERROR;
-		break;
-	}
+	if (zbdev->id != DATA_RECV_BLOCK)
+		switch(zbdev->param1) {
+		case STATUS_SUCCESS:
+			zbdev->status = PHY_SUCCESS;
+			break;
+		case STATUS_RX_ON:
+			zbdev->status = PHY_RX_ON;
+			break;
+		case STATUS_TX_ON:
+			zbdev->status = PHY_TX_ON;
+			break;
+		case STATUS_TRX_OFF:
+			zbdev->status = PHY_TRX_OFF;
+			break;
+		case STATUS_BUSY:
+			zbdev->status = PHY_BUSY;
+			break;
+		case STATUS_IDLE:
+			zbdev->status = PHY_IDLE;
+			break;
+		case STATUS_BUSY_RX:
+			zbdev->status = PHY_BUSY_RX;
+			break;
+		case STATUS_BUSY_TX:
+			zbdev->status = PHY_BUSY_TX;
+			break;
+		default:
+			printk(KERN_ERR "%s: bad status received from firmware: %u\n",
+				__FUNCTION__, zbdev->param1);
+			zbdev->status = PHY_ERROR;
+			break;
+		}
 
 	switch (zbdev->id) {
 	case RESP_ED:
 		zbdev->ed = zbdev->param2;
 		break;
 	case DATA_RECV_BLOCK:
+		printk("Received block, lqi %02x, len %02x\n", zbdev->param1, zbdev->param2);
 		/* zbdev->param1 is LQ, zbdev->param2 is length */
-//		ieee80215_net_rx(dev, zbdev->data, zbdev->param2, &zbdev->param1, 1);
+		serial_net_rx(zbdev);
 		break;
 	case DATA_RECV_STREAM:
 		/* TODO: update firmware to use this */
@@ -563,15 +577,13 @@ static int _open_dev(struct zb_device *zbdev) {
 	}
 	memcpy(zbdev->pending_data, buf, len);
 
-	if(_send_pending_data(zbdev) != 0)
-		return 0;
-
-#if 0
 	retries = 5;
 	while (!zbdev->opened && retries) {
-		_send_pending_data(zbdev);
+		if(_send_pending_data(zbdev) != 0)
+			return 0;
+
 		/* 3 second before retransmission */
-		wait_for_completion_interruptible_timeout(&zbdev->open_done, HZ * 3);
+		wait_for_completion_interruptible_timeout(&zbdev->open_done, msecs_to_jiffies(1000));
 		--retries;
 	}
 
@@ -583,7 +595,6 @@ static int _open_dev(struct zb_device *zbdev) {
 	if (zbdev->opened) {
 		return 1;
 	}
-#endif
 	/* We always fail here, hoping commands will retry their stuff
 	 * as soon as device is open
 	 */
@@ -747,7 +758,7 @@ static phy_status_t
 ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
 	struct zb_device *zbdev;
-	phy_status_t ret;
+//	phy_status_t ret;
 	struct sk_buff *dev_skb;
 
 	pr_debug("%s\n",__FUNCTION__);
@@ -785,8 +796,8 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
-#endif
 out:
+#endif
 	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n",__FUNCTION__);
 	return zbdev->status;
@@ -830,9 +841,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 		return -ENOMEM;
 	}
 	mutex_init(&zbdev->mutex);
-#if 0
 	init_completion(&zbdev->open_done);
-#endif
 	init_waitqueue_head(&zbdev->wq);
 	skb_queue_head_init(&zbdev->tx_queue);
 	INIT_WORK(&zbdev->work, serial_tx_worker);
@@ -852,6 +861,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 
 	tty->disc_data = zbdev;
 	tty->receive_room = MAX_DATA_SIZE;
+	tty->low_latency = 1;
 
 	err = ieee80215_register_device(zbdev->dev, &serial_ops);
 	if (err) {

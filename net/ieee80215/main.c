@@ -84,15 +84,16 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 	BUG_ON(!skb);
 
-	skb->iif = skb->dev->ifindex;
+	skb->dev = priv->master;
 
-	skb_reset_mac_header(skb);
+	skb->iif = skb->dev->ifindex;
 
 	skb->protocol = htons(ETH_P_IEEE80215);
 
+	skb_reset_mac_header(skb);
+
 	ieee80215_subif_rx(dev, skb);
 
-	skb->dev = priv->master;
 	netif_rx(skb);
 }
 EXPORT_SYMBOL(ieee80215_rx);
