@@ -332,7 +332,27 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
-	MAC_CB(skb)->sa.addr_type = (fc & IEEE80215_FC_SAMODE_MASK) >> IEEE80215_FC_SAMODE_SHIFT;
+	if(fc & IEEE80215_FC_ACK_REQ)
+		MAC_CB(skb)->flags = MAC_CB_FLAG_ACKREQ;
+
+	if(fc & IEEE80215_FC_SECEN)
+		MAC_CB(skb)->flags |= MAC_CB_FLAG_SECEN;
+	/* TODO */
+	if(MAC_CB_IS_SECEN(skb)) {
+		pr_info("security support is not implemented, dropping frame\n");
+		kfree_skb(skb);
+		return;
+	}
+
+	MAC_CB(skb)->sa.addr_type =
+			(fc & IEEE80215_FC_SAMODE_MASK) >> IEEE80215_FC_SAMODE_SHIFT;
+
+	if(MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_NONE)
+		pr_debug("%s(): src addr_type is NONE\n", __FUNCTION__);
+
+	if(MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE)
+		pr_debug("%s(): dst addr_type is NONE\n", __FUNCTION__);
+
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __FUNCTION__);
 		if (!(fc & IEEE80215_FC_INTRA_PAN)) { // ! panid compress
