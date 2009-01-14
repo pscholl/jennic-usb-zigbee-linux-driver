@@ -282,6 +282,9 @@ static int dgram_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		msg->msg_flags |= MSG_TRUNC;
 		copied = len;
 	}
+	if(MAC_CB_IS_ACKREQ(skb)) {
+		/* TODO submit ack */
+	}
 
 	// FIXME: skip headers if necessary ?!
 	err = skb_copy_datagram_iovec(skb, 0, msg->msg_iov, copied);
