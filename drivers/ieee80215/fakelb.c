@@ -2,6 +2,7 @@
 #include <linux/timer.h>
 #include <linux/platform_device.h>
 #include <linux/netdevice.h>
+#include <linux/rtnetlink.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 
@@ -124,14 +125,18 @@ static int __devinit ieee80215fake_probe(struct platform_device *pdev)
 	err = ieee80215_register_device(priv->dev1.dev, &fake_ops);
 	if(err)
 		goto err_reg_1;
+	rtnl_lock();
 	err = ieee80215_add_slave(priv->dev1.dev, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
+	rtnl_unlock();
 	if (err < 0)
 		goto err_slave_1;
 
 	err = ieee80215_register_device(priv->dev2.dev, &fake_ops);
 	if(err)
 		goto err_reg_2;
+	rtnl_lock();
 	err = ieee80215_add_slave(priv->dev2.dev, "\x67\x45\x23\x01\x67\x45\x23\x01");
+	rtnl_unlock();
 	if (err < 0)
 		goto err_slave_2;
 
