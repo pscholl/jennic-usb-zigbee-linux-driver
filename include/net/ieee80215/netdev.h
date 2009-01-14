@@ -51,8 +51,19 @@ struct ieee80215_mac_cb {
 	struct ieee80215_phy_cb phy;
 	struct ieee80215_addr sa;
 	struct ieee80215_addr da;
+	u8 flags;
 };
 #define MAC_CB(skb)	((struct ieee80215_mac_cb *)(skb)->cb)
+
+#define MAC_CB_FLAG_ACKREQ		(1 << 0)
+#define MAC_CB_FLAG_FRAME_BEACON	(1 << 1)
+#define MAC_CB_FLAG_FRAME_DATA		(1 << 2)
+#define MAC_CB_FLAG_FRAME_ACK		(1 << 3)
+#define MAC_CB_FLAG_FRAME_CMD		(1 << 4)
+#define MAC_CB_FLAG_SECEN		(1 << 5)
+
+#define MAC_CB_IS_ACKREQ(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_ACKREQ)
+#define MAC_CB_IS_SECEN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_SECEN)
 
 #endif
 
