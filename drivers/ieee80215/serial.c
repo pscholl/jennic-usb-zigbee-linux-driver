@@ -155,8 +155,6 @@ static void serial_tx_worker(struct work_struct *work)
 		struct net_device *dev;
 		skb = skb_dequeue_tail(&zbdev->tx_queue);
 		BUG_ON(!skb);
-		if(zbdev->dev->extra_tx_headroom > 0)
-			memset(skb->data, 0, zbdev->dev->extra_tx_headroom);
 		dev = skb->dev;
 
 		if (send_block(zbdev, skb->len, skb->data) != 0) {
@@ -784,9 +782,6 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 	skb_queue_tail(&zbdev->tx_queue, dev_skb);
 	schedule_work(&zbdev->work);
 #if 0
-	if(dev->extra_tx_headroom > 0)
-		memset(skb->data, 0, dev->extra_tx_headroom);
-
 	if (send_block(zbdev, skb->len, skb->data) != 0) {
 		ret = PHY_ERROR;
 		goto out;
