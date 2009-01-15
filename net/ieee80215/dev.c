@@ -308,6 +308,40 @@ void ieee80215_drop_slaves(struct ieee80215_dev *hw)
 }
 EXPORT_SYMBOL(ieee80215_drop_slaves);
 
+static u8 fetch_skb_u8(struct sk_buff *skb)
+{
+	u8 ret;
+	if(skb->len < 1) {
+		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+		return 0;
+	}
+	ret = skb->data[0];
+	skb_pull(skb, 1);
+	return ret;
+}
+
+static u16 fetch_skb_u16(struct sk_buff *skb)
+{
+	u16 ret;
+	if(skb->len < 2) {
+		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+		return 0;
+	}
+	ret = skb->data[0] + (skb->data[1] * 256);
+	skb_pull(skb, 2);
+	return ret;
+}
+
+static void fetch_skb_u64(struct sk_buff *skb, void *data)
+{
+	if(skb->len < 8) {
+		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+		return;
+	}
+	memcpy(data, skb->data, IEEE80215_ADDR_LEN);
+	skb_pull(skb, IEEE80215_ADDR_LEN);
+}
+
 static void parse_frame_start(struct sk_buff *skb)
 {
 	u8 * head = skb->data;
@@ -318,9 +352,13 @@ static void parse_frame_start(struct sk_buff *skb)
 		return;
 	}
 
-	fc = head[0] | (head[1] << 8);
+	fc = fetch_skb_u16(skb);
 
-	MAC_CB(skb)->seq = head[2];
+	MAC_CB(skb)->seq = fetch_skb_u8(skb);
+
+	/* At this point we're just pulled 3 bytes */
+	if(!MAC_CB_IS_VALID(skb))
+		return;
 
 	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
@@ -356,11 +394,9 @@ static void parse_frame_start(struct sk_buff *skb)
 		if(!(MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE))
 			MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
 	} else {
-		if(skb-> len < 3 + 2 + 2)
+		if(skb-> len < 2 + 2)
 			MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
 	}
-	if(MAC_CB_IS_VALID(skb))
-		skb_pull(skb, 3);
 }
 
 static void parse_address(struct sk_buff *skb)
@@ -368,66 +404,54 @@ static void parse_address(struct sk_buff *skb)
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __FUNCTION__);
 		if (!(MAC_CB_IS_INTRAPAN(skb))) { // ! panid compress
-			if(skb->len < 2) {
-				MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+			MAC_CB(skb)->sa.pan_id = fetch_skb_u16(skb);
+			if(!MAC_CB_IS_VALID(skb))
 				return;
-			}
-			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
-			skb_pull(skb, 2);
 			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
 		}
 
 		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
-			if(skb->len < 2) {
-				MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+			MAC_CB(skb)->sa.short_addr = fetch_skb_u16(skb);
+			if(!MAC_CB_IS_VALID(skb))
 				return;
-			}
-			MAC_CB(skb)->sa.short_addr = skb->data[0] | (skb->data[1] << 8);
-			skb_pull(skb, 2);
 			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __FUNCTION__);
 		} else {
-			if(skb->len < IEEE80215_ADDR_LEN) {
-				MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+			fetch_skb_u64(skb, MAC_CB(skb)->sa.hwaddr);
+			if(!MAC_CB_IS_VALID(skb))
 				return;
-			}
-			memcpy(MAC_CB(skb)->sa.hwaddr, skb->data, IEEE80215_ADDR_LEN);
-			skb_pull(skb, IEEE80215_ADDR_LEN);
 			pr_debug("%s(): src hardware addr\n", __FUNCTION__);
 		}
 	}
 
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
 		if (MAC_CB_IS_INTRAPAN(skb)) { // ! panid compress
-			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
-			pr_debug("%s(): src PAN address %04x\n",
-					__FUNCTION__, MAC_CB(skb)->sa.pan_id);
-		}
-		if(skb->len < 2) {
-			MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-			return;
-		}
-		MAC_CB(skb)->da.pan_id = skb->data[0] | (skb->data[1] << 8);
-		skb_pull(skb, 2);
-		pr_debug("%s(): dst PAN address %04x\n",
-				__FUNCTION__, MAC_CB(skb)->da.pan_id);
-
-		if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_SHORT) {
 			if(skb->len < 2) {
 				MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
 				return;
 			}
-			MAC_CB(skb)->da.short_addr = skb->data[0] | (skb->data[1] << 8);
-			skb_pull(skb, 2);
+			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
+			pr_debug("%s(): src PAN address %04x\n",
+					__FUNCTION__, MAC_CB(skb)->sa.pan_id);
+		}
+
+		MAC_CB(skb)->da.pan_id = fetch_skb_u16(skb);
+		if(!MAC_CB_IS_VALID(skb))
+			return;
+
+		pr_debug("%s(): dst PAN address %04x\n",
+				__FUNCTION__, MAC_CB(skb)->da.pan_id);
+
+		if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_SHORT) {
+			MAC_CB(skb)->da.short_addr = fetch_skb_u16(skb);
+			if(!MAC_CB_IS_VALID(skb))
+				return;
 			pr_debug("%s(): dst SHORT address %04x\n",
 					__FUNCTION__, MAC_CB(skb)->da.short_addr);
 
 		} else {
-			if(skb->len < IEEE80215_ADDR_LEN) {
-				MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+			fetch_skb_u64(skb, MAC_CB(skb)->da.hwaddr);
+			if(!MAC_CB_IS_VALID(skb))
 				return;
-			}
-			memcpy(MAC_CB(skb)->da.hwaddr, skb->data, IEEE80215_ADDR_LEN);
-			skb_pull(skb, IEEE80215_ADDR_LEN);
 			pr_debug("%s(): dst hardware addr\n", __FUNCTION__);
 		}
 	}
@@ -439,21 +463,19 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
 
 	struct ieee80215_netdev_priv *ndp;
-	unsigned char *head;
+	unsigned char *head = skb->data;
 	unsigned int tail_off;
 
-	u16 fc;
-
 	pr_debug("%s()\n", __FUNCTION__);
-	/* FIXME: need to have parameter in hw to set if we have hardware CRC
-	 * and change this number according to that */
-	head = skb->data;
+
 	parse_frame_start(skb); /* 3 bytes pulled after this */
+
 	if(!MAC_CB_IS_VALID(skb)) {
 		pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
 		kfree_skb(skb);
 		return;
 	}
+
 	parse_address(skb);
 
 	if(!MAC_CB_IS_VALID(skb)) {
