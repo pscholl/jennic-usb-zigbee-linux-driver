@@ -814,6 +814,7 @@ static struct ieee80215_ops serial_ops = {
 	.cca = ieee80215_serial_cca,
 	.set_trx_state = ieee80215_serial_set_state,
 	.set_channel	= ieee80215_serial_set_channel,
+	.flags = IEEE80215_OPS_OMIT_CKSUM,
 };
 
 

@@ -484,12 +484,13 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 		return;
 	}
 
-	fc = head[0] | (head[1] << 8);
-
-
-	// FIXME: check CRC if necessary
-	tail_off = 2;
-	skb_trim(skb, skb->len - tail_off); // CRC
+	if(priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM) {
+		MAC_CB(skb)->flags |= MAC_CB_FLAG_NOCS;
+	} else {
+		// FIXME: check CRC if necessary
+		tail_off = 2;
+		skb_trim(skb, skb->len - tail_off); // CRC
+	}
 
 	rcu_read_lock();
 
@@ -535,7 +536,9 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	rcu_read_unlock();
 
 	skb_push(skb, skb->data - head);
-	skb_put(skb, tail_off);
+
+	if(!MAC_CB_IS_NOCS(skb))
+		skb_put(skb, tail_off);
 
 }
 

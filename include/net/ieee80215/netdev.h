@@ -65,6 +65,7 @@ struct ieee80215_mac_cb {
 #define MAC_CB_FLAG_ACKREQ		(1 << 2)
 #define MAC_CB_FLAG_SECEN		(1 << 3)
 #define MAC_CB_FLAG_INTRAPAN		(1 << 4)
+#define MAC_CB_FLAG_NOCS		(1 << 5)
 
 #define MAC_CB_FLAG_INVALID		(1 << 7)
 
@@ -72,6 +73,7 @@ struct ieee80215_mac_cb {
 #define MAC_CB_IS_SECEN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_SECEN)
 #define MAC_CB_IS_INTRAPAN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN)
 #define MAC_CB_IS_VALID(skb)		(!(MAC_CB(skb)->flags & MAC_CB_FLAG_INVALID))
+#define MAC_CB_IS_NOCS(skb)		(!(MAC_CB(skb)->flags & MAC_CB_FLAG_NOCS))
 #define MAC_CB_TYPE(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_TYPEMASK)
 
 #endif

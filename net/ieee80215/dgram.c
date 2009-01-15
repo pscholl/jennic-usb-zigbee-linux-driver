@@ -199,6 +199,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	struct sk_buff *skb;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int err;
+	struct ieee80215_priv *priv;
 
 	if (msg->msg_flags & MSG_OOB) {
 		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
@@ -248,7 +249,9 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		return -EINVAL;
 	}
 
-	// FIXME: skip computing CRC if not necessary (i.e. handled by the device)?
+	priv = netdev_priv(dev);
+
+	if(!(priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM))
 	{
 		u16 crc = crc_itu_t(0, skb->data, skb->len);
 		memcpy(skb_put(skb, 2), &crc, 2);
