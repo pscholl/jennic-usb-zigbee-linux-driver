@@ -1,36 +1,11 @@
 #include <linux/kernel.h>
 #include <net/netlink.h>
 #include <net/genetlink.h>
+#include <linux/netdevice.h>
+#define IEEE80215_NL_WANT_POLICY
+#include <net/ieee80215/nl.h>
 
 static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info);
-
-enum {
-	__IEEE80215_ATTR_MAX,
-};
-
-#define IEEE80215_ATTR_MAX (__IEEE80215_ATTR_MAX - 1)
-
-static struct nla_policy ieee80215_policy[IEEE80215_ATTR_MAX + 1] = {
-};
-
-/* commands */
-/* REQ should be responded with CONF
- * and INDIC with RESP
- */
-enum {
-	IEEE80215_ASSOCIATE_REQ,
-	IEEE80215_ASSOCIATE_CONF,
-	IEEE80215_DISASSOCIATE_REQ,
-	IEEE80215_DISASSOCIATE_CONF,
-
-	IEEE80215_ASSOCIATE_INDIC,
-	IEEE80215_ASSOCIATE_RESP,
-	IEEE80215_DISASSOCIATE_INDIC,
-
-	__IEEE80215_CMD_MAX,
-};
-
-#define IEEE80215_CMD_MAX (__IEEE80215_CMD_MAX - 1)
 
 static struct genl_family ieee80215_coordinator_family = {
 	.id		= GENL_ID_GENERATE,
@@ -71,29 +46,46 @@ static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info
 {
 	struct sk_buff *msg;
 	void *hdr;
+	char name[IFNAMSIZ + 1];
+	struct net_device *dev;
+
 
 	printk("%s\n", __func__);
 
+	if (!info->attrs[IEEE80215_ATTR_DEV_NAME])
+		return -EINVAL;
+
+	nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+
+	// FIXME: init_net
+	dev = dev_get_by_name(&init_net, name);
+	if (!dev)
+		goto out_dev;
+
 	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
 	if (!msg)
-		goto err;
+		goto out_msg;
 
 	hdr = genlmsg_put(msg, info->snd_pid, info->snd_seq, &ieee80215_coordinator_family, /* flags*/ 0, /* cmd */ 1);
 	if (!hdr)
 		goto out_free;
 
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, name);
+	NLA_PUT_U64(msg, IEEE80215_ATTR_HW_ADDR, *(u64*)&dev->dev_addr);
+
 	if (!genlmsg_end(msg, hdr))
 		goto out_free;
 
 	return genlmsg_unicast(msg, info->snd_pid);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
 out_free:
 	nlmsg_free(msg);
-
-err:
+out_msg:
+	dev_put(dev);
+out_dev:
 	return -ENOBUFS;
-
-
-	return 0;
 }
 
 int __init ieee80215_nl_init(void)
