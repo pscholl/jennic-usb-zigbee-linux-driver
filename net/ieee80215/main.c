@@ -30,6 +30,7 @@
 
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
+#include <net/ieee80215/nl.h>
 
 struct ieee80215_dev *ieee80215_alloc_device(void)
 {
@@ -97,6 +98,18 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	netif_rx(skb);
 }
 EXPORT_SYMBOL(ieee80215_rx);
+
+static int __init ieee80215_init(void)
+{
+	return ieee80215_nl_init();
+}
+module_init(ieee80215_init);
+
+static void __exit ieee80215_exit(void)
+{
+	ieee80215_nl_exit();
+}
+module_exit(ieee80215_exit);
 
 MODULE_DESCRIPTION("IEEE 802.15.4 implementation");
 MODULE_LICENSE("GPL v2");
