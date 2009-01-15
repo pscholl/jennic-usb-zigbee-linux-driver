@@ -303,23 +303,27 @@ out:
 
 static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 {
+	struct sk_buff *ackskb;
+	if(MAC_CB_IS_ACKREQ(skb)) {
+		u16 fc = IEEE80215_FC_TYPE_ACK;
+		u8 * data;
+		ackskb = alloc_skb(IEEE80215_ACK_LEN, GFP_ATOMIC);
+		data = skb_put(ackskb, 3);
+		data[0] = fc & 0xff;
+		data[1] = (fc >> 8) & 0xff;
+		data[2] = MAC_CB(skb)->seq;
+		ackskb->dev = skb->dev;
+		pr_debug("ACK frame to %s device", skb->dev->name);
+		ackskb->protocol = htons(ETH_P_IEEE80215);
+		pr_debug("%s(): flags %02x\n", __FUNCTION__,
+				MAC_CB(skb)->flags);
+		/* FIXME */
+		dev_queue_xmit(ackskb);
+	}
 	if (sock_queue_rcv_skb(sk, skb) < 0) {
 		atomic_inc(&sk->sk_drops);
 		kfree_skb(skb);
 		return NET_RX_DROP;
-	}
-	pr_debug("%s(): flags %02x\n", __FUNCTION__, MAC_CB(skb)->flags);
-	if(MAC_CB_IS_ACKREQ(skb)) {
-		struct sk_buff *ackskb = alloc_skb(IEEE80215_ACK_LEN, GFP_ATOMIC);
-		u16 fc = IEEE80215_FC_TYPE_ACK;
-		ackskb->data[0] = fc & 0xff;
-		ackskb->data[1] = (fc >> 8) & 0xff;
-		ackskb->data[2] = MAC_CB(skb)->seq;
-		ackskb->dev = skb->dev;
-		pr_debug("ACK frame to %s device", skb->dev->name);
-		ackskb->protocol = htons(ETH_P_IEEE80215);
-		/* FIXME */
-		dev_queue_xmit(ackskb);
 	}
 
 	return NET_RX_SUCCESS;

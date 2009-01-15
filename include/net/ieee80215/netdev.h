@@ -60,11 +60,19 @@ struct ieee80215_mac_cb {
 #define MAC_CB_FLAG_FRAME_DATA		1
 #define MAC_CB_FLAG_FRAME_ACK		2
 #define MAC_CB_FLAG_FRAME_CMD		3
+#define MAC_CB_FLAG_TYPEMASK		0x3
+
 #define MAC_CB_FLAG_ACKREQ		(1 << 2)
 #define MAC_CB_FLAG_SECEN		(1 << 3)
+#define MAC_CB_FLAG_INTRAPAN		(1 << 4)
+
+#define MAC_CB_FLAG_INVALID		(1 << 7)
 
 #define MAC_CB_IS_ACKREQ(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_ACKREQ)
 #define MAC_CB_IS_SECEN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_SECEN)
+#define MAC_CB_IS_INTRAPAN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN)
+#define MAC_CB_IS_VALID(skb)		(!(MAC_CB(skb)->flags & MAC_CB_FLAG_INVALID))
+#define MAC_CB_TYPE(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_TYPEMASK)
 
 #endif
 

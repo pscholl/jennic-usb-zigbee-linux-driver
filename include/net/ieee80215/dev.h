@@ -38,9 +38,13 @@ struct ieee80215_ops {
 	phy_status_t (*ed)(struct ieee80215_dev *dev, u8 *level);
 	phy_status_t (*set_trx_state)(struct ieee80215_dev *dev, phy_status_t state);
 	phy_status_t (*set_channel)(struct ieee80215_dev *dev, int channel);
+	u32 flags; /* Flags for device to set */
 	// FIXME: PIB get/set ???
 };
 
+/* Checksum is in hardware and is omitted from packet */
+#define IEEE80215_OPS_OMIT_CKSUM	(1 << 0)
+						   
 #ifdef __KERNEL__
 struct ieee80215_priv {
 	struct ieee80215_dev	hw;
