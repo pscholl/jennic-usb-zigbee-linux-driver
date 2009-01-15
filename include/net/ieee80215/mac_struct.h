@@ -250,6 +250,7 @@ struct ieee80215_mac {
 
 	spinlock_t		lock;	/**< State change lock */
 	struct timer_list	timer;
+	int			state;
 
 #if 0
 	ieee80215_mac_states_t	state;
