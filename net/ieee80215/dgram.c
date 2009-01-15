@@ -304,39 +304,9 @@ out:
 	return copied;
 }
 
-static void dgram_process_beacon(struct sk_buff *skb)
-{
-	pr_debug("Frame type is not supported yet\n");
-}
-
-static void dgram_process_cmd(struct sk_buff *skb)
-{
-	pr_debug("Frame type is not supported yet\n");
-}
-
-static void dgram_process_ack(struct sk_buff *skb)
-{
-	pr_debug("got ACK for SEQ=%d\n", MAC_CB(skb)->seq);
-}
-
 static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 {
 	struct sk_buff *ackskb;
-
-	switch(MAC_CB_TYPE(skb)) {
-	case MAC_CB_FLAG_FRAME_BEACON:
-		dgram_process_beacon(skb);
-		kfree_skb(skb);
-		return NET_RX_SUCCESS;
-	case MAC_CB_FLAG_FRAME_ACK:
-		dgram_process_ack(skb);
-		kfree_skb(skb);
-		return NET_RX_SUCCESS;
-	case MAC_CB_FLAG_FRAME_CMD:
-		dgram_process_cmd(skb);
-		kfree_skb(skb);
-		return NET_RX_SUCCESS;
-	}
 
 	/* Data frame processing */
 
@@ -365,6 +335,21 @@ static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 	return NET_RX_SUCCESS;
 }
 
+static void dgram_process_beacon(struct sk_buff *skb)
+{
+	pr_debug("Frame type is not supported yet\n");
+}
+
+static void dgram_process_cmd(struct sk_buff *skb)
+{
+	pr_debug("Frame type is not supported yet\n");
+}
+
+static void dgram_process_ack(struct sk_buff *skb)
+{
+	pr_debug("got ACK for SEQ=%d\n", MAC_CB(skb)->seq);
+}
+
 int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk, *prev = NULL;
@@ -372,6 +357,22 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	int ret = NET_RX_SUCCESS;
 
 	read_lock(&dgram_lock);
+	pr_debug("%s() frame %d\n", __FUNCTION__, MAC_CB_TYPE(skb));
+
+	switch(MAC_CB_TYPE(skb)) {
+	case MAC_CB_FLAG_FRAME_BEACON:
+		dgram_process_beacon(skb);
+		kfree_skb(skb);
+		goto out;
+	case MAC_CB_FLAG_FRAME_ACK:
+		dgram_process_ack(skb);
+		kfree_skb(skb);
+		goto out;
+	case MAC_CB_FLAG_FRAME_CMD:
+		dgram_process_cmd(skb);
+		kfree_skb(skb);
+		goto out;
+	}
 	sk_for_each(sk, node, &dgram_head) {
 		struct dgram_sock *ro = dgram_sk(sk);
 		if (!ro->bound ||
@@ -397,7 +398,7 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 		kfree_skb(skb);
 		ret = NET_RX_DROP;
 	}
-
+out:
 	read_unlock(&dgram_lock);
 
 	return ret;
