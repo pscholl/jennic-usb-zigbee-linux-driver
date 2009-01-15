@@ -36,7 +36,7 @@
 #define IEEE80215_FC_TYPE_MAC_CMD	0x3	/* Frame is MAC command */
 
 #define IEEE80215_FC_TYPE_SHIFT		0
-#define IEEE80215_FC_TYPE_MASK		((1 << 4) - 1)
+#define IEEE80215_FC_TYPE_MASK		((1 << 3) - 1)
 #define IEEE80215_FC_TYPE(x) 		((x & IEEE80215_FC_TYPE_MASK) >> IEEE80215_FC_TYPE_SHIFT)
 #define IEEE80215_FC_SET_TYPE(v, x)	do {v = (((v) & ~IEEE80215_FC_TYPE_MASK) | \
 						(((x) << IEEE80215_FC_TYPE_SHIFT) \
