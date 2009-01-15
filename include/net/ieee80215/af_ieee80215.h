@@ -69,4 +69,7 @@ int ioctl_start_router(struct sock *sk, struct ieee80215_user_data __user *data)
 int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data);
 
+#define IEEE80215_ACK_LEN	3	/* Size of acknowledge frame */
+
+
 #endif

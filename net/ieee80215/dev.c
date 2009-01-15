@@ -318,7 +318,10 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	u16 fc;
 
-	if (skb->len < 3 + 2) {
+	/* FIXME: need to have parameter in hw to set if we have hardware CRC
+	 * and change this number according to that */
+
+	if (skb->len < 3) {
 		pr_debug("%s(): got too short frame\n", __FUNCTION__);
 		return;
 	}
@@ -332,8 +335,12 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
-	if(fc & IEEE80215_FC_ACK_REQ)
-		MAC_CB(skb)->flags = MAC_CB_FLAG_ACKREQ;
+	MAC_CB(skb)->flags = IEEE80215_FC_TYPE(fc);
+
+	if(fc & IEEE80215_FC_ACK_REQ) {
+		pr_debug("%s(): ACKNOWLEDGE required\n", __FUNCTION__);
+		MAC_CB(skb)->flags |= MAC_CB_FLAG_ACKREQ;
+	}
 
 	if(fc & IEEE80215_FC_SECEN)
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_SECEN;
@@ -349,9 +356,6 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	if(MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_NONE)
 		pr_debug("%s(): src addr_type is NONE\n", __FUNCTION__);
-
-	if(MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE)
-		pr_debug("%s(): dst addr_type is NONE\n", __FUNCTION__);
 
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __FUNCTION__);
@@ -373,6 +377,9 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	}
 
 	MAC_CB(skb)->da.addr_type = (fc & IEEE80215_FC_DAMODE_MASK) >> IEEE80215_FC_DAMODE_SHIFT;
+	if(MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE)
+		pr_debug("%s(): dst addr_type is NONE\n", __FUNCTION__);
+
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
 		if (fc & IEEE80215_FC_INTRA_PAN) { // ! panid compress
 			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
