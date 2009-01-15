@@ -363,15 +363,15 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	case MAC_CB_FLAG_FRAME_BEACON:
 		dgram_process_beacon(skb);
 		kfree_skb(skb);
-		return NET_RX_SUCCESS;
+		goto out;
 	case MAC_CB_FLAG_FRAME_ACK:
 		dgram_process_ack(skb);
 		kfree_skb(skb);
-		return NET_RX_SUCCESS;
+		goto out;
 	case MAC_CB_FLAG_FRAME_CMD:
 		dgram_process_cmd(skb);
 		kfree_skb(skb);
-		return NET_RX_SUCCESS;
+		goto out;
 	}
 	sk_for_each(sk, node, &dgram_head) {
 		struct dgram_sock *ro = dgram_sk(sk);
@@ -398,7 +398,7 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 		kfree_skb(skb);
 		ret = NET_RX_DROP;
 	}
-
+out:
 	read_unlock(&dgram_lock);
 
 	return ret;

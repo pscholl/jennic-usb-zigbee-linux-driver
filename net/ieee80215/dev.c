@@ -312,6 +312,7 @@ static u8 fetch_skb_u8(struct sk_buff *skb)
 {
 	u8 ret;
 	if(skb->len < 1) {
+		pr_debug("failed to fetch %d bytes\n", 1);
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
 		return 0;
 	}
@@ -324,6 +325,7 @@ static u16 fetch_skb_u16(struct sk_buff *skb)
 {
 	u16 ret;
 	if(skb->len < 2) {
+		pr_debug("failed to fetch %d bytes\n", 2);
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
 		return 0;
 	}
@@ -335,6 +337,7 @@ static u16 fetch_skb_u16(struct sk_buff *skb)
 static void fetch_skb_u64(struct sk_buff *skb, void *data)
 {
 	if(skb->len < 8) {
+		pr_debug("failed to fetch %d bytes\n", IEEE80215_ADDR_LEN);
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
 		return;
 	}
@@ -348,6 +351,7 @@ static void parse_frame_start(struct sk_buff *skb)
 	u16 fc;
 
 	if(skb->len < 3) {
+		pr_debug("frame size %d bytes is too short\n", skb->len);
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
 		return;
 	}
@@ -357,8 +361,10 @@ static void parse_frame_start(struct sk_buff *skb)
 	MAC_CB(skb)->seq = fetch_skb_u8(skb);
 
 	/* At this point we're just pulled 3 bytes */
-	if(!MAC_CB_IS_VALID(skb))
+	if(!MAC_CB_IS_VALID(skb)) {
+		pr_debug("frame parse error %s():%d", __FUNCTION__, __LINE__);
 		return;
+	}
 
 	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
@@ -469,6 +475,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	pr_debug("%s()\n", __FUNCTION__);
 
 	parse_frame_start(skb); /* 3 bytes pulled after this */
+	pr_debug("frame parse error %s():%d", __FUNCTION__, __LINE__);
 
 	if(!MAC_CB_IS_VALID(skb)) {
 		pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
@@ -503,7 +510,10 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 		switch (MAC_CB(skb2)->da.addr_type) {
 		case IEEE80215_ADDR_NONE:
 			// FIXME: check if we are PAN coordinator :)
-			skb2->pkt_type = PACKET_OTHERHOST;
+			if(MAC_CB(skb2)->sa.addr_type != IEEE80215_ADDR_NONE)
+				skb2->pkt_type = PACKET_OTHERHOST;
+			else
+				skb2->pkt_type = PACKET_HOST;
 			break;
 		case IEEE80215_ADDR_LONG:
 			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != IEEE80215_PANID_BROADCAST)
