@@ -304,9 +304,42 @@ out:
 	return copied;
 }
 
+static void dgram_process_beacon(struct sk_buff *skb)
+{
+	pr_debug("Frame type is not supported yet\n");
+}
+
+static void dgram_process_cmd(struct sk_buff *skb)
+{
+	pr_debug("Frame type is not supported yet\n");
+}
+
+static void dgram_process_ack(struct sk_buff *skb)
+{
+	pr_debug("got ACK for SEQ=%d\n", MAC_CB(skb)->seq);
+}
+
 static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 {
 	struct sk_buff *ackskb;
+
+	switch(MAC_CB_TYPE(skb)) {
+	case MAC_CB_FLAG_FRAME_BEACON:
+		dgram_process_beacon(skb);
+		kfree_skb(skb);
+		return NET_RX_SUCCESS;
+	case MAC_CB_FLAG_FRAME_ACK:
+		dgram_process_ack(skb);
+		kfree_skb(skb);
+		return NET_RX_SUCCESS;
+	case MAC_CB_FLAG_FRAME_CMD:
+		dgram_process_cmd(cmd);
+		kfree_skb(skb);
+		return NET_RX_SUCCESS;
+	}
+
+	/* Data frame processing */
+
 	if(MAC_CB_IS_ACKREQ(skb)) {
 		u16 fc = IEEE80215_FC_TYPE_ACK;
 		u8 * data;
