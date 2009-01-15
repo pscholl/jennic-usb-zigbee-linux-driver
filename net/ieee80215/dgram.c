@@ -333,7 +333,7 @@ static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 		kfree_skb(skb);
 		return NET_RX_SUCCESS;
 	case MAC_CB_FLAG_FRAME_CMD:
-		dgram_process_cmd(cmd);
+		dgram_process_cmd(skb);
 		kfree_skb(skb);
 		return NET_RX_SUCCESS;
 	}
