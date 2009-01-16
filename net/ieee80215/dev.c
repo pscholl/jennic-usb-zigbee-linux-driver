@@ -241,7 +241,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 
 	dev = alloc_netdev(sizeof(struct ieee80215_netdev_priv),
 			"wpan%d", ieee80215_netdev_setup);
-	if(!dev) {
+	if (!dev) {
 		printk(KERN_ERR "Failure to initialize IEEE80215 device\n");
 		return -ENOMEM;
 	}
@@ -276,7 +276,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	}
 
 	err = register_netdevice(dev);
-	if(err < 0)
+	if (err < 0)
 		goto out;
 
 	return dev->ifindex;
@@ -311,24 +311,21 @@ EXPORT_SYMBOL(ieee80215_drop_slaves);
 static u8 fetch_skb_u8(struct sk_buff *skb)
 {
 	u8 ret;
-	if(skb->len < 1) {
-		pr_debug("failed to fetch %d bytes\n", 1);
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-		return 0;
-	}
+
+	BUG_ON(skb->len < 1);
+
 	ret = skb->data[0];
 	skb_pull(skb, 1);
+
 	return ret;
 }
 
 static u16 fetch_skb_u16(struct sk_buff *skb)
 {
 	u16 ret;
-	if(skb->len < 2) {
-		pr_debug("failed to fetch %d bytes\n", 2);
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-		return 0;
-	}
+
+	BUG_ON(skb->len < 2);
+
 	ret = skb->data[0] + (skb->data[1] * 256);
 	skb_pull(skb, 2);
 	return ret;
@@ -336,131 +333,120 @@ static u16 fetch_skb_u16(struct sk_buff *skb)
 
 static void fetch_skb_u64(struct sk_buff *skb, void *data)
 {
-	if(skb->len < 8) {
-		pr_debug("failed to fetch %d bytes\n", IEEE80215_ADDR_LEN);
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-		return;
-	}
+	BUG_ON(skb->len < IEEE80215_ADDR_LEN);
+
 	memcpy(data, skb->data, IEEE80215_ADDR_LEN);
 	skb_pull(skb, IEEE80215_ADDR_LEN);
 }
 
-static void parse_frame_start(struct sk_buff *skb)
+static int parse_frame_start(struct sk_buff *skb)
 {
-	u8 * head = skb->data;
+	u8 *head = skb->data;
 	u16 fc;
 
-	if(skb->len < 3) {
+	if (skb->len < 3) {
 		pr_debug("frame size %d bytes is too short\n", skb->len);
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-		return;
+		return -EINVAL;
 	}
 
 	fc = fetch_skb_u16(skb);
 
 	MAC_CB(skb)->seq = fetch_skb_u8(skb);
 
-	/* At this point we're just pulled 3 bytes */
-	if(!MAC_CB_IS_VALID(skb)) {
-		pr_debug("frame parse error %s():%d", __FUNCTION__, __LINE__);
-		return;
-	}
-
 	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
 	MAC_CB(skb)->flags = IEEE80215_FC_TYPE(fc);
 
-	if(fc & IEEE80215_FC_ACK_REQ) {
+	if (fc & IEEE80215_FC_ACK_REQ) {
 		pr_debug("%s(): ACKNOWLEDGE required\n", __FUNCTION__);
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_ACKREQ;
 	}
 
-	if(fc & IEEE80215_FC_SECEN)
+	if (fc & IEEE80215_FC_SECEN)
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_SECEN;
 
-	if(fc & IEEE80215_FC_INTRA_PAN)
+	if (fc & IEEE80215_FC_INTRA_PAN)
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_INTRAPAN;
 
 	/* TODO */
-	if(MAC_CB_IS_SECEN(skb)) {
+	if (MAC_CB_IS_SECEN(skb)) {
 		pr_info("security support is not implemented\n");
+		return -EINVAL;
 	}
+
 	MAC_CB(skb)->sa.addr_type = IEEE80215_FC_SAMODE(fc);
-	if(MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_NONE)
+	if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_NONE)
 		pr_debug("%s(): src addr_type is NONE\n", __FUNCTION__);
 
 	MAC_CB(skb)->da.addr_type = IEEE80215_FC_DAMODE(fc);
-	if(MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE)
+	if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE)
 		pr_debug("%s(): dst addr_type is NONE\n", __FUNCTION__);
 
-	if(IEEE80215_FC_TYPE(fc) == IEEE80215_FC_TYPE_ACK) {
+	if (IEEE80215_FC_TYPE(fc) == IEEE80215_FC_TYPE_ACK) {
 		/* ACK can only have NONE-type addresses */
-		if(!(MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_NONE))
-			MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-		if(!(MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE))
-			MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-	} else {
-		if(skb-> len < 2 + 2)
-			MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
+		if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE ||
+		    MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE)
+			return -EINVAL;
 	}
-}
 
-static void parse_address(struct sk_buff *skb)
-{
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __FUNCTION__);
 		if (!(MAC_CB_IS_INTRAPAN(skb))) { // ! panid compress
+			if (skb->len < 2)
+				return -EINVAL;
+
 			MAC_CB(skb)->sa.pan_id = fetch_skb_u16(skb);
-			if(!MAC_CB_IS_VALID(skb))
-				return;
 			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
 		}
 
 		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
+			if (skb->len < 2)
+				return -EINVAL;
+
 			MAC_CB(skb)->sa.short_addr = fetch_skb_u16(skb);
-			if(!MAC_CB_IS_VALID(skb))
-				return;
 			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __FUNCTION__);
 		} else {
+			if (skb->len < IEEE80215_ADDR_LEN)
+				return -EINVAL;
+
 			fetch_skb_u64(skb, MAC_CB(skb)->sa.hwaddr);
-			if(!MAC_CB_IS_VALID(skb))
-				return;
 			pr_debug("%s(): src hardware addr\n", __FUNCTION__);
 		}
 	}
 
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
+		if (skb->len < 2)
+			return -EINVAL;
+
 		if (MAC_CB_IS_INTRAPAN(skb)) { // ! panid compress
-			if(skb->len < 2) {
-				MAC_CB(skb)->flags |= MAC_CB_FLAG_INVALID;
-				return;
-			}
-			MAC_CB(skb)->sa.pan_id = skb->data[0] | (skb->data[1] << 8);
+			MAC_CB(skb)->sa.pan_id = fetch_skb_u16(skb);
 			pr_debug("%s(): src PAN address %04x\n",
 					__FUNCTION__, MAC_CB(skb)->sa.pan_id);
 		}
 
 		MAC_CB(skb)->da.pan_id = fetch_skb_u16(skb);
-		if(!MAC_CB_IS_VALID(skb))
-			return;
 
 		pr_debug("%s(): dst PAN address %04x\n",
 				__FUNCTION__, MAC_CB(skb)->da.pan_id);
 
 		if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_SHORT) {
+			if (skb->len < 2)
+				return -EINVAL;
+
 			MAC_CB(skb)->da.short_addr = fetch_skb_u16(skb);
-			if(!MAC_CB_IS_VALID(skb))
-				return;
 			pr_debug("%s(): dst SHORT address %04x\n",
 					__FUNCTION__, MAC_CB(skb)->da.short_addr);
 
 		} else {
+			if (skb->len < 8)
+				return -EINVAL;
+
 			fetch_skb_u64(skb, MAC_CB(skb)->da.hwaddr);
-			if(!MAC_CB_IS_VALID(skb))
-				return;
 			pr_debug("%s(): dst hardware addr\n", __FUNCTION__);
 		}
 	}
+
+	return 0;
 }
 
 
@@ -470,34 +456,22 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	struct ieee80215_netdev_priv *ndp;
 	unsigned char *head = skb->data;
-	unsigned int tail_off;
+	unsigned int tail_off = 0;
+	int ret;
 
+	BUILD_BUG_ON(sizeof(struct ieee80215_mac_cb) > sizeof(skb->cb));
 	pr_debug("%s()\n", __FUNCTION__);
 
-	parse_frame_start(skb); /* 3 bytes pulled after this */
-	pr_debug("frame parse error %s():%d", __FUNCTION__, __LINE__);
-
-	if(!MAC_CB_IS_VALID(skb)) {
+	ret = parse_frame_start(skb); /* 3 bytes pulled after this */
+	if (ret) {
 		pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
-		kfree_skb(skb);
-		return;
+		goto out;
 	}
 
-	parse_address(skb);
-
-	if(!MAC_CB_IS_VALID(skb)) {
-		pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
-		kfree_skb(skb);
-		return;
-	}
-
-	if(priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM) {
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_NOCS;
-	} else {
+	if (!priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM) {
 		if (skb->len < 2) {
 			pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
-			kfree_skb(skb);
-			return;
+			goto out;
 		}
 		// FIXME: check CRC if necessary
 		tail_off = 2;
@@ -550,10 +524,10 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 
 	rcu_read_unlock();
 
+out:
 	skb_push(skb, skb->data - head);
 
-	if(!MAC_CB_IS_NOCS(skb))
-		skb_put(skb, tail_off);
+	skb_put(skb, tail_off);
 
 }
 

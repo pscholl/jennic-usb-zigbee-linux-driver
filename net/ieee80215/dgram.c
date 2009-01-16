@@ -306,26 +306,6 @@ out:
 
 static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 {
-	struct sk_buff *ackskb;
-
-	/* Data frame processing */
-
-	if(MAC_CB_IS_ACKREQ(skb)) {
-		u16 fc = IEEE80215_FC_TYPE_ACK;
-		u8 * data;
-		ackskb = alloc_skb(IEEE80215_ACK_LEN, GFP_ATOMIC);
-		data = skb_put(ackskb, 3);
-		data[0] = fc & 0xff;
-		data[1] = (fc >> 8) & 0xff;
-		data[2] = MAC_CB(skb)->seq;
-		ackskb->dev = skb->dev;
-		pr_debug("ACK frame to %s device", skb->dev->name);
-		ackskb->protocol = htons(ETH_P_IEEE80215);
-		pr_debug("%s(): flags %02x\n", __FUNCTION__,
-				MAC_CB(skb)->flags);
-		/* FIXME */
-		dev_queue_xmit(ackskb);
-	}
 	if (sock_queue_rcv_skb(sk, skb) < 0) {
 		atomic_inc(&sk->sk_drops);
 		kfree_skb(skb);
@@ -356,23 +336,50 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	struct hlist_node*node;
 	int ret = NET_RX_SUCCESS;
 
-	read_lock(&dgram_lock);
 	pr_debug("%s() frame %d\n", __FUNCTION__, MAC_CB_TYPE(skb));
-
-	switch(MAC_CB_TYPE(skb)) {
-	case MAC_CB_FLAG_FRAME_BEACON:
+	/* FIXME: maybe move processing from af_ieee80215 back to ieee80215 module ? */
+	switch (MAC_CB_TYPE(skb)) {
+	case IEEE80215_FC_TYPE_BEACON:
 		dgram_process_beacon(skb);
 		kfree_skb(skb);
-		goto out;
-	case MAC_CB_FLAG_FRAME_ACK:
+		return NET_RX_SUCCESS;
+	case IEEE80215_FC_TYPE_ACK:
 		dgram_process_ack(skb);
 		kfree_skb(skb);
-		goto out;
-	case MAC_CB_FLAG_FRAME_CMD:
+		return NET_RX_SUCCESS;
+	case IEEE80215_FC_TYPE_MAC_CMD:
 		dgram_process_cmd(skb);
 		kfree_skb(skb);
-		goto out;
+		return NET_RX_SUCCESS;
+	case IEEE80215_FC_TYPE_DATA:
+		/* handled below */
+		break;
+	default:
+		pr_warning("ieee802154: Bad frame received (type = %d)\n", MAC_CB_TYPE(skb));
+		kfree_skb(skb);
+		return NET_RX_DROP;
 	}
+
+	/* Data frame processing */
+
+	if(MAC_CB_IS_ACKREQ(skb)) {
+		u16 fc = IEEE80215_FC_TYPE_ACK;
+		u8 * data;
+		struct sk_buff *ackskb = alloc_skb(LL_ALLOCATED_SPACE(dev) + IEEE80215_ACK_LEN, GFP_ATOMIC);
+		data = skb_put(ackskb, IEEE80215_ACK_LEN);
+		data[0] = fc & 0xff;
+		data[1] = (fc >> 8) & 0xff;
+		data[2] = MAC_CB(skb)->seq;
+		ackskb->dev = skb->dev;
+		pr_debug("ACK frame to %s device", skb->dev->name);
+		ackskb->protocol = htons(ETH_P_IEEE80215);
+		pr_debug("%s(): flags %02x\n", __FUNCTION__,
+				MAC_CB(skb)->flags);
+		/* FIXME */
+		dev_queue_xmit(ackskb);
+	}
+
+	read_lock(&dgram_lock);
 	sk_for_each(sk, node, &dgram_head) {
 		struct dgram_sock *ro = dgram_sk(sk);
 		if (!ro->bound ||
@@ -398,7 +405,6 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 		kfree_skb(skb);
 		ret = NET_RX_DROP;
 	}
-out:
 	read_unlock(&dgram_lock);
 
 	return ret;
