@@ -18,7 +18,6 @@ static struct genl_family ieee80215_coordinator_family = {
 static struct genl_ops ieee80215_coordinator_ops[] = {
 	{
 		.cmd	= IEEE80215_ASSOCIATE_REQ,
-		.flags	= 0,
 		.policy	= ieee80215_policy,
 		.doit	= ieee80215_coordinator_rcv,
 		.dumpit	= NULL,
@@ -26,7 +25,6 @@ static struct genl_ops ieee80215_coordinator_ops[] = {
 	},
 	{
 		.cmd	= IEEE80215_DISASSOCIATE_REQ,
-		.flags	= 0,
 		.policy	= ieee80215_policy,
 		.doit	= ieee80215_coordinator_rcv,
 		.dumpit	= NULL,
@@ -34,7 +32,6 @@ static struct genl_ops ieee80215_coordinator_ops[] = {
 	},
 	{
 		.cmd	= IEEE80215_ASSOCIATE_RESP,
-		.flags	= 0,
 		.policy	= ieee80215_policy,
 		.doit	= ieee80215_coordinator_rcv,
 		.dumpit	= NULL,
