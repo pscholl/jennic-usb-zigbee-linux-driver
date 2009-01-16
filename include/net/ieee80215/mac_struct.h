@@ -127,7 +127,7 @@ struct ieee80215_acl_pib_head {
  *
  * Structure describe MAC Pib
  */
-struct ieee80215_pib {
+struct ieee80215_pib_data {
 	rwlock_t lock;
 	u16	ack_wait_duration;	/**< Maximum symbols to wait for acknowledgment */
 	bool	association_permit;	/**< Device is a coordinator and permit association */
@@ -241,7 +241,7 @@ struct ieee80215_mlme_pib {
  * \brief MAC structure
  */
 struct ieee80215_mac {
-	struct ieee80215_pib		pib;
+	struct ieee80215_pib_data	pib;
 	struct ieee80215_mlme_pib	pib_attr;
 
 

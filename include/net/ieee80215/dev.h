@@ -25,10 +25,22 @@
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/const.h>
 
+struct ieee80215_pib {
+	int type;
+	u32 val;
+};
+
+#define IEEE80215_PIB_CURCHAN	0 /* Current channel, u8 6.1.2 */
+#define IEEE80215_PIB_CHANSUPP	1 /* Channel mask, u32 6.1.2 */
+#define IEEE80215_PIB_TRPWR	2 /* Transmit power, u8 6.4.2  */
+#define IEEE80215_PIB_CCAMODE	3 /* CCA mode, u8 6.7.9 */
+
 struct ieee80215_dev {
 	char	*name;
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
 	void	*priv;		/* driver-specific data */
+	u32	channel_mask;
+	u8	current_channel;
 };
 
 struct ieee80215_ops {
@@ -65,5 +77,8 @@ struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev);
 
 // FIXME: move to correct places:
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb);
+
+int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib);
+int ieee80215_pib_get(struct ieee80215_dev *hw, struct ieee80215_pib *pib);
 
 #endif

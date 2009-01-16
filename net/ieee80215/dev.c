@@ -639,3 +639,63 @@ int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,
 	return dev_queue_xmit(skb);
 }
 
+int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib)
+{
+	int ret;
+	struct ieee80215_priv * priv = ieee80215_to_priv(hw);
+	BUG_ON(!hw);
+	BUG_ON(!pib);
+	switch(pib->type) {
+		case IEEE80215_PIB_CURCHAN:
+			/* Our internal mask is inverted
+			 * 0 = channel is available
+			 * 1 = channel is unavailable
+			 * this saves initialization */
+			if(hw->channel_mask & (1 << (pib->val - 1)))
+				return -EINVAL;
+			ret = priv->ops->set_channel(hw, pib->val);
+			if(ret == PHY_ERROR)
+				return -EINVAL; /* FIXME */
+			hw->current_channel =  pib->val;
+			break;
+		case IEEE80215_PIB_CHANSUPP:
+			hw->channel_mask = ~(pib->val);
+			break;
+		case IEEE80215_PIB_TRPWR:
+			/* TODO */
+			break;
+		case IEEE80215_PIB_CCAMODE:
+			/* TODO */
+			break;
+		default:
+			pr_debug("Unknown PIB type value\n");
+			return -ENOTSUPP;
+	}
+	return 0;
+}
+
+int ieee80215_pib_get(struct ieee80215_dev *hw, struct ieee80215_pib *pib)
+{
+	BUG_ON(!hw);
+	BUG_ON(!pib);
+	switch(pib->type) {
+		case IEEE80215_PIB_CURCHAN:
+			pib->val = hw->current_channel;
+			break;
+		case IEEE80215_PIB_CHANSUPP:
+			pib->val = ~(hw->channel_mask);
+			break;
+		case IEEE80215_PIB_TRPWR:
+			pib->val = 0;
+			break;
+		case IEEE80215_PIB_CCAMODE:
+			pib->val = 0;
+			break;
+		default:
+			pr_debug("Unknown PIB type value\n");
+			return -ENOTSUPP;
+	}
+	return 0;
+}
+
+
