@@ -26,6 +26,7 @@
 #include <linux/module.h>
 #include <linux/if_arp.h>
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
+#include <linux/crc-itu-t.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -52,6 +53,12 @@ static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee80215_netdev_priv *priv;
 	priv = netdev_priv(dev);
+
+	if(!(priv->hw->ops->flags & IEEE80215_OPS_OMIT_CKSUM))
+	{
+		u16 crc = crc_itu_t(0, skb->data, skb->len);
+		memcpy(skb_put(skb, 2), &crc, 2);
+	}
 	skb->iif = dev->ifindex;
 	skb->dev = priv->hw->master;
 	dev->stats.tx_packets++;

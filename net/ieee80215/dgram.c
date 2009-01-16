@@ -2,7 +2,6 @@
 #include <linux/module.h>
 #include <linux/if_arp.h>
 #include <linux/list.h>
-#include <linux/crc-itu-t.h>
 #include <net/sock.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
@@ -199,7 +198,6 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	struct sk_buff *skb;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int err;
-	struct ieee80215_priv *priv;
 
 	if (msg->msg_flags & MSG_OOB) {
 		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
@@ -249,13 +247,6 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		return -EINVAL;
 	}
 
-	priv = netdev_priv(dev);
-
-	if(!(priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM))
-	{
-		u16 crc = crc_itu_t(0, skb->data, skb->len);
-		memcpy(skb_put(skb, 2), &crc, 2);
-	}
 	skb->dev = dev;
 	skb->sk  = sk;
 	skb->protocol = htons(ETH_P_IEEE80215);
