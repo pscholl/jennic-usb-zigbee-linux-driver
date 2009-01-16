@@ -494,6 +494,11 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	if(priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM) {
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_NOCS;
 	} else {
+		if (skb->len < 2) {
+			pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
+			kfree_skb(skb);
+			return;
+		}
 		// FIXME: check CRC if necessary
 		tail_off = 2;
 		skb_trim(skb, skb->len - tail_off); // CRC
