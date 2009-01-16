@@ -67,5 +67,9 @@ struct ieee80215_mac_cb {
 #define MAC_CB_IS_INTRAPAN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN)
 #define MAC_CB_TYPE(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_TYPEMASK)
 
+//FIXME: where does this belong ?
+int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,
+		const u8 *buf, int len);
+
 #endif
 
