@@ -339,6 +339,24 @@ static void fetch_skb_u64(struct sk_buff *skb, void *data)
 	skb_pull(skb, IEEE80215_ADDR_LEN);
 }
 
+#define IEEE80215_FETCH_U8(skb, var)		\
+		if(skb->len < 1)		\
+			goto exit_error;	\
+		var = fetch_skb_u8(skb)
+
+#define IEEE80215_FETCH_U16(skb, var)		\
+		if(skb->len < 2)		\
+			goto exit_error;	\
+		var = fetch_skb_u16(skb)
+
+#define IEEE80215_FETCH_U64(skb, var)			\
+		if(skb->len < IEEE80215_ADDR_LEN)	\
+			goto exit_error;		\
+		fetch_skb_u64(skb, &var);
+
+#define IEEE80215_FETCH_DATA(skb, var, type)		\
+	IEEE80215_FETCH_ ## type (skb, var)
+
 static int parse_frame_start(struct sk_buff *skb)
 {
 	u8 *head = skb->data;
@@ -349,9 +367,8 @@ static int parse_frame_start(struct sk_buff *skb)
 		return -EINVAL;
 	}
 
-	fc = fetch_skb_u16(skb);
-
-	MAC_CB(skb)->seq = fetch_skb_u8(skb);
+	IEEE80215_FETCH_DATA(skb, fc, U16);
+	IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->seq, U8);
 
 	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
@@ -392,61 +409,47 @@ static int parse_frame_start(struct sk_buff *skb)
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __FUNCTION__);
 		if (!(MAC_CB_IS_INTRAPAN(skb))) { // ! panid compress
-			if (skb->len < 2)
-				return -EINVAL;
-
-			MAC_CB(skb)->sa.pan_id = fetch_skb_u16(skb);
+			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.pan_id, U16);
 			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
 		}
 
 		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
-			if (skb->len < 2)
-				return -EINVAL;
-
-			MAC_CB(skb)->sa.short_addr = fetch_skb_u16(skb);
+			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.short_addr, U16);
 			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __FUNCTION__);
 		} else {
-			if (skb->len < IEEE80215_ADDR_LEN)
-				return -EINVAL;
-
-			fetch_skb_u64(skb, MAC_CB(skb)->sa.hwaddr);
+			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.hwaddr, U64);
 			pr_debug("%s(): src hardware addr\n", __FUNCTION__);
 		}
 	}
 
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
-		if (skb->len < 2)
-			return -EINVAL;
-
 		if (MAC_CB_IS_INTRAPAN(skb)) { // ! panid compress
-			MAC_CB(skb)->sa.pan_id = fetch_skb_u16(skb);
+			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
+			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.pan_id, U16);
 			pr_debug("%s(): src PAN address %04x\n",
 					__FUNCTION__, MAC_CB(skb)->sa.pan_id);
 		}
 
-		MAC_CB(skb)->da.pan_id = fetch_skb_u16(skb);
+		IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.pan_id, U16);
 
 		pr_debug("%s(): dst PAN address %04x\n",
 				__FUNCTION__, MAC_CB(skb)->da.pan_id);
 
 		if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_SHORT) {
-			if (skb->len < 2)
-				return -EINVAL;
-
-			MAC_CB(skb)->da.short_addr = fetch_skb_u16(skb);
+			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.short_addr, U16);
 			pr_debug("%s(): dst SHORT address %04x\n",
 					__FUNCTION__, MAC_CB(skb)->da.short_addr);
 
 		} else {
-			if (skb->len < 8)
-				return -EINVAL;
-
-			fetch_skb_u64(skb, MAC_CB(skb)->da.hwaddr);
+			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.hwaddr, U64);
 			pr_debug("%s(): dst hardware addr\n", __FUNCTION__);
 		}
 	}
 
 	return 0;
+
+exit_error:
+	return -EINVAL;
 }
 
 
