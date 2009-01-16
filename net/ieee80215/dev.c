@@ -605,3 +605,34 @@ u16 ieee80215_dev_get_short_addr(struct net_device *dev)
 	return priv->short_addr;
 }
 
+int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,
+		const u8 *buf, int len)
+{
+	struct sk_buff *skb;
+	int err;
+
+	BUG_ON(dev->type != ARPHRD_IEEE80215);
+
+	skb = alloc_skb(LL_ALLOCATED_SPACE(dev) + len, GFP_KERNEL);
+	if (!skb)
+		return -ENOMEM;
+
+	skb_reserve(skb, LL_RESERVED_SPACE(dev));
+
+	skb_reset_network_header(skb);
+
+	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, addr, NULL, len);
+	if (err < 0) {
+		kfree_skb(skb);
+		return err;
+	}
+
+	skb_reset_mac_header(skb);
+	memcpy(skb_put(skb, len), buf, len);
+
+	skb->dev = dev;
+	skb->protocol = htons(ETH_P_IEEE80215);
+
+	return dev_queue_xmit(skb);
+}
+
