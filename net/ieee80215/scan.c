@@ -22,9 +22,58 @@
  * Pavel Smolenskiy <pavel.smolenskiy@gmail.com>
  * Maxim Gorbachyov <maxim.gorbachev@siemens.com>
  */
-
-#include <net/ieee80215/mac_struct.h>
+#include <linux/net.h>
+#include <linux/capability.h>
+#include <linux/module.h>
+#include <linux/if_arp.h>
+#include <linux/termios.h>	/* For TIOCOUTQ/INQ */
+#include <linux/crc-itu-t.h>
+#include <net/datalink.h>
+#include <net/psnap.h>
+#include <net/sock.h>
+#include <net/tcp_states.h>
+#include <net/route.h>
 #include <net/ieee80215/dev.h>
+#include <net/ieee80215/netdev.h>
+#include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee80215/mac_struct.h>
+#include <net/ieee80215/mac_def.h>
+
+static int scan_ed(struct net_device *dev, u32 channels, u8 duration)
+{
+	int i, ret;
+	struct ieee80215_priv *priv = netdev_priv(dev);
+	BUG_ON(dev->master);
+	pr_debug("ed scan channels %d duration %d\n", channels, duration);
+	for(i = 1; i < 28; i++) {
+		u8 e;
+		if(priv->hw.channel_mask & (1 << (i - 1)))
+			return -EINVAL; /* FIXME */
+		ret = priv->ops->set_channel(&priv->hw,  i);
+		if(ret == PHY_ERROR)
+			return -EINVAL; /* FIXME */
+		ret = priv->ops->ed(&priv->hw, &e);
+		if(ret == PHY_ERROR)
+			return -EINVAL; /* FIXME */
+		pr_debug("ed scan channel %d value %d\n", i, e);
+	}
+	return 0;
+}
+static int scan_active(struct net_device *dev, u32 channels, u8 duration)
+{
+	pr_debug("active scan channels %d duration %d\n", channels, duration);
+	return 0;
+}
+static int scan_passive(struct net_device *dev, u32 channels, u8 duration)
+{
+	pr_debug("passive scan channels %d duration %d\n", channels, duration);
+	return 0;
+}
+static int scan_orphan(struct net_device *dev, u32 channels, u8 duration)
+{
+	pr_debug("orphan scan channels %d duration %d\n", channels, duration);
+	return 0;
+}
 
 /**
  * @brief MLME-SAP.Scan request
@@ -39,62 +88,23 @@
  */
 int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
 {
-	struct ieee80215_mac *mac = ieee80215_get_mac_bydev(dev);
-	pr_debug("scanning type=%d cnannels=%d duration=%d\n", type, channels, duration);
-	switch (mac->state) {
-	case PEND_AS:
-	case PEND_AS1:
-	case PEND_PS:
-	case PEND_OS:
-	case PEND_OS1:
-	case PEND_ED:
-		scanning = 1;
-		break;
-	default:
-		scanning = 0;
-		break;
-	}
-	if(scanning) {
-		pr_debug("Scan request while scan in progress\n");
-		return -EBUSY;
-	}
-	if(!channels) {
-		pr_debug("Nothing to scan");
+	if(duration > 14)
 		return -EINVAL;
-	}
-	ieee80215_clear_scan(mac);
-	mac->scan.type = type;
-	mac->scan.duration = duration;
-	mac->scan.status = IEEE80215_IDLE;	/* Before scan */
-	mac->scan.unscan_ch = channels;
-	mac->f.find_a_beacon = false;
-	mac->i.original_channel = mac->i.current_channel;
 
-	switch (type) {
-	case IEEE80215_SCAN_ED:
-		mac->scan.ed_detect_list = kzalloc(32*sizeof(u8), GFP_KERNEL);
-		if (mac->scan.ed_detect_list) {
-			ieee80215_ed_scan(mac);
-		} else {
-			pr_info("Unable to alloc mem->scan.ed_list\n");
-			return -ENOMEM;
-		}
-		break;
-	case IEEE80215_SCAN_ACTIVE:
-		mac->f.find_a_beacon = false;
-		ieee80215_active_scan(mac);
-		break;
-	case IEEE80215_SCAN_PASSIVE:
-		ieee80215_passive_scan(mac);
-		break;
-	case IEEE80215_SCAN_ORPHAN:
-		mac->f.find_a_coord_realign = false;
-		ieee80215_orphan_scan(mac);
-		break;
+	switch(type) {
+	case IEEE80215_MAC_SCAN_ED:
+		return scan_ed(dev, channels, duration);
+	case IEEE80215_MAC_SCAN_ACTIVE:
+		return scan_active(dev, channels, duration);
+	case IEEE80215_MAC_SCAN_PASSIVE:
+		return scan_passive(dev, channels, duration);
+	case IEEE80215_MAC_SCAN_ORPHAN:
+		return scan_orphan(dev, channels, duration);
 	default:
-		pr_info("Unknown scan type\n");
-		return -EINVAL;
+		pr_debug("%s(): incalid type %d\n", __FUNCTION__, type);
+		break;
 	}
-	return 0;
+
+	return -EINVAL;
 }
 

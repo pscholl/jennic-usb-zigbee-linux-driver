@@ -292,5 +292,10 @@ struct ieee80215_mac {
 	int			pending_trx_state;
 
 };
+
+#define IEEE80215_MAC_SCAN_ED		0
+#define IEEE80215_MAC_SCAN_ACTIVE	1
+#define IEEE80215_MAC_SCAN_PASSIVE	2
+#define IEEE80215_MAC_SCAN_ORPHAN	3
 #endif
 
