@@ -359,6 +359,122 @@ void ieee80215_drop_slaves(struct ieee80215_dev *hw)
 }
 EXPORT_SYMBOL(ieee80215_drop_slaves);
 
+static int ieee80215_send_ack(struct sk_buff *skb)
+{
+	u16 fc = IEEE80215_FC_TYPE_ACK;
+	u8 * data;
+	struct sk_buff *ackskb;
+
+	BUG_ON(!skb || !skb->dev);
+	BUG_ON(!MAC_CB_IS_ACKREQ(skb));
+
+	ackskb = alloc_skb(LL_ALLOCATED_SPACE(skb->dev) + IEEE80215_ACK_LEN, GFP_ATOMIC);
+
+	skb_reserve(ackskb, LL_RESERVED_SPACE(skb->dev));
+
+	skb_reset_network_header(ackskb);
+
+	data = skb_push(ackskb, IEEE80215_ACK_LEN);
+	data[0] = fc & 0xff;
+	data[1] = (fc >> 8) & 0xff;
+	data[2] = MAC_CB(skb)->seq;
+
+	skb_reset_mac_header(ackskb);
+
+	ackskb->dev = skb->dev;
+	pr_debug("ACK frame to %s device", skb->dev->name);
+	ackskb->protocol = htons(ETH_P_IEEE80215);
+	/* FIXME */
+
+	return dev_queue_xmit(ackskb);
+}
+
+static int ieee80215_process_beacon(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+{
+	pr_debug("Frame type is not supported yet\n");
+
+	kfree_skb(skb);
+	return NET_RX_SUCCESS;
+}
+
+static int ieee80215_process_cmd(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+{
+	pr_debug("Frame type is not supported yet\n");
+
+	kfree_skb(skb);
+	return NET_RX_SUCCESS;
+}
+
+static int ieee80215_process_ack(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+{
+	pr_debug("got ACK for SEQ=%d\n", MAC_CB(skb)->seq);
+
+	kfree_skb(skb);
+	return NET_RX_SUCCESS;
+}
+
+static int ieee80215_process_data(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+{
+	return netif_rx(skb);
+}
+
+static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+{
+	pr_debug("%s Getting packet via slave interface %s\n",
+				__FUNCTION__, ndp->dev->name);
+
+	switch (MAC_CB(skb)->da.addr_type) {
+	case IEEE80215_ADDR_NONE:
+		if(MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE)
+			// FIXME: check if we are PAN coordinator :)
+			skb->pkt_type = PACKET_OTHERHOST;
+		else
+			// ACK comes with both addresses empty
+			skb->pkt_type = PACKET_HOST;
+		break;
+	case IEEE80215_ADDR_LONG:
+		if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST)
+			skb->pkt_type = PACKET_OTHERHOST;
+		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
+			skb->pkt_type = PACKET_HOST;
+		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN)) // FIXME: is this correct?
+			skb->pkt_type = PACKET_BROADCAST;
+		else
+			skb->pkt_type = PACKET_OTHERHOST;
+		break;
+	case IEEE80215_ADDR_SHORT:
+		if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST)
+			skb->pkt_type = PACKET_OTHERHOST;
+		else if (MAC_CB(skb)->da.short_addr == ndp->short_addr)
+			skb->pkt_type = PACKET_HOST;
+		else if (MAC_CB(skb)->da.short_addr == IEEE80215_ADDR_BROADCAST)
+			skb->pkt_type = PACKET_BROADCAST;
+		else
+			skb->pkt_type = PACKET_OTHERHOST;
+		break;
+	}
+
+	skb->dev = ndp->dev;
+
+	if (MAC_CB_IS_ACKREQ(skb))
+		ieee80215_send_ack(skb);
+
+	switch (MAC_CB_TYPE(skb)) {
+	case IEEE80215_FC_TYPE_BEACON:
+		return ieee80215_process_beacon(ndp, skb);
+	case IEEE80215_FC_TYPE_ACK:
+		return ieee80215_process_ack(ndp, skb);
+	case IEEE80215_FC_TYPE_MAC_CMD:
+		return ieee80215_process_cmd(ndp, skb);
+	case IEEE80215_FC_TYPE_DATA:
+		return ieee80215_process_data(ndp, skb);
+	default:
+		pr_warning("ieee802154: Bad frame received (type = %d)\n", MAC_CB_TYPE(skb));
+		kfree_skb(skb);
+		return NET_RX_DROP;
+	}
+}
+
 static u8 fetch_skb_u8(struct sk_buff *skb)
 {
 	u8 ret;
@@ -500,12 +616,10 @@ exit_error:
 	return -EINVAL;
 }
 
-
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
-	struct ieee80215_netdev_priv *ndp;
-	struct net_device *prev = NULL;
+	struct ieee80215_netdev_priv *ndp, *prev = NULL;
 	int ret;
 
 	BUILD_BUG_ON(sizeof(struct ieee80215_mac_cb) > sizeof(skb->cb));
@@ -526,76 +640,24 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 		skb_trim(skb, skb->len - 2); // CRC
 	}
 
+	pr_debug("%s() frame %d\n", __FUNCTION__, MAC_CB_TYPE(skb));
+
 	rcu_read_lock();
 
-	/*
-	 * this loop is a bit inverted to prevent one extra clone:
-	 * instead of
-	 *   foreach() {
-	 *     A;
-	 *     B;
-	 *   }
-	 *
-	 * it does:
-	 *   foreach() {
-	 *     if (!first)
-	 *       B;
-	 *     A;
-	 *   }
-	 *   B;
-	 */
 	list_for_each_entry_rcu(ndp, &priv->slaves, list)
 	{
 		if (prev) {
 			struct sk_buff *skb2 = skb_clone(skb, GFP_ATOMIC);
-			skb2->dev = prev;
-
-			pr_debug("%s Getting packet via slave interface %s\n",
-					__FUNCTION__, skb2->dev->name);
-			netif_rx(skb2);
+			if (skb2)
+				ieee80215_subif_frame(prev, skb2);
 		}
 
-		prev = ndp->dev;
-
-		switch (MAC_CB(skb)->da.addr_type) {
-		case IEEE80215_ADDR_NONE:
-			// FIXME: check if we are PAN coordinator :)
-			if(MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE)
-				skb->pkt_type = PACKET_OTHERHOST;
-			else
-				skb->pkt_type = PACKET_HOST;
-			break;
-		case IEEE80215_ADDR_LONG:
-			if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST)
-				skb->pkt_type = PACKET_OTHERHOST;
-			else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
-				skb->pkt_type = PACKET_HOST;
-			else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN)) // FIXME: is this correct?
-				skb->pkt_type = PACKET_BROADCAST;
-			else
-				skb->pkt_type = PACKET_OTHERHOST;
-			break;
-		case IEEE80215_ADDR_SHORT:
-			if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST)
-				skb->pkt_type = PACKET_OTHERHOST;
-			else if (MAC_CB(skb)->da.short_addr == ndp->short_addr)
-				skb->pkt_type = PACKET_HOST;
-			else if (MAC_CB(skb)->da.short_addr == IEEE80215_ADDR_BROADCAST)
-				skb->pkt_type = PACKET_BROADCAST;
-			else
-				skb->pkt_type = PACKET_OTHERHOST;
-			break;
-		}
-
+		prev = ndp;
 	}
 
-	if (prev) {
-		skb->dev = prev;
-
-		pr_debug("%s Getting packet via slave interface %s\n",
-				__FUNCTION__, skb->dev->name);
-		netif_rx(skb);
-	} else
+	if (prev)
+		ieee80215_subif_frame(prev, skb);
+	else
 		kfree_skb(skb);
 
 	rcu_read_unlock();

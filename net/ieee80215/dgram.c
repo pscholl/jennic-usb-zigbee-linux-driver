@@ -306,69 +306,13 @@ static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
 	return NET_RX_SUCCESS;
 }
 
-static void dgram_process_beacon(struct sk_buff *skb)
-{
-	pr_debug("Frame type is not supported yet\n");
-}
-
-static void dgram_process_cmd(struct sk_buff *skb)
-{
-	pr_debug("Frame type is not supported yet\n");
-}
-
-static void dgram_process_ack(struct sk_buff *skb)
-{
-	pr_debug("got ACK for SEQ=%d\n", MAC_CB(skb)->seq);
-}
-
 int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk, *prev = NULL;
 	struct hlist_node*node;
 	int ret = NET_RX_SUCCESS;
 
-	pr_debug("%s() frame %d\n", __FUNCTION__, MAC_CB_TYPE(skb));
-	/* FIXME: maybe move processing from af_ieee80215 back to ieee80215 module ? */
-	switch (MAC_CB_TYPE(skb)) {
-	case IEEE80215_FC_TYPE_BEACON:
-		dgram_process_beacon(skb);
-		kfree_skb(skb);
-		return NET_RX_SUCCESS;
-	case IEEE80215_FC_TYPE_ACK:
-		dgram_process_ack(skb);
-		kfree_skb(skb);
-		return NET_RX_SUCCESS;
-	case IEEE80215_FC_TYPE_MAC_CMD:
-		dgram_process_cmd(skb);
-		kfree_skb(skb);
-		return NET_RX_SUCCESS;
-	case IEEE80215_FC_TYPE_DATA:
-		/* handled below */
-		break;
-	default:
-		pr_warning("ieee802154: Bad frame received (type = %d)\n", MAC_CB_TYPE(skb));
-		kfree_skb(skb);
-		return NET_RX_DROP;
-	}
-
 	/* Data frame processing */
-
-	if(MAC_CB_IS_ACKREQ(skb)) {
-		u16 fc = IEEE80215_FC_TYPE_ACK;
-		u8 * data;
-		struct sk_buff *ackskb = alloc_skb(LL_ALLOCATED_SPACE(dev) + IEEE80215_ACK_LEN, GFP_ATOMIC);
-		data = skb_put(ackskb, IEEE80215_ACK_LEN);
-		data[0] = fc & 0xff;
-		data[1] = (fc >> 8) & 0xff;
-		data[2] = MAC_CB(skb)->seq;
-		ackskb->dev = skb->dev;
-		pr_debug("ACK frame to %s device", skb->dev->name);
-		ackskb->protocol = htons(ETH_P_IEEE80215);
-		pr_debug("%s(): flags %02x\n", __FUNCTION__,
-				MAC_CB(skb)->flags);
-		/* FIXME */
-		dev_queue_xmit(ackskb);
-	}
 
 	read_lock(&dgram_lock);
 	sk_for_each(sk, node, &dgram_head) {
