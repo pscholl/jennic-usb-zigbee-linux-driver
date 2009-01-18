@@ -212,9 +212,53 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 
 static int ieee80215_header_parse(const struct sk_buff *skb, unsigned char *haddr)
 {
-	const char *hdr = skb_mac_header(skb);
-	memcpy(haddr, hdr + 3, IEEE80215_ADDR_LEN);
-	return IEEE80215_ADDR_LEN;
+	const u8 *hdr = skb_mac_header(skb), *tail = skb_tail_pointer(skb);
+	struct ieee80215_addr *addr = (struct ieee80215_addr*)haddr;
+	u16 fc;
+
+	if (hdr + 3 > tail)
+		goto malformed;
+
+	fc = hdr[0] | (hdr[1] << 8);
+	addr->addr_type = IEEE80215_FC_SAMODE(fc);
+	if (addr->addr_type != IEEE80215_ADDR_NONE) {
+		hdr += 3;
+
+		if (hdr + 2 > tail)
+			goto malformed;
+		if (!(fc & IEEE80215_FC_INTRA_PAN)) {
+			addr->pan_id = hdr[0] | (hdr[1] << 8);
+			hdr += 2;
+		}
+		switch (addr->addr_type) {
+		case IEEE80215_ADDR_LONG:
+			if (hdr + IEEE80215_ADDR_LEN > tail)
+				goto malformed;
+			memcpy(addr->hwaddr, hdr, IEEE80215_ADDR_LEN);
+			hdr += IEEE80215_ADDR_LEN;
+			break;
+		case IEEE80215_ADDR_SHORT:
+			if (hdr + 2 > tail)
+				goto malformed;
+			addr->short_addr = hdr[0] | (hdr[1] << 8);
+			hdr += 2;
+			break;
+		default:
+			goto malformed;
+		}
+		if ((fc & IEEE80215_FC_INTRA_PAN)) {
+			if (IEEE80215_FC_DAMODE(fc) == IEEE80215_ADDR_NONE)
+				goto malformed;
+			addr->pan_id = hdr[0] | (hdr[1] << 8);
+			hdr += 2;
+		}
+	}
+
+	return sizeof (struct ieee80215_addr);
+
+malformed:
+	pr_debug("malformed packet\n");
+	return 0;
 }
 
 static struct header_ops ieee80215_header_ops = {
