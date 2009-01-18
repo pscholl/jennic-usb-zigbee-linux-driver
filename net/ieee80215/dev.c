@@ -405,9 +405,6 @@ static void fetch_skb_u64(struct sk_buff *skb, void *data)
 			goto exit_error;		\
 		fetch_skb_u64(skb, &var);
 
-#define IEEE80215_FETCH_DATA(skb, var, type)		\
-	IEEE80215_FETCH_ ## type (skb, var)
-
 static int parse_frame_start(struct sk_buff *skb)
 {
 	u8 *head = skb->data;
@@ -418,8 +415,8 @@ static int parse_frame_start(struct sk_buff *skb)
 		return -EINVAL;
 	}
 
-	IEEE80215_FETCH_DATA(skb, fc, U16);
-	IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->seq, U8);
+	IEEE80215_FETCH_U16(skb, fc);
+	IEEE80215_FETCH_U8(skb, MAC_CB(skb)->seq);
 
 	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
@@ -460,21 +457,21 @@ static int parse_frame_start(struct sk_buff *skb)
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __FUNCTION__);
 		if (!(MAC_CB_IS_INTRAPAN(skb))) { // ! panid compress
-			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.pan_id, U16);
+			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.pan_id);
 			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
 		}
 
 		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
-			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.short_addr, U16);
+			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.short_addr);
 			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __FUNCTION__);
 		} else {
-			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.hwaddr, U64);
+			IEEE80215_FETCH_U64(skb, MAC_CB(skb)->sa.hwaddr);
 			pr_debug("%s(): src hardware addr\n", __FUNCTION__);
 		}
 	}
 
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
-		IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.pan_id, U16);
+		IEEE80215_FETCH_U16(skb, MAC_CB(skb)->da.pan_id);
 
 		if (MAC_CB_IS_INTRAPAN(skb)) { // ! panid compress
 			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
@@ -487,12 +484,12 @@ static int parse_frame_start(struct sk_buff *skb)
 				__FUNCTION__, MAC_CB(skb)->da.pan_id);
 
 		if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_SHORT) {
-			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.short_addr, U16);
+			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->da.short_addr);
 			pr_debug("%s(): dst SHORT address %04x\n",
 					__FUNCTION__, MAC_CB(skb)->da.short_addr);
 
 		} else {
-			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.hwaddr, U64);
+			IEEE80215_FETCH_U64(skb, MAC_CB(skb)->da.hwaddr);
 			pr_debug("%s(): dst hardware addr\n", __FUNCTION__);
 		}
 	}
