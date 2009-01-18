@@ -474,14 +474,14 @@ static int parse_frame_start(struct sk_buff *skb)
 	}
 
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
+		IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.pan_id, U16);
+
 		if (MAC_CB_IS_INTRAPAN(skb)) { // ! panid compress
 			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
-			IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->sa.pan_id, U16);
+			MAC_CB(skb)->sa.pan_id = MAC_CB(skb)->da.pan_id;
 			pr_debug("%s(): src PAN address %04x\n",
 					__FUNCTION__, MAC_CB(skb)->sa.pan_id);
 		}
-
-		IEEE80215_FETCH_DATA(skb, MAC_CB(skb)->da.pan_id, U16);
 
 		pr_debug("%s(): dst PAN address %04x\n",
 				__FUNCTION__, MAC_CB(skb)->da.pan_id);
