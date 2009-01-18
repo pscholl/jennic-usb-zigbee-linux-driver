@@ -507,10 +507,8 @@ exit_error:
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
-
 	struct ieee80215_netdev_priv *ndp;
-	unsigned char *head = skb->data;
-	unsigned int tail_off = 0;
+	struct net_device *prev = NULL;
 	int ret;
 
 	BUILD_BUG_ON(sizeof(struct ieee80215_mac_cb) > sizeof(skb->cb));
@@ -528,61 +526,87 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 			goto out;
 		}
 		// FIXME: check CRC if necessary
-		tail_off = 2;
-		skb_trim(skb, skb->len - tail_off); // CRC
+		skb_trim(skb, skb->len - 2); // CRC
 	}
 
 	rcu_read_lock();
 
+	/*
+	 * this loop is a bit inverted to prevent one extra clone:
+	 * instead of
+	 *   foreach() {
+	 *     A;
+	 *     B;
+	 *   }
+	 *
+	 * it does:
+	 *   foreach() {
+	 *     if (!first)
+	 *       B;
+	 *     A;
+	 *   }
+	 *   B;
+	 */
 	list_for_each_entry_rcu(ndp, &priv->slaves, list)
 	{
-		struct sk_buff *skb2 = NULL;
+		if (prev) {
+			struct sk_buff *skb2 = skb_clone(skb, GFP_ATOMIC);
+			skb2->dev = prev;
 
-		skb2 = skb_clone(skb, GFP_ATOMIC);
+			pr_debug("%s Getting packet via slave interface %s\n",
+					__FUNCTION__, skb2->dev->name);
+			netif_rx(skb2);
+		}
 
-		switch (MAC_CB(skb2)->da.addr_type) {
+		prev = ndp->dev;
+
+		switch (MAC_CB(skb)->da.addr_type) {
 		case IEEE80215_ADDR_NONE:
 			// FIXME: check if we are PAN coordinator :)
-			if(MAC_CB(skb2)->sa.addr_type != IEEE80215_ADDR_NONE)
-				skb2->pkt_type = PACKET_OTHERHOST;
+			if(MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE)
+				skb->pkt_type = PACKET_OTHERHOST;
 			else
-				skb2->pkt_type = PACKET_HOST;
+				skb->pkt_type = PACKET_HOST;
 			break;
 		case IEEE80215_ADDR_LONG:
-			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != IEEE80215_PANID_BROADCAST)
-				skb2->pkt_type = PACKET_OTHERHOST;
-			else if (!memcmp(MAC_CB(skb2)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
-				skb2->pkt_type = PACKET_HOST;
-			else if (!memcmp(MAC_CB(skb2)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN)) // FIXME: is this correct?
-				skb2->pkt_type = PACKET_BROADCAST;
+			if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST)
+				skb->pkt_type = PACKET_OTHERHOST;
+			else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
+				skb->pkt_type = PACKET_HOST;
+			else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN)) // FIXME: is this correct?
+				skb->pkt_type = PACKET_BROADCAST;
 			else
-				skb2->pkt_type = PACKET_OTHERHOST;
+				skb->pkt_type = PACKET_OTHERHOST;
 			break;
 		case IEEE80215_ADDR_SHORT:
-			if (MAC_CB(skb2)->da.pan_id != ndp->pan_id && MAC_CB(skb2)->da.pan_id != IEEE80215_PANID_BROADCAST)
-				skb2->pkt_type = PACKET_OTHERHOST;
-			else if (MAC_CB(skb2)->da.short_addr == ndp->short_addr)
-				skb2->pkt_type = PACKET_HOST;
-			else if (MAC_CB(skb2)->da.short_addr == IEEE80215_ADDR_BROADCAST)
-				skb2->pkt_type = PACKET_BROADCAST;
+			if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST)
+				skb->pkt_type = PACKET_OTHERHOST;
+			else if (MAC_CB(skb)->da.short_addr == ndp->short_addr)
+				skb->pkt_type = PACKET_HOST;
+			else if (MAC_CB(skb)->da.short_addr == IEEE80215_ADDR_BROADCAST)
+				skb->pkt_type = PACKET_BROADCAST;
 			else
-				skb2->pkt_type = PACKET_OTHERHOST;
+				skb->pkt_type = PACKET_OTHERHOST;
 			break;
 		}
 
-		skb2->dev = ndp->dev;
-		pr_debug("%s Getting packet via slave interface %s\n",
-				__FUNCTION__, skb2->dev->name);
-		netif_rx(skb2);
 	}
 
+	if (prev) {
+		skb->dev = prev;
+
+		pr_debug("%s Getting packet via slave interface %s\n",
+				__FUNCTION__, skb->dev->name);
+		netif_rx(skb);
+	} else
+		kfree_skb(skb);
+
 	rcu_read_unlock();
+	return;
 
 out:
-	skb_push(skb, skb->data - head);
-
-	skb_put(skb, tail_off);
-
+	kfree_skb(skb);
+	return;
 }
 
 struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *addr)

@@ -82,6 +82,7 @@ EXPORT_SYMBOL(ieee80215_unregister_device);
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
+	struct sk_buff *skb2;
 
 	BUG_ON(!skb);
 
@@ -93,9 +94,10 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 	skb_reset_mac_header(skb);
 
-	ieee80215_subif_rx(dev, skb);
+	skb2 = skb_clone(skb, GFP_ATOMIC);
+	netif_rx(skb2);
 
-	netif_rx(skb);
+	ieee80215_subif_rx(dev, skb);
 }
 EXPORT_SYMBOL(ieee80215_rx);
 
