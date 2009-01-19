@@ -37,6 +37,7 @@
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
+#include <net/ieee80215/mac_cmd.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
@@ -156,7 +157,7 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 		return -EINVAL;
 
 	if (!saddr) {
-		if (priv->short_addr == IEEE80215_ADDR_BROADCAST || priv->short_addr == IEEE80215_ADDR_UNDEF) {
+		if (priv->short_addr == IEEE80215_ADDR_BROADCAST || priv->short_addr == IEEE80215_ADDR_UNDEF || priv->pan_id == IEEE80215_PANID_BROADCAST) {
 			dev_addr.addr_type = IEEE80215_ADDR_LONG;
 			memcpy(dev_addr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
 		} else {
@@ -389,7 +390,7 @@ static int ieee80215_send_ack(struct sk_buff *skb)
 	return dev_queue_xmit(ackskb);
 }
 
-static int ieee80215_process_beacon(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+static int ieee80215_process_beacon(struct net_device *dev, struct sk_buff *skb)
 {
 	pr_debug("Frame type is not supported yet\n");
 
@@ -397,15 +398,7 @@ static int ieee80215_process_beacon(struct ieee80215_netdev_priv *ndp, struct sk
 	return NET_RX_SUCCESS;
 }
 
-static int ieee80215_process_cmd(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
-{
-	pr_debug("Frame type is not supported yet\n");
-
-	kfree_skb(skb);
-	return NET_RX_SUCCESS;
-}
-
-static int ieee80215_process_ack(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+static int ieee80215_process_ack(struct net_device *dev, struct sk_buff *skb)
 {
 	pr_debug("got ACK for SEQ=%d\n", MAC_CB(skb)->seq);
 
@@ -413,7 +406,7 @@ static int ieee80215_process_ack(struct ieee80215_netdev_priv *ndp, struct sk_bu
 	return NET_RX_SUCCESS;
 }
 
-static int ieee80215_process_data(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
+static int ieee80215_process_data(struct net_device *dev, struct sk_buff *skb)
 {
 	return netif_rx(skb);
 }
@@ -461,13 +454,13 @@ static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_bu
 
 	switch (MAC_CB_TYPE(skb)) {
 	case IEEE80215_FC_TYPE_BEACON:
-		return ieee80215_process_beacon(ndp, skb);
+		return ieee80215_process_beacon(ndp->dev, skb);
 	case IEEE80215_FC_TYPE_ACK:
-		return ieee80215_process_ack(ndp, skb);
+		return ieee80215_process_ack(ndp->dev, skb);
 	case IEEE80215_FC_TYPE_MAC_CMD:
-		return ieee80215_process_cmd(ndp, skb);
+		return ieee80215_process_cmd(ndp->dev, skb);
 	case IEEE80215_FC_TYPE_DATA:
-		return ieee80215_process_data(ndp, skb);
+		return ieee80215_process_data(ndp->dev, skb);
 	default:
 		pr_warning("ieee802154: Bad frame received (type = %d)\n", MAC_CB_TYPE(skb));
 		kfree_skb(skb);
@@ -733,37 +726,6 @@ u16 ieee80215_dev_get_short_addr(struct net_device *dev)
 	BUG_ON(dev->type != ARPHRD_IEEE80215);
 
 	return priv->short_addr;
-}
-
-int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,
-		const u8 *buf, int len)
-{
-	struct sk_buff *skb;
-	int err;
-
-	BUG_ON(dev->type != ARPHRD_IEEE80215);
-
-	skb = alloc_skb(LL_ALLOCATED_SPACE(dev) + len, GFP_KERNEL);
-	if (!skb)
-		return -ENOMEM;
-
-	skb_reserve(skb, LL_RESERVED_SPACE(dev));
-
-	skb_reset_network_header(skb);
-
-	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, addr, NULL, len);
-	if (err < 0) {
-		kfree_skb(skb);
-		return err;
-	}
-
-	skb_reset_mac_header(skb);
-	memcpy(skb_put(skb, len), buf, len);
-
-	skb->dev = dev;
-	skb->protocol = htons(ETH_P_IEEE80215);
-
-	return dev_queue_xmit(skb);
 }
 
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib)

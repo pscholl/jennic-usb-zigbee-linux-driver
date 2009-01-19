@@ -7,6 +7,7 @@
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee80215/mac_cmd.h>
 
 static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info);
 
