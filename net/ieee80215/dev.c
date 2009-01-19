@@ -145,8 +145,9 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	struct ieee80215_addr dev_addr;
 	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
 
-	fc = (IEEE80215_FC_TYPE_DATA << IEEE80215_FC_TYPE_SHIFT)
-		| IEEE80215_FC_ACK_REQ;
+	fc = MAC_CB_TYPE(skb);
+	if (MAC_CB_IS_ACKREQ(skb))
+		fc |= IEEE80215_FC_ACK_REQ;
 
 	pos = 2;
 

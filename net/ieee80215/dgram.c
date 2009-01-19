@@ -226,6 +226,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 
 	skb_reset_network_header(skb);
 
+	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
 	if (err < 0) {
 		kfree_skb(skb);

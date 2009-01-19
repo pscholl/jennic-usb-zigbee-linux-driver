@@ -98,6 +98,7 @@ int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,
 
 	skb_reset_network_header(skb);
 
+	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, addr, NULL, len);
 	if (err < 0) {
 		kfree_skb(skb);
