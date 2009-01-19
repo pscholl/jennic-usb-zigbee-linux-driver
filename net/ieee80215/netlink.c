@@ -16,9 +16,13 @@ static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info
 static struct genl_family ieee80215_coordinator_family = {
 	.id		= GENL_ID_GENERATE,
 	.hdrsize	= 0,
-	.name		= "802.15.4 MAC",
+	.name		= IEEE80215_NL_NAME,
 	.version	= 1,
-	.maxattr	= __IEEE80215_CMD_MAX, // FIXME
+	.maxattr	= IEEE80215_ATTR_MAX,
+};
+
+static struct genl_multicast_group ieee80215_coord_mcgrp = {
+	.name		= IEEE80215_MCAST_COORD_NAME,
 };
 
 /* Requests to userspace */
@@ -49,7 +53,7 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 	if (!genlmsg_end(msg, hdr))
 		goto out_free;
 
-	return genlmsg_unicast(msg, /* FIXME */ 0);
+	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
 
 nla_put_failure:
 	genlmsg_cancel(msg, hdr);
@@ -179,6 +183,11 @@ int __init ieee80215_nl_init(void)
 	rc = genl_register_family(&ieee80215_coordinator_family);
 	if (rc)
 		goto fail;
+
+	rc = genl_register_mc_group(&ieee80215_coordinator_family, &ieee80215_coord_mcgrp);
+	if (rc)
+		goto fail;
+
 
 	for (i = 0; i < ARRAY_SIZE(ieee80215_coordinator_ops); i++) {
 		rc = genl_register_ops(&ieee80215_coordinator_family, &ieee80215_coordinator_ops[i]);
