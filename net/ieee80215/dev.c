@@ -26,7 +26,6 @@
 #include <linux/module.h>
 #include <linux/if_arp.h>
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
-#include <linux/crc-itu-t.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -34,6 +33,7 @@
 #include <net/route.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
+#include <net/ieee80215/crc.h>
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
@@ -57,8 +57,10 @@ static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if(!(priv->hw->ops->flags & IEEE80215_OPS_OMIT_CKSUM))
 	{
-		u16 crc = crc_itu_t(0, skb->data, skb->len);
-		memcpy(skb_put(skb, 2), &crc, 2);
+		u16 crc = ieee80215_crc(0, skb->data, skb->len);
+		u8 *data = skb_put(skb, 2);
+		data[0] = crc & 0xff;
+		data[1] = crc >> 8;
 	}
 	skb->iif = dev->ifindex;
 	skb->dev = priv->hw->master;
@@ -152,7 +154,7 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	pos = 2;
 
 	// FIXME: DSN
-	head[pos++] = 0xa5;
+	head[pos++] = 0x6a;
 
 	if (!daddr)
 		return -EINVAL;
