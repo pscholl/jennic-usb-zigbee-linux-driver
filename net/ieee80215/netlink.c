@@ -2,12 +2,14 @@
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <linux/netdevice.h>
+#include <net/ieee80215/af_ieee80215.h>
 #define IEEE80215_NL_WANT_POLICY
 #include <net/ieee80215/nl.h>
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/netdev.h>
-#include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_cmd.h>
+
+static unsigned int ieee80215_seq_num;
 
 static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info);
 
@@ -18,6 +20,47 @@ static struct genl_family ieee80215_coordinator_family = {
 	.version	= 1,
 	.maxattr	= __IEEE80215_CMD_MAX, // FIXME
 };
+
+/* Requests to userspace */
+
+int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr, u8 cap)
+{
+	struct sk_buff *msg;
+	void *hdr;
+
+	printk("%s\n", __func__);
+
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	if (!msg)
+		goto out_msg;
+
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_ASSOCIATE_INDIC);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_SRC_HW_ADDR, addr->hwaddr);
+
+	NLA_PUT_U8(msg, IEEE80215_ATTR_CAPABILITY, cap);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	return genlmsg_unicast(msg, /* FIXME */ 0);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
+
+
+/* Requests from userspace */
 
 static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 {

@@ -27,13 +27,59 @@
 #include <linux/if_ether.h>
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_cmd.h>
+#include <net/ieee80215/mac_def.h>
+#include <net/ieee80215/netdev.h>
+#include <net/ieee80215/nl.h>
+
+static int ieee80215_cmd_assoc_req(struct sk_buff *skb)
+{
+	u8 cap;
+
+	if (skb->len != 2)
+		return -EINVAL;
+
+	if (skb->pkt_type != PACKET_HOST)
+		return 0;
+
+	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
+	    MAC_CB(skb)->sa.pan_id != IEEE80215_PANID_BROADCAST)
+		return -EINVAL;
+
+	// FIXME: check that we allow incoming ASSOC requests by consulting MIB
+
+	cap = skb->data[1];
+
+	return ieee80215_nl_assoc_indic(skb->dev, &MAC_CB(skb)->sa, cap);
+}
 
 int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
 {
-	pr_debug("Frame type is not supported yet\n");
+	u8 cmd;
+
+	if (skb->len < 1) {
+		pr_warning("Uncomplete command frame!\n");
+		goto drop;
+	}
+
+	cmd = *(skb->data);
+	pr_debug("Command %02x on device %s\n", cmd, dev->name);
+
+	switch (cmd) {
+	case IEEE80215_CMD_ASSOCIATION_REQ:
+		ieee80215_cmd_assoc_req(skb);
+		break;
+	default:
+		pr_debug("Frame type is not supported yet\n");
+		goto drop;
+	}
+
 
 	kfree_skb(skb);
 	return NET_RX_SUCCESS;
+
+drop:
+	kfree_skb(skb);
+	return NET_RX_DROP;
 }
 
 int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,

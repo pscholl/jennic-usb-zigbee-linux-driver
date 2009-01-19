@@ -37,6 +37,10 @@ enum {
 	IEEE80215_ATTR_COORD_HW_ADDR,
 	IEEE80215_ATTR_COORD_PAN_ID,
 
+	IEEE80215_ATTR_SRC_SHORT_ADDR,
+	IEEE80215_ATTR_SRC_HW_ADDR,
+	IEEE80215_ATTR_SRC_PAN_ID,
+
 	IEEE80215_ATTR_CAPABILITY, // FIXME: this is association
 
 	__IEEE80215_ATTR_MAX,
@@ -45,6 +49,7 @@ enum {
 #define IEEE80215_ATTR_MAX (__IEEE80215_ATTR_MAX - 1)
 #define NLA_HW_ADDR	NLA_U64
 #define NLA_GET_HW_ADDR(attr, addr) do { u64 _temp = nla_get_u64(attr); memcpy(addr, &_temp, 8); } while (0)
+#define NLA_PUT_HW_ADDR(msg, attr, addr) do { u64 _temp; memcpy(&_temp, addr, 8); NLA_PUT_U64(msg, attr, _temp); } while (0)
 
 #ifdef IEEE80215_NL_WANT_POLICY
 static struct nla_policy ieee80215_policy[IEEE80215_ATTR_MAX + 1] = {
@@ -59,6 +64,9 @@ static struct nla_policy ieee80215_policy[IEEE80215_ATTR_MAX + 1] = {
 	[IEEE80215_ATTR_COORD_SHORT_ADDR] = { .type = NLA_U16, },
 	[IEEE80215_ATTR_COORD_HW_ADDR] = { .type = NLA_HW_ADDR, },
 	[IEEE80215_ATTR_COORD_PAN_ID] = { .type = NLA_U16, },
+	[IEEE80215_ATTR_SRC_SHORT_ADDR] = { .type = NLA_U16, },
+	[IEEE80215_ATTR_SRC_HW_ADDR] = { .type = NLA_HW_ADDR, },
+	[IEEE80215_ATTR_SRC_PAN_ID] = { .type = NLA_U16, },
 
 	[IEEE80215_ATTR_CAPABILITY] = { .type = NLA_U8, },
 };
@@ -110,6 +118,8 @@ enum {
 #ifdef __KERNEL__
 int ieee80215_nl_init(void);
 void ieee80215_nl_exit(void);
+
+int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr, u8 cap);
 #endif
 
 #endif
