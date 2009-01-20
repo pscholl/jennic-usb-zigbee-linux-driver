@@ -386,7 +386,7 @@ static int ieee80215_send_ack(struct sk_buff *skb)
 	skb_reset_mac_header(ackskb);
 
 	ackskb->dev = skb->dev;
-	pr_debug("ACK frame to %s device", skb->dev->name);
+	pr_debug("ACK frame to %s device\n", skb->dev->name);
 	ackskb->protocol = htons(ETH_P_IEEE80215);
 	/* FIXME */
 
