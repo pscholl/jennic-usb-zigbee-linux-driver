@@ -3,17 +3,21 @@
 #include <linux/platform_device.h>
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
+#include <linux/spinlock.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 
 struct fake_dev_priv {
 	struct ieee80215_dev *dev;
 	phy_status_t cur_state, pend_state;
-	int id;
+
+	struct list_head list;
+	struct fake_priv *fake;
 };
 
 struct fake_priv {
-	struct fake_dev_priv dev1, dev2;
+	struct list_head list;
+	rwlock_t lock;
 };
 
 static int is_transmitting(struct ieee80215_dev *dev) {
@@ -71,22 +75,35 @@ hw_channel(struct ieee80215_dev *dev, int channel)
 	return PHY_SUCCESS;
 }
 
+static void
+hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
+{
+	struct sk_buff *newskb;
+
+	newskb = pskb_copy(skb, GFP_ATOMIC);
+	PHY_CB(newskb)->lqi = 0xcc;
+
+	ieee80215_rx(priv->dev, newskb);
+}
+
 static int
 hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
-	struct sk_buff *newskb;
 	struct fake_dev_priv *priv = dev->priv;
-	struct fake_priv *fake;
-	pr_debug("%s\n",__FUNCTION__);
-	newskb = pskb_copy(skb, GFP_ATOMIC);
-	PHY_CB(newskb)->lqi = 0xcc;
-	if (priv->id == 1) {
-		fake = container_of(priv, struct fake_priv, dev1);
-		ieee80215_rx(fake->dev2.dev, newskb);
+	struct fake_priv *fake = priv->fake;
+
+	read_lock_bh(&fake->lock);
+	if (priv->list.next == priv->list.prev) {
+		// we are the only one
+		hw_deliver(priv, skb);
 	} else {
-		fake = container_of(priv, struct fake_priv, dev2);
-		ieee80215_rx(fake->dev1.dev, newskb);
+		struct fake_dev_priv *dp;
+		list_for_each_entry(dp, &priv->fake->list, list)
+			if (dp != priv)
+				hw_deliver(dp, skb);
 	}
+	read_unlock_bh(&fake->lock);
+
 	return PHY_SUCCESS;
 }
 
@@ -99,61 +116,148 @@ static struct ieee80215_ops fake_ops = {
 	.set_channel = hw_channel,
 };
 
+static int ieee80215fake_add_priv(struct fake_priv *fake, const u8 *macaddr)
+{
+	struct fake_dev_priv *priv;
+	int err = -ENOMEM;
+
+	priv= kzalloc(sizeof(struct fake_dev_priv), GFP_KERNEL);
+	if (!priv)
+		goto err_alloc;
+
+	INIT_LIST_HEAD(&priv->list);
+
+	priv->dev = ieee80215_alloc_device();
+	if (!priv->dev)
+		goto err_alloc_dev;
+	priv->dev->name = "IEEE 802.15.4 fake";
+	priv->dev->priv = priv;
+	priv->fake = fake;
+
+	err = ieee80215_register_device(priv->dev, &fake_ops);
+	if(err)
+		goto err_reg;
+	rtnl_lock();
+	err = ieee80215_add_slave(priv->dev, macaddr);
+	rtnl_unlock();
+	if (err < 0)
+		goto err_slave;
+
+	write_lock_bh(&fake->lock);
+	list_add_tail(&priv->list, &fake->list);
+	write_unlock_bh(&fake->lock);
+
+	return 0;
+
+err_slave:
+	ieee80215_unregister_device(priv->dev);
+err_reg:
+	ieee80215_free_device(priv->dev);
+err_alloc_dev:
+	kfree(priv);
+err_alloc:
+	return err;
+}
+
+static void ieee80215fake_del_priv(struct fake_dev_priv *priv)
+{
+	write_lock_bh(&priv->fake->lock);
+	list_del(&priv->list);
+	write_unlock_bh(&priv->fake->lock);
+
+	ieee80215_unregister_device(priv->dev);
+	ieee80215_free_device(priv->dev);
+	kfree(priv);
+}
+
+static ssize_t
+adddev_store(struct device * dev, struct device_attribute *attr,
+	const char * buf, size_t n)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct fake_priv *priv = platform_get_drvdata(pdev);
+	char hw[8] = {};
+	int i, j, ch, err;
+
+	for (i = 0, j = 0; i < 16 && j < n; j++) {
+		ch = buf[j];
+		switch (buf[j]) {
+		default:
+			return -EINVAL;
+		case '0'...'9':
+			ch -= '0';
+			break;
+		case 'A'...'F':
+			ch -= 'A' - 10;
+			break;
+		case 'a'...'f':
+			ch -= 'a' - 10;
+			break;
+		case ':':
+		case '.':
+			continue;
+		}
+		if (i % 2)
+			hw[i/2] = (hw[i/2] & 0xf0) | ch;
+		else
+			hw[i/2] = ch << 4;
+		i++;
+	}
+	if (i != 16)
+		return -EINVAL;
+	err = ieee80215fake_add_priv(priv, hw);
+	if (err)
+		return err;
+	return n;
+}
+
+static DEVICE_ATTR(adddev, 0200, NULL, adddev_store);
+
+static struct attribute * fake_attrs[] = {
+	&dev_attr_adddev.attr,
+	NULL,
+};
+
+static struct attribute_group fake_group = {
+	.name	= NULL /* fake */,
+	.attrs	= fake_attrs,
+};
+
+
 static int __devinit ieee80215fake_probe(struct platform_device *pdev)
 {
 	struct fake_priv *priv;
+	struct fake_dev_priv *dp;
+
 	int err = -ENOMEM;
 	priv = kzalloc(sizeof(struct fake_priv), GFP_KERNEL);
 	if (!priv)
 		goto err_alloc;
 
-	priv->dev1.dev = ieee80215_alloc_device();
-	if (!priv->dev1.dev)
-		goto err_alloc_1;
-	priv->dev1.dev->name = "IEEE 802.15.4 fake1";
-	priv->dev1.dev->priv = &priv->dev1;
-	priv->dev1.id = 1;
+	INIT_LIST_HEAD(&priv->list);
+	rwlock_init(&priv->lock);
 
-	priv->dev2.dev = ieee80215_alloc_device();
-	if (!priv->dev2.dev)
-		goto err_alloc_2;
-	priv->dev2.dev->name = "IEEE 802.15.4 fake2";
-	priv->dev2.dev->priv = &priv->dev2;
-	priv->dev2.id = 2;
+	err = sysfs_create_group(&pdev->dev.kobj, &fake_group);
+	if (err)
+		goto err_grp;
 
-	pr_debug("registering devices\n");
-	err = ieee80215_register_device(priv->dev1.dev, &fake_ops);
-	if(err)
-		goto err_reg_1;
-	rtnl_lock();
-	err = ieee80215_add_slave(priv->dev1.dev, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
-	rtnl_unlock();
+	err = ieee80215fake_add_priv(priv, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
 	if (err < 0)
-		goto err_slave_1;
+		goto err_slave;
 
-	err = ieee80215_register_device(priv->dev2.dev, &fake_ops);
-	if(err)
-		goto err_reg_2;
-	rtnl_lock();
-	err = ieee80215_add_slave(priv->dev2.dev, "\x67\x45\x23\x01\x67\x45\x23\x01");
-	rtnl_unlock();
+/*	err = ieee80215fake_add_priv(priv, "\x67\x45\x23\x01\x67\x45\x23\x01");
 	if (err < 0)
-		goto err_slave_2;
+		goto err_slave;*/
 
 	platform_set_drvdata(pdev, priv);
 	dev_info(&pdev->dev, "Added ieee80215 hardware\n");
 	return 0;
 
-err_slave_2:
-	ieee80215_unregister_device(priv->dev2.dev);
-err_reg_2:
-err_slave_1:
-	ieee80215_unregister_device(priv->dev1.dev);
-err_reg_1:
-	ieee80215_free_device(priv->dev2.dev);
-err_alloc_2:
-	ieee80215_free_device(priv->dev1.dev);
-err_alloc_1:
+err_slave:
+	list_for_each_entry(dp, &priv->list, list)
+		ieee80215fake_del_priv(dp);
+	sysfs_remove_group(&pdev->dev.kobj, &fake_group);
+err_grp:
 	kfree(priv);
 err_alloc:
 	return err;
@@ -162,10 +266,11 @@ err_alloc:
 static int __devexit ieee80215fake_remove(struct platform_device *pdev)
 {
 	struct fake_priv *priv = platform_get_drvdata(pdev);
-	ieee80215_unregister_device(priv->dev2.dev);
-	ieee80215_unregister_device(priv->dev1.dev);
-	ieee80215_free_device(priv->dev2.dev);
-	ieee80215_free_device(priv->dev1.dev);
+	struct fake_dev_priv *dp;
+
+	list_for_each_entry(dp, &priv->list, list)
+		ieee80215fake_del_priv(dp);
+	sysfs_remove_group(&pdev->dev.kobj, &fake_group);
 	kfree(priv);
 	return 0;
 }
