@@ -1,4 +1,3 @@
-obj-$(CONFIG_IEEE802154_FAKE) += fake.o
 obj-$(CONFIG_IEEE802154_FAKELB) += fakelb.o
 obj-$(CONFIG_IEEE802154_SERIAL) += serial.o
 
