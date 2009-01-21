@@ -76,7 +76,7 @@ void ieee80215_free_device(struct ieee80215_dev *dev);
 struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev);
 
 // FIXME: move to correct places:
-void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb);
+void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi);
 
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib);
 int ieee80215_pib_get(struct ieee80215_dev *hw, struct ieee80215_pib *pib);

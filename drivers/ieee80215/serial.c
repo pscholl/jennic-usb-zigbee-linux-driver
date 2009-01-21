@@ -378,10 +378,9 @@ static void serial_net_rx(struct zb_device *zbdev)
 	 */
 	struct sk_buff *skb;
 	skb = alloc_skb(zbdev->param2, GFP_ATOMIC);
-	PHY_CB(skb)->lqi = zbdev->param1;
 	skb_put(skb, zbdev->param2);
 	skb_copy_to_linear_data(skb, zbdev->data, zbdev->param2);
-	ieee80215_rx(zbdev->dev, skb);
+	ieee80215_rx(zbdev->dev, skb, zbdev->param1);
 }
 
 static void
