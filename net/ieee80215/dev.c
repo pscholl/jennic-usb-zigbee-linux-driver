@@ -37,7 +37,6 @@
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
-#include <net/ieee80215/mac_cmd.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
@@ -729,6 +728,23 @@ u16 ieee80215_dev_get_short_addr(struct net_device *dev)
 	BUG_ON(dev->type != ARPHRD_IEEE80215);
 
 	return priv->short_addr;
+}
+
+void ieee80215_dev_set_pan_id(struct net_device *dev, u16 val)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE80215);
+
+	priv->pan_id = val;
+}
+void ieee80215_dev_set_short_addr(struct net_device *dev, u16 val)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE80215);
+
+	priv->short_addr = val;
 }
 
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib)

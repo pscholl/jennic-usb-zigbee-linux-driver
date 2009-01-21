@@ -60,15 +60,23 @@
 
 
 /* MAC's Command Frames Identifiers */
-#define IEEE80215_ASSOCIATION_REQ		0x01
-#define IEEE80215_ASSOCIATION_PERM		0x02
-#define IEEE80215_DISASSOCIATION_NOTIFY		0x03
-#define IEEE80215_DATA_REQ			0x04
-#define IEEE80215_PANID_CONFLICT_NOTIFY		0x05
-#define IEEE80215_ORPHAN_NOTIFY			0x06
-#define IEEE80215_BEACON_REQ			0x07
-#define IEEE80215_COORD_REALIGN_NOTIFY		0x08
-#define IEEE80215_GTS_REQ			0x09
+#define IEEE80215_CMD_ASSOCIATION_REQ		0x01
+#define IEEE80215_CMD_ASSOCIATION_RESP		0x02
+#define IEEE80215_CMD_DISASSOCIATION_NOTIFY	0x03
+#define IEEE80215_CMD_DATA_REQ			0x04
+#define IEEE80215_CMD_PANID_CONFLICT_NOTIFY	0x05
+#define IEEE80215_CMD_ORPHAN_NOTIFY		0x06
+#define IEEE80215_CMD_BEACON_REQ		0x07
+#define IEEE80215_CMD_COORD_REALIGN_NOTIFY	0x08
+#define IEEE80215_CMD_GTS_REQ			0x09
+
+#ifdef __KERNEL__
+int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb);
+
+int ieee80215_send_cmd(struct net_device *dev,
+		struct ieee80215_addr *addr, struct ieee80215_addr *saddr,
+		const u8 *buf, int len);
+#endif
 
 #endif
 
