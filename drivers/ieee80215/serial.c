@@ -370,7 +370,7 @@ _match_pending_id(struct zb_device *zbdev)
 	return 0;
 }
 
-void serial_net_rx(struct zb_device *zbdev)
+static void serial_net_rx(struct zb_device *zbdev)
 {
 	/* zbdev->param1 is LQI
 	 * zbdev->param2 is length of data
