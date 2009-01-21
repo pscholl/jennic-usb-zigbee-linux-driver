@@ -29,11 +29,9 @@
 #include <linux/kernel.h>
 #include <linux/completion.h>
 #include <linux/tty.h>
+#include <linux/netdevice.h>
 #include <linux/skbuff.h>
-#include <net/ieee80215/phy.h>
-#include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/dev.h>
-#include <net/ieee80215/netdev.h>
 
 
 /* NOTE: be sure to use here the same values as in the firmware */

@@ -29,6 +29,8 @@
 /* address length, octets */
 #define IEEE80215_ADDR_LEN	8
 
+#define IEEE80215_ACK_LEN	3	/* Size of acknowledge frame */
+
 /* Time related constants, in microseconds.
  *
  * The 1SYM_TIME values are shown how much time is needed to transmit one

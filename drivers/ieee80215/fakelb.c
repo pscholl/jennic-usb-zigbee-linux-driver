@@ -5,7 +5,6 @@
 #include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
 #include <net/ieee80215/dev.h>
-#include <net/ieee80215/netdev.h>
 
 struct fake_dev_priv {
 	struct ieee80215_dev *dev;
