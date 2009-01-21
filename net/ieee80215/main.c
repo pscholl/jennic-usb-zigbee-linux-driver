@@ -64,7 +64,13 @@ int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *o
 
 	priv->ops = ops;
 	rc = ieee80215_register_netdev_master(priv);
+	if (rc < 0)
+		goto out;
+	priv->dev_workqueue = create_singlethread_workqueue(priv->master->name);
+	if (!priv->dev_workqueue)
+		rc = -ENOMEM;
 
+out:
 	return rc;
 }
 EXPORT_SYMBOL(ieee80215_register_device);
@@ -75,6 +81,7 @@ void ieee80215_unregister_device(struct ieee80215_dev *dev)
 
 	ieee80215_drop_slaves(dev);
 	ieee80215_unregister_netdev_master(priv);
+	destroy_workqueue(priv->dev_workqueue);
 	module_put(priv->ops->owner);
 }
 EXPORT_SYMBOL(ieee80215_unregister_device);

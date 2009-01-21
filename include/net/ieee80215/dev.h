@@ -63,6 +63,9 @@ struct ieee80215_priv {
 	struct ieee80215_ops	*ops;
 	struct net_device	*master;
 	struct list_head	slaves;
+	/* This one is used for scanning and other
+	 * jobs not to be interfered with serial driver */
+	struct workqueue_struct	*dev_workqueue;
 };
 
 #define ieee80215_to_priv(_hw)	container_of(_hw, struct ieee80215_priv, hw)
