@@ -63,6 +63,7 @@ struct ieee80215_user_data {
 /* master device */
 #define IEEE80215_SIOC_ADD_SLAVE		(SIOCDEVPRIVATE + 0)
 
+#ifdef __KERNEL__
 int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data __user *data);
@@ -70,7 +71,12 @@ int ioctl_start_router(struct sock *sk, struct ieee80215_user_data __user *data)
 int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data);
 
-#define IEEE80215_ACK_LEN	3	/* Size of acknowledge frame */
 int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration);
+
+extern struct proto ieee80215_raw_prot;
+extern struct proto ieee80215_dgram_prot;
+void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);
+int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
+#endif
 
 #endif

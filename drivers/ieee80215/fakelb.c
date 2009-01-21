@@ -5,7 +5,6 @@
 #include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
 #include <net/ieee80215/dev.h>
-#include <net/ieee80215/netdev.h>
 
 struct fake_dev_priv {
 	struct ieee80215_dev *dev;
@@ -81,9 +80,8 @@ hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
 	struct sk_buff *newskb;
 
 	newskb = pskb_copy(skb, GFP_ATOMIC);
-	PHY_CB(newskb)->lqi = 0xcc;
 
-	ieee80215_rx(priv->dev, newskb);
+	ieee80215_rx(priv->dev, newskb, 0xcc);
 }
 
 static int

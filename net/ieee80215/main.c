@@ -86,12 +86,14 @@ void ieee80215_unregister_device(struct ieee80215_dev *dev)
 }
 EXPORT_SYMBOL(ieee80215_unregister_device);
 
-void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb)
+void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
 	struct sk_buff *skb2;
 
 	BUG_ON(!skb);
+
+	PHY_CB(skb)->lqi = lqi;
 
 	skb->dev = priv->master;
 

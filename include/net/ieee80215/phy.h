@@ -112,12 +112,6 @@ typedef enum {
 	PHY_ERROR = -2, /* all */
 } phy_status_t;
 
-struct ieee80215_phy_cb {
-	u8 lqi;
-};
-
-#define PHY_CB(skb)	((struct ieee80215_phy_cb *)(skb)->cb)
-
 #endif /* __KERNEL__ */
 
 #endif
