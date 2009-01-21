@@ -33,6 +33,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr);
 //void ieee80215_del_slave(struct ieee80215_dev *hw, struct net_device *slave);
 void ieee80215_drop_slaves(struct ieee80215_dev *hw);
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
+struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev);
 
 struct ieee80215_addr;
 struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *sa);

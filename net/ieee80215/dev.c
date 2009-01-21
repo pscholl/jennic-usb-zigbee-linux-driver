@@ -747,6 +747,14 @@ void ieee80215_dev_set_short_addr(struct net_device *dev, u16 val)
 	priv->short_addr = val;
 }
 
+// FIXME: come with better solution
+struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev)
+{
+	struct ieee80215_netdev_priv *priv;
+	priv = netdev_priv(dev);
+	return priv->hw;
+}
+
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib)
 {
 	int ret;
