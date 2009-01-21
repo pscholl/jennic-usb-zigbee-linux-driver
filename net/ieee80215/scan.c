@@ -51,13 +51,16 @@ static int scan_ed(struct net_device *dev, u32 channels, u8 duration)
 			return -EINVAL; /* FIXME */
 		ret = priv->ops->set_channel(&priv->hw,  i);
 		if(ret == PHY_ERROR)
-			return -EINVAL; /* FIXME */
+			goto exit_error;
 		ret = priv->ops->ed(&priv->hw, &e);
 		if(ret == PHY_ERROR)
-			return -EINVAL; /* FIXME */
+			goto exit_error;
 		pr_debug("ed scan channel %d value %d\n", i, e);
 	}
 	return 0;
+exit_error:
+	pr_debug("PHY fault during ED scan\n")'
+	return -EINVAL;
 }
 static int scan_active(struct net_device *dev, u32 channels, u8 duration)
 {
@@ -88,6 +91,7 @@ static int scan_orphan(struct net_device *dev, u32 channels, u8 duration)
  */
 int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
 {
+	/* TODO: locking, workqueue */
 	if(duration > 14)
 		return -EINVAL;
 
@@ -107,4 +111,4 @@ int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 du
 
 	return -EINVAL;
 }
-
+EXPORT_SYMBOL(ieee80215_mlme_scan_req)

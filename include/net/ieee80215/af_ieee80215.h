@@ -48,6 +48,7 @@ struct ieee80215_user_data {
 	int power;
 	int mac_security;
 	u16 panid; 
+	int cmd;
 //	struct ieee80215_dev_address addr; /**< Peer address */
 };
 
@@ -70,6 +71,6 @@ int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data);
 
 #define IEEE80215_ACK_LEN	3	/* Size of acknowledge frame */
-
+int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration);
 
 #endif

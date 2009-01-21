@@ -6,11 +6,8 @@
 
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
+// #include <net/ieee80215/mac_lib.h>
 
-int ieee80215_nlme_scan_req(struct ieee80215_mac *mac, u32 channels, u8 duration)
-{
-	return 0;
-}
 int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *data)
 {
 	struct ieee80215_user_data kdata;
@@ -164,6 +161,10 @@ int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data)
 	dev_put(dev);
 	return -ENOIOCTLCMD;
 }
+
+/* TMP dirty hack, to be removed */
+
+#define IEEE80215_MAC_CMD_SCAN		0
 int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data)
 {
 	struct ieee80215_user_data kdata;
@@ -175,6 +176,14 @@ int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data)
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
 	if(!dev->master)
 		return -ENODEV;
+	switch(kdata.cmd) {
+	case IEEE80215_MAC_CMD_SCAN:
+		/* TODO */
+		pr_debug("scanning\n");
+		return ieee80215_mlme_scan_req(dev->master, 0, 0xffffffff, 14);
+	default:
+		return -EINVAL;
+	}
 /*
 */
 	dev_put(dev);
