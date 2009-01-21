@@ -702,6 +702,7 @@ struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *add
 
 	return dev;
 }
+EXPORT_SYMBOL(ieee80215_get_dev);
 
 struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev)
 {
@@ -720,6 +721,7 @@ u16 ieee80215_dev_get_pan_id(struct net_device *dev)
 
 	return priv->pan_id;
 }
+EXPORT_SYMBOL(ieee80215_dev_get_pan_id);
 
 u16 ieee80215_dev_get_short_addr(struct net_device *dev)
 {
@@ -729,6 +731,7 @@ u16 ieee80215_dev_get_short_addr(struct net_device *dev)
 
 	return priv->short_addr;
 }
+EXPORT_SYMBOL(ieee80215_dev_get_short_addr);
 
 void ieee80215_dev_set_pan_id(struct net_device *dev, u16 val)
 {
@@ -754,6 +757,7 @@ struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev)
 	priv = netdev_priv(dev);
 	return priv->hw;
 }
+EXPORT_SYMBOL(ieee80215_slave_get_hw);
 
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib)
 {
