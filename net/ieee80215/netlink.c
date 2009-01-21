@@ -7,7 +7,6 @@
 #include <net/ieee80215/nl.h>
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/netdev.h>
-#include <net/ieee80215/mac_cmd.h>
 
 static unsigned int ieee80215_seq_num;
 
@@ -34,7 +33,7 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 
 	printk("%s\n", __func__);
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
 	if (!msg)
 		goto out_msg;
 
@@ -46,6 +45,7 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
 	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
 
+	// FIXME: check that we really received hw address 
 	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_SRC_HW_ADDR, addr->hwaddr);
 
 	NLA_PUT_U8(msg, IEEE80215_ATTR_CAPABILITY, cap);
@@ -69,7 +69,7 @@ out_msg:
 static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
-	struct ieee80215_addr addr;
+	struct ieee80215_addr addr, saddr;
 	u8 buf[2];
 	int pos = 0;
 	int ret = -EINVAL;
@@ -95,12 +95,59 @@ static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 	}
 	addr.pan_id = nla_get_u16(info->attrs[IEEE80215_ATTR_COORD_PAN_ID]);
 
+	saddr.addr_type = IEEE80215_ADDR_LONG;
+	saddr.pan_id = IEEE80215_PANID_BROADCAST;
+	memcpy(saddr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
+
 	// FIXME: set PIB/MIB info
 	// FIXME: set channel
+	ieee80215_dev_set_pan_id(dev, addr.pan_id);
 
-	buf[pos++] = IEEE80215_ASSOCIATION_REQ;
+	buf[pos++] = IEEE80215_CMD_ASSOCIATION_REQ;
 	buf[pos++] = nla_get_u8(info->attrs[IEEE80215_ATTR_CAPABILITY]);
-	ret = ieee80215_send_cmd(dev, &addr, buf, pos);
+	ret = ieee80215_send_cmd(dev, &addr, &saddr, buf, pos);
+
+	dev_put(dev);
+	return ret;
+}
+
+static int ieee80215_associate_resp(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net_device *dev;
+	struct ieee80215_addr addr, saddr;
+	u8 buf[4];
+	int pos = 0;
+	u16 short_addr;
+	int ret = -EINVAL;
+
+	if (!info->attrs[IEEE80215_ATTR_DEV_INDEX]
+	 || !info->attrs[IEEE80215_ATTR_STATUS]
+	 || !info->attrs[IEEE80215_ATTR_DEST_HW_ADDR]
+	 || !info->attrs[IEEE80215_ATTR_DEST_SHORT_ADDR])
+		return -EINVAL;
+
+	dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	if (!dev) {
+		pr_warning("%s: No such device!\n", __func__);
+		return -ENODEV;
+	}
+
+	addr.addr_type = IEEE80215_ADDR_LONG;
+	NLA_GET_HW_ADDR(info->attrs[IEEE80215_ATTR_DEST_HW_ADDR], addr.hwaddr);
+	addr.pan_id = ieee80215_dev_get_pan_id(dev);
+
+	saddr.addr_type = IEEE80215_ADDR_LONG;
+	saddr.pan_id = addr.pan_id;
+	memcpy(saddr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
+
+	short_addr = nla_get_u16(info->attrs[IEEE80215_ATTR_DEST_SHORT_ADDR]);
+
+	buf[pos++] = IEEE80215_CMD_ASSOCIATION_RESP;
+	buf[pos++] = short_addr;
+	buf[pos++] = short_addr >> 8;
+	buf[pos++] = nla_get_u8(info->attrs[IEEE80215_ATTR_STATUS]);
+
+	ret = ieee80215_send_cmd(dev, &addr, &saddr, buf, pos);
 
 	dev_put(dev);
 	return ret;
@@ -115,14 +162,14 @@ static struct genl_ops ieee80215_coordinator_ops[] = {
 		.flags	= GENL_ADMIN_PERM,
 	},
 	{
-		.cmd	= IEEE80215_DISASSOCIATE_REQ,
+		.cmd	= IEEE80215_ASSOCIATE_RESP,
 		.policy	= ieee80215_policy,
-		.doit	= ieee80215_coordinator_rcv,
+		.doit	= ieee80215_associate_resp,
 		.dumpit	= NULL,
 		.flags	= GENL_ADMIN_PERM,
 	},
 	{
-		.cmd	= IEEE80215_ASSOCIATE_RESP,
+		.cmd	= IEEE80215_DISASSOCIATE_REQ,
 		.policy	= ieee80215_policy,
 		.doit	= ieee80215_coordinator_rcv,
 		.dumpit	= NULL,
@@ -149,7 +196,7 @@ static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info
 	if (!dev)
 		goto out_dev;
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
 	if (!msg)
 		goto out_msg;
 

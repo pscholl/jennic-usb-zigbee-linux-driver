@@ -26,7 +26,6 @@
 #include <linux/if_arp.h>
 #include <linux/if_ether.h>
 #include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_cmd.h>
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/nl.h>
@@ -52,6 +51,32 @@ static int ieee80215_cmd_assoc_req(struct sk_buff *skb)
 	return ieee80215_nl_assoc_indic(skb->dev, &MAC_CB(skb)->sa, cap);
 }
 
+static int ieee80215_cmd_assoc_resp(struct sk_buff *skb)
+{
+	u8 status;
+	u16 short_addr;
+
+	if (skb->len != 4)
+		return -EINVAL;
+
+	if (skb->pkt_type != PACKET_HOST)
+		return 0;
+
+	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
+	    MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
+	    !(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN))
+		return -EINVAL;
+
+	// FIXME: check that we requested association ?
+
+	status = skb->data[3];
+	short_addr = skb->data[1] | (skb->data[2] << 8);
+	pr_info("Received ASSOC-RESP status %x, addr %hx\n", status, short_addr);
+	ieee80215_dev_set_short_addr(skb->dev, short_addr);
+
+	return 0;
+}
+
 int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
 {
 	u8 cmd;
@@ -68,6 +93,9 @@ int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
 	case IEEE80215_CMD_ASSOCIATION_REQ:
 		ieee80215_cmd_assoc_req(skb);
 		break;
+	case IEEE80215_CMD_ASSOCIATION_RESP:
+		ieee80215_cmd_assoc_resp(skb);
+		break;
 	default:
 		pr_debug("Frame type is not supported yet\n");
 		goto drop;
@@ -82,7 +110,8 @@ drop:
 	return NET_RX_DROP;
 }
 
-int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,
+int ieee80215_send_cmd(struct net_device *dev,
+		struct ieee80215_addr *addr, struct ieee80215_addr *saddr,
 		const u8 *buf, int len)
 {
 	struct sk_buff *skb;
@@ -99,7 +128,7 @@ int ieee80215_send_cmd(struct net_device *dev, struct ieee80215_addr *addr,
 	skb_reset_network_header(skb);
 
 	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
-	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, addr, NULL, len);
+	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, addr, saddr, len);
 	if (err < 0) {
 		kfree_skb(skb);
 		return err;
