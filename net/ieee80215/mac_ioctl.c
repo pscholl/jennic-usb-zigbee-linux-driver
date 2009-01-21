@@ -2,10 +2,12 @@
 #include <linux/socket.h>
 #include <linux/errno.h>
 #include <linux/uaccess.h>
+#include <linux/if_arp.h>
 #include <net/sock.h>
 
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
+#include <net/ieee80215/netdev.h>
 // #include <net/ieee80215/mac_lib.h>
 
 int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *data)
@@ -169,18 +171,26 @@ int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data)
 {
 	struct ieee80215_user_data kdata;
 	struct net_device * dev;
+	struct ieee80215_priv * priv;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
 		return -EFAULT;
 	}
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
-	if(!dev->master)
+	if(!dev)
 		return -ENODEV;
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
+	}
 	switch(kdata.cmd) {
 	case IEEE80215_MAC_CMD_SCAN:
 		/* TODO */
 		pr_debug("scanning\n");
-		return ieee80215_mlme_scan_req(dev->master, 0, 0xffffffff, 14);
+		priv = ieee80215_slave_get_hw(dev);
+		if (!priv)
+			return -EFAULT;
+		return ieee80215_mlme_scan_req(priv->master, 0, 0xffffffff, 14);
 	default:
 		return -EINVAL;
 	}
