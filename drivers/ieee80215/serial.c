@@ -137,34 +137,40 @@ struct zb_device {
 static int
 send_block(struct zb_device *zbdev, u8 len, u8 *data);
 
+static phy_status_t
+ieee80215_serial_set_state(struct ieee80215_dev *dev, phy_status_t state);
+
 static void serial_tx_worker(struct work_struct *work)
 {
 	int ret;
 	struct sk_buff *skb;
 	struct zb_device *zbdev =
 		container_of(work, struct zb_device, work);
-	if (mutex_lock_interruptible(&zbdev->mutex))
-		return; /* FIXME */
 	while (skb_queue_len(&zbdev->tx_queue) > 0) {
 		struct net_device *dev;
 		skb = skb_dequeue_tail(&zbdev->tx_queue);
 		BUG_ON(!skb);
 		dev = skb->dev;
 
+		ieee80215_serial_set_state(zbdev->dev, PHY_TX_ON);
+
+		if (mutex_lock_interruptible(&zbdev->mutex))
+			return; /* FIXME */
 		if (send_block(zbdev, skb->len, skb->data) != 0) {
 			ret = PHY_ERROR;
 			goto out;
 		}
-		kfree_skb(skb);
 		if (wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
 			zbdev->status = PHY_ERROR;
+out:
+		mutex_unlock(&zbdev->mutex);
+		kfree_skb(skb);
+		ieee80215_serial_set_state(zbdev->dev, PHY_RX_ON);
 		/* FIXME */
 		complete(&zbdev->work_done);
 		netif_start_queue(dev);
 		/* Here we're ready to receive frames */
 	}
-out:
-	mutex_unlock(&zbdev->mutex);
 }
 
 static int _open_dev(struct zb_device *zbdev);
@@ -740,8 +746,8 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 		return PHY_INVAL;
 	}
 
-	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
+//	if (mutex_lock_interruptible(&zbdev->mutex))
+//		return PHY_ERROR;
 	init_completion(&zbdev->work_done);
 	netif_stop_queue(skb->dev);
 	dev_skb = skb_clone(skb, GFP_ATOMIC);
@@ -755,7 +761,7 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 	skb_queue_tail(&zbdev->tx_queue, dev_skb);
 	schedule_work(&zbdev->work);
 
-	mutex_unlock(&zbdev->mutex);
+//	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n", __func__);
 	return zbdev->status;
 }

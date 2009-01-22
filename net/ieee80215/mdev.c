@@ -43,16 +43,16 @@ static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_devi
 		return 1;
 	}
 
-	res = priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_TX_ON);
+/*	res = priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_TX_ON);
 	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
 		pr_debug("set_trx_state returned %d\n", res);
 		return NETDEV_TX_BUSY;
-	}
+	}*/
 
 	res = priv->hw->ops->tx(&priv->hw->hw, skb);
 	if (res == PHY_SUCCESS) {
 		dev_kfree_skb(skb);
-		priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_RX_ON);
+//		priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_RX_ON);
 		return NETDEV_TX_OK;
 	} else
 		return NETDEV_TX_BUSY;

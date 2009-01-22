@@ -62,7 +62,7 @@ static int scan_ed(struct ieee80215_priv *hw, u32 channels, u8 duration)
 #else
 		e = 190;
 #endif
-		hw->channel_levels[i - 1] = e;
+//		hw->channel_levels[i - 1] = e;
 		pr_debug("ed scan channel %d value %d\n", i, e);
 	}
 	return 0;
