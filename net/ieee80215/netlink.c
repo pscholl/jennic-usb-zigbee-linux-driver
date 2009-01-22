@@ -1,4 +1,5 @@
 #include <linux/kernel.h>
+#include <linux/if_arp.h>
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <linux/netdevice.h>
@@ -63,6 +64,40 @@ out_msg:
 	return -ENOBUFS;
 }
 
+int ieee80215_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status)
+{
+	struct sk_buff *msg;
+	void *hdr;
+
+	printk("%s\n", __func__);
+
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!msg)
+		goto out_msg;
+
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_ASSOCIATE_CONF);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+
+	NLA_PUT_U16(msg, IEEE80215_ATTR_SHORT_ADDR, short_addr);
+	NLA_PUT_U8(msg, IEEE80215_ATTR_STATUS, status);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
 
 /* Requests from userspace */
 
@@ -74,16 +109,26 @@ static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 	int pos = 0;
 	int ret = -EINVAL;
 
-	if (!info->attrs[IEEE80215_ATTR_DEV_INDEX]
-	 || !info->attrs[IEEE80215_ATTR_CHANNEL]
+	if (!info->attrs[IEEE80215_ATTR_CHANNEL]
 	 || !info->attrs[IEEE80215_ATTR_COORD_PAN_ID]
 	 || (!info->attrs[IEEE80215_ATTR_COORD_HW_ADDR] && !info->attrs[IEEE80215_ATTR_COORD_SHORT_ADDR])
 	 || !info->attrs[IEEE80215_ATTR_CAPABILITY])
 		return -EINVAL;
-	dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
-	if (!dev) {
-		pr_warning("%s: No such device!\n", __func__);
+
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
 		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
 	}
 
 	if (info->attrs[IEEE80215_ATTR_COORD_HW_ADDR]) {
@@ -120,16 +165,25 @@ static int ieee80215_associate_resp(struct sk_buff *skb, struct genl_info *info)
 	u16 short_addr;
 	int ret = -EINVAL;
 
-	if (!info->attrs[IEEE80215_ATTR_DEV_INDEX]
-	 || !info->attrs[IEEE80215_ATTR_STATUS]
+	if (!info->attrs[IEEE80215_ATTR_STATUS]
 	 || !info->attrs[IEEE80215_ATTR_DEST_HW_ADDR]
 	 || !info->attrs[IEEE80215_ATTR_DEST_SHORT_ADDR])
 		return -EINVAL;
 
-	dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
-	if (!dev) {
-		pr_warning("%s: No such device!\n", __func__);
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
 		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
 	}
 
 	addr.addr_type = IEEE80215_ADDR_LONG;

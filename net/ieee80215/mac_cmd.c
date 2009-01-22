@@ -72,9 +72,13 @@ static int ieee80215_cmd_assoc_resp(struct sk_buff *skb)
 	status = skb->data[3];
 	short_addr = skb->data[1] | (skb->data[2] << 8);
 	pr_info("Received ASSOC-RESP status %x, addr %hx\n", status, short_addr);
-	ieee80215_dev_set_short_addr(skb->dev, short_addr);
+	if (status) {
+		ieee80215_dev_set_short_addr(skb->dev, IEEE80215_ADDR_BROADCAST);
+		ieee80215_dev_set_pan_id(skb->dev, IEEE80215_PANID_BROADCAST);
+	} else
+		ieee80215_dev_set_short_addr(skb->dev, short_addr);
 
-	return 0;
+	return ieee80215_nl_assoc_confirm(skb->dev, short_addr, status);
 }
 
 int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
