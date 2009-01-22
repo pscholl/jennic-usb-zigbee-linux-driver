@@ -41,6 +41,7 @@ struct ieee80215_dev {
 	void	*priv;		/* driver-specific data */
 	u32	channel_mask;
 	u8	current_channel;
+	u8	channel_levels[27]; /* FIXME constant */
 };
 
 struct ieee80215_ops {
@@ -58,6 +59,20 @@ struct ieee80215_ops {
 #define IEEE80215_OPS_OMIT_CKSUM	(1 << 0)
 						   
 #ifdef __KERNEL__
+struct ieee80215_work_data {
+	int cmd;
+	union {
+		struct {
+			u32 channels;
+			u8 type;
+			u8 duration;
+		} scan;
+		void * data;
+	};
+};
+/* types for work_data */
+#define IEEE80215_MAC_CMD_SCAN		0
+
 struct ieee80215_priv {
 	struct ieee80215_dev	hw;
 	struct ieee80215_ops	*ops;
@@ -66,6 +81,10 @@ struct ieee80215_priv {
 	/* This one is used for scanning and other
 	 * jobs not to be interfered with serial driver */
 	struct workqueue_struct	*dev_workqueue;
+	struct work_struct dev_work;
+	struct completion dev_work_complete;
+	/* FIXME */
+	struct ieee80215_work_data *work_data;
 };
 
 #define ieee80215_to_priv(_hw)	container_of(_hw, struct ieee80215_priv, hw)

@@ -10,6 +10,15 @@
 #include <net/ieee80215/netdev.h>
 // #include <net/ieee80215/mac_lib.h>
 
+static int run_dev_worker(struct ieee80215_priv *hw, void *data)
+{
+	BUG_ON(!hw);
+	hw->work_data = data;
+	init_completion(&hw->dev_work_complete);
+	queue_work(hw->dev_workqueue, &hw->dev_work);
+	return wait_for_completion_interruptible(&hw->dev_work_complete);
+}
+
 int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *data)
 {
 	struct ieee80215_user_data kdata;
@@ -166,12 +175,13 @@ int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data)
 
 /* TMP dirty hack, to be removed */
 
-#define IEEE80215_MAC_CMD_SCAN		0
 int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data)
 {
 	struct ieee80215_user_data kdata;
 	struct net_device * dev;
 	struct ieee80215_priv * priv;
+	int ret;
+	struct ieee80215_work_data *wdata;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
 		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
 		return -EFAULT;
@@ -186,12 +196,24 @@ int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data)
 	switch(kdata.cmd) {
 	case IEEE80215_MAC_CMD_SCAN:
 		/* TODO */
-		pr_debug("scanning\n");
+		pr_debug("scanning on %s\n", dev->name);
 		priv = ieee80215_slave_get_hw(dev);
 		if (!priv)
 			return -EFAULT;
-		return ieee80215_mlme_scan_req(priv->master, 0, 0xffffffff, 14);
+		wdata = kzalloc(sizeof(struct ieee80215_work_data), GFP_KERNEL);
+		if(!wdata)
+			return -ENOMEM;
+		wdata->cmd = kdata.cmd;
+		wdata->scan.channels = kdata.channels;
+		wdata->scan.type = IEEE80215_MAC_SCAN_ED;
+		wdata->scan.duration = 14;
+		// return ieee80215_mlme_scan_req(priv->master, 0, 0xffffffff, 14);
+		ret = run_dev_worker(priv, wdata);
+		kfree(wdata);
+		dev_put(dev);
+		return ret;
 	default:
+		dev_put(dev);
 		return -EINVAL;
 	}
 /*

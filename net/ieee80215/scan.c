@@ -39,22 +39,30 @@
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
 
-static int scan_ed(struct net_device *dev, u32 channels, u8 duration)
+static int scan_ed(struct ieee80215_priv *hw, u32 channels, u8 duration)
 {
 	int i, ret;
-	struct ieee80215_priv *priv = netdev_priv(dev);
-	BUG_ON(dev->master);
+	BUG_ON(!hw);
 	pr_debug("ed scan channels %d duration %d\n", channels, duration);
 	for(i = 1; i < 28; i++) {
 		u8 e;
-		if(priv->hw.channel_mask & (1 << (i - 1)))
-			return -EINVAL; /* FIXME */
-		ret = priv->ops->set_channel(&priv->hw,  i);
+		if(hw->hw.channel_mask & (1 << (i - 1)))
+			continue; /* FIXME */
+		BUG_ON(!hw->ops);
+		BUG_ON(!hw->ops->set_channel);
+		ret = hw->ops->set_channel(&hw->hw,  i);
 		if(ret == PHY_ERROR)
 			goto exit_error;
-		ret = priv->ops->ed(&priv->hw, &e);
+		/* Lets suppose we have energy on all channels
+		 * till we fix something regarding hardware or driver */
+#if 0
+		ret = hw->ops->ed(&hw->hw, &e);
 		if(ret == PHY_ERROR)
 			goto exit_error;
+#else
+		e = 190;
+#endif
+		hw->channel_levels[i - 1] = e;
 		pr_debug("ed scan channel %d value %d\n", i, e);
 	}
 	return 0;
@@ -62,17 +70,17 @@ exit_error:
 	pr_debug("PHY fault during ED scan\n");
 	return -EINVAL;
 }
-static int scan_active(struct net_device *dev, u32 channels, u8 duration)
+static int scan_active(struct ieee80215_priv *hw, u32 channels, u8 duration)
 {
 	pr_debug("active scan channels %d duration %d\n", channels, duration);
 	return 0;
 }
-static int scan_passive(struct net_device *dev, u32 channels, u8 duration)
+static int scan_passive(struct ieee80215_priv *hw, u32 channels, u8 duration)
 {
 	pr_debug("passive scan channels %d duration %d\n", channels, duration);
 	return 0;
 }
-static int scan_orphan(struct net_device *dev, u32 channels, u8 duration)
+static int scan_orphan(struct ieee80215_priv *hw, u32 channels, u8 duration)
 {
 	pr_debug("orphan scan channels %d duration %d\n", channels, duration);
 	return 0;
@@ -89,7 +97,7 @@ static int scan_orphan(struct net_device *dev, u32 channels, u8 duration)
  * @param duration scan duration, see ieee802.15.4-2003.pdf, page 145.
  * @return 0 if request is ok, errno otherwise.
  */
-int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
+int ieee80215_mlme_scan_req(struct ieee80215_priv *hw, u8 type, u32 channels, u8 duration)
 {
 	pr_debug("%s()\n", __FUNCTION__);
 	/* TODO: locking, workqueue */
@@ -98,13 +106,13 @@ int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 du
 
 	switch(type) {
 	case IEEE80215_MAC_SCAN_ED:
-		return scan_ed(dev, channels, duration);
+		return scan_ed(hw, channels, duration);
 	case IEEE80215_MAC_SCAN_ACTIVE:
-		return scan_active(dev, channels, duration);
+		return scan_active(hw, channels, duration);
 	case IEEE80215_MAC_SCAN_PASSIVE:
-		return scan_passive(dev, channels, duration);
+		return scan_passive(hw, channels, duration);
 	case IEEE80215_MAC_SCAN_ORPHAN:
-		return scan_orphan(dev, channels, duration);
+		return scan_orphan(hw, channels, duration);
 	default:
 		pr_debug("%s(): incalid type %d\n", __FUNCTION__, type);
 		break;

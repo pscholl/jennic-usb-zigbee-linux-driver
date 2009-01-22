@@ -27,6 +27,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/rculist.h>
+#include <linux/workqueue.h>
 
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
@@ -51,6 +52,26 @@ void ieee80215_free_device(struct ieee80215_dev *hw)
 }
 EXPORT_SYMBOL(ieee80215_free_device);
 
+void dev_worker(struct work_struct *work)
+{
+	struct ieee80215_priv * priv = container_of(work, struct ieee80215_priv, dev_work);
+	struct ieee80215_work_data *wd = priv->work_data;
+	pr_debug("Running worker\n");
+	if(!wd)
+		goto out;
+	switch(wd->cmd) {
+		case IEEE80215_MAC_CMD_SCAN:
+			ieee80215_mlme_scan_req(priv,
+				wd->scan.type, wd->scan.channels, wd->scan.duration);
+			break;
+		default:
+			pr_debug("Unknown command id %d\n", wd->cmd);
+			break;
+	}
+out:
+	complete(&priv->dev_work_complete);
+}
+
 int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *ops)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
@@ -69,6 +90,7 @@ int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *o
 	priv->dev_workqueue = create_singlethread_workqueue(priv->master->name);
 	if (!priv->dev_workqueue)
 		rc = -ENOMEM;
+	INIT_WORK(&priv->dev_work, dev_worker);
 
 out:
 	return rc;
@@ -81,6 +103,7 @@ void ieee80215_unregister_device(struct ieee80215_dev *dev)
 
 	ieee80215_drop_slaves(dev);
 	ieee80215_unregister_netdev_master(priv);
+	flush_workqueue(priv->dev_workqueue);
 	destroy_workqueue(priv->dev_workqueue);
 	module_put(priv->ops->owner);
 }
