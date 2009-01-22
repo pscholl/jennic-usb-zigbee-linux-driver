@@ -1,4 +1,5 @@
 #include <linux/kernel.h>
+#include <linux/if_arp.h>
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <linux/netdevice.h>
@@ -108,16 +109,26 @@ static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 	int pos = 0;
 	int ret = -EINVAL;
 
-	if (!info->attrs[IEEE80215_ATTR_DEV_INDEX]
-	 || !info->attrs[IEEE80215_ATTR_CHANNEL]
+	if (!info->attrs[IEEE80215_ATTR_CHANNEL]
 	 || !info->attrs[IEEE80215_ATTR_COORD_PAN_ID]
 	 || (!info->attrs[IEEE80215_ATTR_COORD_HW_ADDR] && !info->attrs[IEEE80215_ATTR_COORD_SHORT_ADDR])
 	 || !info->attrs[IEEE80215_ATTR_CAPABILITY])
 		return -EINVAL;
-	dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
-	if (!dev) {
-		pr_warning("%s: No such device!\n", __func__);
+
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
 		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
 	}
 
 	if (info->attrs[IEEE80215_ATTR_COORD_HW_ADDR]) {
@@ -154,16 +165,25 @@ static int ieee80215_associate_resp(struct sk_buff *skb, struct genl_info *info)
 	u16 short_addr;
 	int ret = -EINVAL;
 
-	if (!info->attrs[IEEE80215_ATTR_DEV_INDEX]
-	 || !info->attrs[IEEE80215_ATTR_STATUS]
+	if (!info->attrs[IEEE80215_ATTR_STATUS]
 	 || !info->attrs[IEEE80215_ATTR_DEST_HW_ADDR]
 	 || !info->attrs[IEEE80215_ATTR_DEST_SHORT_ADDR])
 		return -EINVAL;
 
-	dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
-	if (!dev) {
-		pr_warning("%s: No such device!\n", __func__);
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
 		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
 	}
 
 	addr.addr_type = IEEE80215_ADDR_LONG;
