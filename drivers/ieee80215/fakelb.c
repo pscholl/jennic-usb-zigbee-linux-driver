@@ -19,18 +19,20 @@ struct fake_priv {
 	rwlock_t lock;
 };
 
-static int is_transmitting(struct ieee80215_dev *dev) {
+static int is_transmitting(struct ieee80215_dev *dev)
+{
 	return 0;
 }
 
-static int is_receiving(struct ieee80215_dev *dev) {
+static int is_receiving(struct ieee80215_dev *dev)
+{
 	return 0;
 }
 
 static phy_status_t
 hw_ed(struct ieee80215_dev *dev, u8 *level)
 {
-	pr_debug("%s\n",__FUNCTION__);
+	pr_debug("%s\n", __func__);
 	BUG_ON(!level);
 	*level = 0;
 	return PHY_SUCCESS;
@@ -39,7 +41,7 @@ hw_ed(struct ieee80215_dev *dev, u8 *level)
 static phy_status_t
 hw_cca(struct ieee80215_dev *dev)
 {
-	pr_debug("%s\n",__FUNCTION__);
+	pr_debug("%s\n", __func__);
 	return PHY_IDLE;
 }
 
@@ -47,7 +49,7 @@ static phy_status_t
 hw_state(struct ieee80215_dev *dev, phy_status_t state)
 {
 	struct fake_dev_priv *priv = dev->priv;
-	pr_debug("%s %d %d\n",__FUNCTION__, priv->cur_state, state);
+	pr_debug("%s %d %d\n", __func__, priv->cur_state, state);
 	if (state != PHY_TRX_OFF && state != PHY_RX_ON && state != PHY_TX_ON && state != PHY_FORCE_TRX_OFF)
 		return PHY_INVAL;
 	else if (state == PHY_FORCE_TRX_OFF) {
@@ -70,7 +72,7 @@ hw_state(struct ieee80215_dev *dev, phy_status_t state)
 static phy_status_t
 hw_channel(struct ieee80215_dev *dev, int channel)
 {
-	pr_debug("%s %d\n",__FUNCTION__, channel);
+	pr_debug("%s %d\n", __func__, channel);
 	return PHY_SUCCESS;
 }
 
@@ -92,7 +94,7 @@ hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 
 	read_lock_bh(&fake->lock);
 	if (priv->list.next == priv->list.prev) {
-		// we are the only one
+		/* we are the only one device */
 		hw_deliver(priv, skb);
 	} else {
 		struct fake_dev_priv *dp;
@@ -119,7 +121,7 @@ static int ieee80215fake_add_priv(struct fake_priv *fake, const u8 *macaddr)
 	struct fake_dev_priv *priv;
 	int err = -ENOMEM;
 
-	priv= kzalloc(sizeof(struct fake_dev_priv), GFP_KERNEL);
+	priv = kzalloc(sizeof(struct fake_dev_priv), GFP_KERNEL);
 	if (!priv)
 		goto err_alloc;
 
@@ -133,7 +135,7 @@ static int ieee80215fake_add_priv(struct fake_priv *fake, const u8 *macaddr)
 	priv->fake = fake;
 
 	err = ieee80215_register_device(priv->dev, &fake_ops);
-	if(err)
+	if (err)
 		goto err_reg;
 	rtnl_lock();
 	err = ieee80215_add_slave(priv->dev, macaddr);
@@ -169,8 +171,8 @@ static void ieee80215fake_del_priv(struct fake_dev_priv *priv)
 }
 
 static ssize_t
-adddev_store(struct device * dev, struct device_attribute *attr,
-	const char * buf, size_t n)
+adddev_store(struct device *dev, struct device_attribute *attr,
+	const char *buf, size_t n)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct fake_priv *priv = platform_get_drvdata(pdev);
@@ -211,7 +213,7 @@ adddev_store(struct device * dev, struct device_attribute *attr,
 
 static DEVICE_ATTR(adddev, 0200, NULL, adddev_store);
 
-static struct attribute * fake_attrs[] = {
+static struct attribute *fake_attrs[] = {
 	&dev_attr_adddev.attr,
 	NULL,
 };
