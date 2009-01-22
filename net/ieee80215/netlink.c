@@ -63,6 +63,40 @@ out_msg:
 	return -ENOBUFS;
 }
 
+int ieee80215_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status)
+{
+	struct sk_buff *msg;
+	void *hdr;
+
+	printk("%s\n", __func__);
+
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!msg)
+		goto out_msg;
+
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_ASSOCIATE_CONF);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+
+	NLA_PUT_U16(msg, IEEE80215_ATTR_SHORT_ADDR, short_addr);
+	NLA_PUT_U8(msg, IEEE80215_ATTR_STATUS, status);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
 
 /* Requests from userspace */
 
