@@ -11,8 +11,6 @@
 
 static unsigned int ieee80215_seq_num;
 
-static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info);
-
 static struct genl_family ieee80215_coordinator_family = {
 	.id		= GENL_ID_GENERATE,
 	.hdrsize	= 0,
@@ -84,6 +82,79 @@ int ieee80215_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status
 	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
 
 	NLA_PUT_U16(msg, IEEE80215_ATTR_SHORT_ADDR, short_addr);
+	NLA_PUT_U8(msg, IEEE80215_ATTR_STATUS, status);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
+
+int ieee80215_nl_disassoc_indic(struct net_device *dev, struct ieee80215_addr *addr, u8 reason)
+{
+	struct sk_buff *msg;
+	void *hdr;
+
+	printk("%s\n", __func__);
+
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!msg)
+		goto out_msg;
+
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_DISASSOCIATE_INDIC);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+
+	if (addr->addr_type == IEEE80215_ADDR_LONG)
+		NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_SRC_HW_ADDR, addr->hwaddr);
+	else
+		NLA_PUT_U16(msg, IEEE80215_ATTR_SRC_SHORT_ADDR, addr->short_addr);
+
+	NLA_PUT_U8(msg, IEEE80215_ATTR_REASON, reason);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
+
+int ieee80215_nl_disassoc_confirm(struct net_device *dev, u8 status)
+{
+	struct sk_buff *msg;
+	void *hdr;
+
+	printk("%s\n", __func__);
+
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!msg)
+		goto out_msg;
+
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_DISASSOCIATE_CONF);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+
 	NLA_PUT_U8(msg, IEEE80215_ATTR_STATUS, status);
 
 	if (!genlmsg_end(msg, hdr))
@@ -207,30 +278,69 @@ static int ieee80215_associate_resp(struct sk_buff *skb, struct genl_info *info)
 	return ret;
 }
 
+static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net_device *dev;
+	struct ieee80215_addr addr, saddr;
+	u8 buf[2];
+	int pos = 0;
+	int ret = -EINVAL;
+
+	if (!info->attrs[IEEE80215_ATTR_DEST_HW_ADDR]
+	 || !info->attrs[IEEE80215_ATTR_REASON])
+		return -EINVAL;
+
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
+		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
+	}
+
+	addr.addr_type = IEEE80215_ADDR_LONG;
+	NLA_GET_HW_ADDR(info->attrs[IEEE80215_ATTR_DEST_HW_ADDR], addr.hwaddr);
+	addr.pan_id = ieee80215_dev_get_pan_id(dev);
+
+	saddr.addr_type = IEEE80215_ADDR_LONG;
+	saddr.pan_id = ieee80215_dev_get_pan_id(dev);
+	memcpy(saddr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
+
+	buf[pos++] = IEEE80215_CMD_DISASSOCIATION_NOTIFY;
+	buf[pos++] = nla_get_u8(info->attrs[IEEE80215_ATTR_REASON]);
+	ret = ieee80215_send_cmd(dev, &addr, &saddr, buf, pos);
+
+	//FIXME: this should be after the ack receved
+	ieee80215_nl_disassoc_confirm(dev, 0x00);
+
+	dev_put(dev);
+	return ret;
+}
+
+#define IEEE80215_OP(_cmd, _func)			\
+	{						\
+		.cmd	= _cmd,				\
+		.policy	= ieee80215_policy,		\
+		.doit	= _func,			\
+		.dumpit	= NULL,				\
+		.flags	= GENL_ADMIN_PERM,		\
+	}
+
 static struct genl_ops ieee80215_coordinator_ops[] = {
-	{
-		.cmd	= IEEE80215_ASSOCIATE_REQ,
-		.policy	= ieee80215_policy,
-		.doit	= ieee80215_associate_req,
-		.dumpit	= NULL,
-		.flags	= GENL_ADMIN_PERM,
-	},
-	{
-		.cmd	= IEEE80215_ASSOCIATE_RESP,
-		.policy	= ieee80215_policy,
-		.doit	= ieee80215_associate_resp,
-		.dumpit	= NULL,
-		.flags	= GENL_ADMIN_PERM,
-	},
-	{
-		.cmd	= IEEE80215_DISASSOCIATE_REQ,
-		.policy	= ieee80215_policy,
-		.doit	= ieee80215_coordinator_rcv,
-		.dumpit	= NULL,
-		.flags	= GENL_ADMIN_PERM,
-	},
+	IEEE80215_OP(IEEE80215_ASSOCIATE_REQ, ieee80215_associate_req),
+	IEEE80215_OP(IEEE80215_ASSOCIATE_RESP, ieee80215_associate_resp),
+	IEEE80215_OP(IEEE80215_DISASSOCIATE_REQ, ieee80215_disassociate_req),
 };
 
+#if 0
 static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info)
 {
 	struct sk_buff *msg;
@@ -275,6 +385,7 @@ out_msg:
 out_dev:
 	return -ENOBUFS;
 }
+#endif
 
 int __init ieee80215_nl_init(void)
 {
