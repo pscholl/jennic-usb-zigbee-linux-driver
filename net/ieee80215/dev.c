@@ -37,6 +37,7 @@
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
+#include <net/ieee80215/beacon.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
@@ -394,10 +395,17 @@ static int ieee80215_send_ack(struct sk_buff *skb)
 
 static int ieee80215_process_beacon(struct net_device *dev, struct sk_buff *skb)
 {
-	pr_debug("Frame type is not supported yet\n");
+	int flags;
+	int ret;
+	ret = parse_beacon_frame(skb, NULL, &flags, NULL);
+
+	if(ret < 0)
+		ret = NET_RX_SUCCESS;
+	else
+		ret = NET_RX_DROP;
 
 	kfree_skb(skb);
-	return NET_RX_SUCCESS;
+	return ret;
 }
 
 static int ieee80215_process_ack(struct net_device *dev, struct sk_buff *skb)
