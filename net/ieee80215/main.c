@@ -52,7 +52,7 @@ void ieee80215_free_device(struct ieee80215_dev *hw)
 }
 EXPORT_SYMBOL(ieee80215_free_device);
 
-void dev_worker(struct work_struct *work)
+static void dev_worker(struct work_struct *work)
 {
 	struct ieee80215_priv * priv = container_of(work, struct ieee80215_priv, dev_work);
 	struct ieee80215_work_data *wd = priv->work_data;
