@@ -325,6 +325,45 @@ static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *inf
 	return ret;
 }
 
+static int ieee80215_scan_req(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net_device *dev;
+	int ret;
+	u8 type;
+	u32 channels;
+	u8 duration;
+
+	if (!info->attrs[IEEE80215_ATTR_SCAN_TYPE]
+	 || !info->attrs[IEEE80215_ATTR_CHANNELS]
+	 || !info->attrs[IEEE80215_ATTR_DURATION])
+		return -EINVAL;
+
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
+		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
+	}
+
+	type = nla_get_u8(info->attrs[IEEE80215_ATTR_SCAN_TYPE]);
+	channels = nla_get_u32(info->attrs[IEEE80215_ATTR_CHANNELS]);
+	duration = nla_get_u8(info->attrs[IEEE80215_ATTR_DURATION]);
+
+	ret = ieee80215_mlme_scan_req(ieee80215_slave_get_hw(dev), type, channels, duration);
+
+	dev_put(dev);
+	return ret;
+}
+
 #define IEEE80215_OP(_cmd, _func)			\
 	{						\
 		.cmd	= _cmd,				\
@@ -338,6 +377,7 @@ static struct genl_ops ieee80215_coordinator_ops[] = {
 	IEEE80215_OP(IEEE80215_ASSOCIATE_REQ, ieee80215_associate_req),
 	IEEE80215_OP(IEEE80215_ASSOCIATE_RESP, ieee80215_associate_resp),
 	IEEE80215_OP(IEEE80215_DISASSOCIATE_REQ, ieee80215_disassociate_req),
+	IEEE80215_OP(IEEE80215_SCAN_REQ, ieee80215_scan_req),
 };
 
 #if 0
