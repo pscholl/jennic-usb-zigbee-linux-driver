@@ -81,6 +81,30 @@ static int ieee80215_cmd_assoc_resp(struct sk_buff *skb)
 	return ieee80215_nl_assoc_confirm(skb->dev, short_addr, status);
 }
 
+static int ieee80215_cmd_disassoc_notify(struct sk_buff *skb)
+{
+	u8 reason;
+
+	if (skb->len != 2)
+		return -EINVAL;
+
+	if (skb->pkt_type != PACKET_HOST)
+		return 0;
+
+	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
+	    MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_LONG ||
+	    MAC_CB(skb)->sa.pan_id != MAC_CB(skb)->da.pan_id)
+		return -EINVAL;
+
+	reason = skb->data[1];
+
+	// FIXME: checks if this was our coordinator and the disassoc us
+	// FIXME: if we device, one should receive ->da and not ->sa
+	// FIXME: the status should also help
+
+	return ieee80215_nl_disassoc_indic(skb->dev, &MAC_CB(skb)->sa, reason);
+}
+
 int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
 {
 	u8 cmd;
@@ -99,6 +123,9 @@ int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
 		break;
 	case IEEE80215_CMD_ASSOCIATION_RESP:
 		ieee80215_cmd_assoc_resp(skb);
+		break;
+	case IEEE80215_CMD_DISASSOCIATION_NOTIFY:
+		ieee80215_cmd_disassoc_notify(skb);
 		break;
 	default:
 		pr_debug("Frame type is not supported yet\n");
