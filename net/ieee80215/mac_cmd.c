@@ -41,28 +41,19 @@ static int ieee80215_cmd_beacon_req(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
-	/* TODO check if this is correct */
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE ||
 	    MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_SHORT ||
-	    MAC_CB(skb)->sa.pan_id != IEEE80215_PANID_BROADCAST ||
-	    MAC_CB(skb)->da.short_addr != 0xffff /* FIXME constant */)
+	    MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST ||
+	    MAC_CB(skb)->da.short_addr != IEEE80215_ADDR_BROADCAST)
 		return -EINVAL;
 
-	
+
 	/* 7 bytes of MHR and 1 byte of command frame identifier
 	 * We have no information in this command to proceed with.
 	 * we need to submit beacon as answer to this. */
 
-	/* FIXME indication */
-#if 0
-	return ieee80215_nl_beacon_req_indic(skb->dev, &MAC_CB(skb)->sa, cap);
-#endif
-	/* errr...where could we get pan_id? */
-	/* FIXME MIB/PIB */
-	ieee80215_send_beacon(skb->dev, &saddr, 0xffdc, /* FIXME panid !!! */
+	return ieee80215_send_beacon(skb->dev, &saddr, ieee80215_dev_get_pan_id(skb->dev),
 			NULL, 0, flags, NULL);
-
-	return 0;
 }
 
 static int ieee80215_cmd_assoc_req(struct sk_buff *skb)
@@ -161,6 +152,9 @@ int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
 		break;
 	case IEEE80215_CMD_DISASSOCIATION_NOTIFY:
 		ieee80215_cmd_disassoc_notify(skb);
+		break;
+	case IEEE80215_CMD_BEACON_REQ:
+		ieee80215_cmd_beacon_req(skb);
 		break;
 	default:
 		pr_debug("Frame type is not supported yet\n");

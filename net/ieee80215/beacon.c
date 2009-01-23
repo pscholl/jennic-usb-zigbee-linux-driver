@@ -30,7 +30,7 @@
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/netdev.h>
-#include <net/ieee80215/nl.h>
+#include <net/ieee80215/beacon.h>
 
 /* Beacon frame format per specification is the followinf:
  * Standard MAC frame header:

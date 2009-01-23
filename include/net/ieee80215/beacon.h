@@ -24,18 +24,6 @@
 #ifndef IEEE80215_BEACON_H
 #define IEEE80215_BEACON_H
 
-#if 0 /* Ta-da */
-#include <net/ieee80215/mac.h>
-#include <net/ieee80215/lib.h>
-
-void ieee80215_parse_beacon(ieee80215_mac_t *mac, struct sk_buff *skb);
-int ieee80215_parse_coordinator_realignment(ieee80215_mac_t *mac, struct sk_buff *skb);
-ieee80215_mpdu_t* ieee80215_create_beacon(ieee80215_mac_t *mac);
-void ieee80215_superframe_end(struct work_struct *work);
-void ieee80215_send_beacon(struct work_struct *work);
-
-#else
-
 int parse_beacon_frame(struct sk_buff *skb, u8 * buf,
 		int *flags, struct list_head *al);
 
@@ -43,6 +31,5 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 		u16 pan_id, const u8 *buf, int len,
 		int flags, struct list_head *al);
 
-#endif
 #endif /* IEEE80215_BEACON_H */
 
