@@ -1,4 +1,4 @@
-/* 
+/*
  * MAC commands interface
  *
  * Copyright 2007, 2008 Siemens AG
@@ -35,7 +35,7 @@ static int ieee80215_cmd_beacon_req(struct sk_buff *skb)
 {
 	struct ieee80215_addr saddr; /* jeez */
 	int flags = 0;
-	if(skb->len != 1)
+	if (skb->len != 1)
 		return -EINVAL;
 
 	if (skb->pkt_type != PACKET_HOST)

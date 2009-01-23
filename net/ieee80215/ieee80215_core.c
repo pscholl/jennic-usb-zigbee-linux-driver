@@ -164,7 +164,7 @@ EXPORT_SYMBOL(ieee80215_unregister_device);
 
 static int __init ieee80215_core_init ( void )
 {
-	printk(KERN_INFO "%s()\n", __FUNCTION__);
+	printk(KERN_INFO "%s()\n", __func__);
 #ifdef IEEE80215_DEBUG
 	printk(KERN_INFO"Debug enabled\n");
 	// dbg_init(&ieee80215_debug_opts, s_leveles, NMODS, s_modules, ts);
@@ -180,7 +180,7 @@ static int __init ieee80215_core_init ( void )
 
 static void __exit ieee80215_core_exit ( void )
 {
-	printk(KERN_INFO "%s()\n", __FUNCTION__);
+	printk(KERN_INFO "%s()\n", __func__);
 }
 
 module_init ( ieee80215_core_init );

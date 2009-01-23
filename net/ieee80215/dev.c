@@ -1,4 +1,4 @@
-/* 
+/*
  * ZigBee socket interface
  *
  * Copyright 2007, 2008 Siemens AG
@@ -55,8 +55,7 @@ static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ieee80215_netdev_priv *priv;
 	priv = netdev_priv(dev);
 
-	if(!(priv->hw->ops->flags & IEEE80215_OPS_OMIT_CKSUM))
-	{
+	if (!(priv->hw->ops->flags & IEEE80215_OPS_OMIT_CKSUM)) {
 		u16 crc = ieee80215_crc(0, skb->data, skb->len);
 		u8 *data = skb_put(skb, 2);
 		data[0] = crc & 0xff;
@@ -98,7 +97,7 @@ static struct net_device_stats *ieee80215_get_stats(struct net_device *dev)
 
 static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
-	struct ieee80215_netdev_priv * priv = netdev_priv(dev);
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
 	struct sockaddr_ieee80215 *sa = (struct sockaddr_ieee80215 *)&ifr->ifr_addr;
 	switch (cmd) {
 	case SIOCGIFADDR:
@@ -217,7 +216,7 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 static int ieee80215_header_parse(const struct sk_buff *skb, unsigned char *haddr)
 {
 	const u8 *hdr = skb_mac_header(skb), *tail = skb_tail_pointer(skb);
-	struct ieee80215_addr *addr = (struct ieee80215_addr*)haddr;
+	struct ieee80215_addr *addr = (struct ieee80215_addr *)haddr;
 	u16 fc;
 
 	if (hdr + 3 > tail)
@@ -258,7 +257,7 @@ static int ieee80215_header_parse(const struct sk_buff *skb, unsigned char *hadd
 		}
 	}
 
-	return sizeof (struct ieee80215_addr);
+	return sizeof(struct ieee80215_addr);
 
 malformed:
 	pr_debug("malformed packet\n");
@@ -277,7 +276,7 @@ static void ieee80215_netdev_setup(struct net_device *dev)
 	dev->features		= NETIF_F_NO_CSUM;
 	dev->hard_header_len	= 2 + 1 + 20 + 14;
 	dev->header_ops		= &ieee80215_header_ops;
-	dev->needed_tailroom	= 2; // FCS
+	dev->needed_tailroom	= 2; /* FCS */
 	dev->set_mac_address	= ieee80215_slave_mac_addr;
 	dev->mtu		= 127;
 	dev->tx_queue_len	= 10;
@@ -366,7 +365,7 @@ EXPORT_SYMBOL(ieee80215_drop_slaves);
 static int ieee80215_send_ack(struct sk_buff *skb)
 {
 	u16 fc = IEEE80215_FC_TYPE_ACK;
-	u8 * data;
+	u8 *data;
 	struct sk_buff *ackskb;
 
 	BUG_ON(!skb || !skb->dev);
@@ -399,7 +398,7 @@ static int ieee80215_process_beacon(struct net_device *dev, struct sk_buff *skb)
 	int ret;
 	ret = parse_beacon_frame(skb, NULL, &flags, NULL);
 
-	if(ret < 0)
+	if (ret < 0)
 		ret = NET_RX_SUCCESS;
 	else
 		ret = NET_RX_DROP;
@@ -424,15 +423,15 @@ static int ieee80215_process_data(struct net_device *dev, struct sk_buff *skb)
 static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_buff *skb)
 {
 	pr_debug("%s Getting packet via slave interface %s\n",
-				__FUNCTION__, ndp->dev->name);
+				__func__, ndp->dev->name);
 
 	switch (MAC_CB(skb)->da.addr_type) {
 	case IEEE80215_ADDR_NONE:
-		if(MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE)
+		if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE)
 			// FIXME: check if we are PAN coordinator :)
 			skb->pkt_type = PACKET_OTHERHOST;
 		else
-			// ACK comes with both addresses empty
+			/* ACK comes with both addresses empty */
 			skb->pkt_type = PACKET_HOST;
 		break;
 	case IEEE80215_ADDR_LONG:
@@ -440,7 +439,8 @@ static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_bu
 			skb->pkt_type = PACKET_OTHERHOST;
 		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
-		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN)) // FIXME: is this correct?
+		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN))
+			// FIXME: is this correct?
 			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
@@ -510,19 +510,25 @@ static void fetch_skb_u64(struct sk_buff *skb, void *data)
 }
 
 #define IEEE80215_FETCH_U8(skb, var)		\
-		if(skb->len < 1)		\
+	do {					\
+		if (skb->len < 1)		\
 			goto exit_error;	\
-		var = fetch_skb_u8(skb)
+		var = fetch_skb_u8(skb);	\
+	} while (0)
 
 #define IEEE80215_FETCH_U16(skb, var)		\
-		if(skb->len < 2)		\
+	do {					\
+		if (skb->len < 2)		\
 			goto exit_error;	\
-		var = fetch_skb_u16(skb)
+		var = fetch_skb_u16(skb);	\
+	} while (0)
 
 #define IEEE80215_FETCH_U64(skb, var)			\
-		if(skb->len < IEEE80215_ADDR_LEN)	\
+	do {						\
+		if (skb->len < IEEE80215_ADDR_LEN)	\
 			goto exit_error;		\
-		fetch_skb_u64(skb, &var);
+		fetch_skb_u64(skb, &var);		\
+	} while (0)
 
 static int parse_frame_start(struct sk_buff *skb)
 {
@@ -537,12 +543,12 @@ static int parse_frame_start(struct sk_buff *skb)
 	IEEE80215_FETCH_U16(skb, fc);
 	IEEE80215_FETCH_U8(skb, MAC_CB(skb)->seq);
 
-	printk("%s: %04x dsn%02x\n", __func__, fc, head[2]);
+	pr_debug("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
 	MAC_CB(skb)->flags = IEEE80215_FC_TYPE(fc);
 
 	if (fc & IEEE80215_FC_ACK_REQ) {
-		pr_debug("%s(): ACKNOWLEDGE required\n", __FUNCTION__);
+		pr_debug("%s(): ACKNOWLEDGE required\n", __func__);
 		MAC_CB(skb)->flags |= MAC_CB_FLAG_ACKREQ;
 	}
 
@@ -560,11 +566,11 @@ static int parse_frame_start(struct sk_buff *skb)
 
 	MAC_CB(skb)->sa.addr_type = IEEE80215_FC_SAMODE(fc);
 	if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_NONE)
-		pr_debug("%s(): src addr_type is NONE\n", __FUNCTION__);
+		pr_debug("%s(): src addr_type is NONE\n", __func__);
 
 	MAC_CB(skb)->da.addr_type = IEEE80215_FC_DAMODE(fc);
 	if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_NONE)
-		pr_debug("%s(): dst addr_type is NONE\n", __FUNCTION__);
+		pr_debug("%s(): dst addr_type is NONE\n", __func__);
 
 	if (IEEE80215_FC_TYPE(fc) == IEEE80215_FC_TYPE_ACK) {
 		/* ACK can only have NONE-type addresses */
@@ -574,42 +580,42 @@ static int parse_frame_start(struct sk_buff *skb)
 	}
 
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
-		pr_debug("%s(): got src non-NONE address\n", __FUNCTION__);
-		if (!(MAC_CB_IS_INTRAPAN(skb))) { // ! panid compress
+		pr_debug("%s(): got src non-NONE address\n", __func__);
+		if (!(MAC_CB_IS_INTRAPAN(skb))) { /* ! panid compress */
 			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.pan_id);
-			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
+			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __func__);
 		}
 
 		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
 			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.short_addr);
-			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __FUNCTION__);
+			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __func__);
 		} else {
 			IEEE80215_FETCH_U64(skb, MAC_CB(skb)->sa.hwaddr);
-			pr_debug("%s(): src hardware addr\n", __FUNCTION__);
+			pr_debug("%s(): src hardware addr\n", __func__);
 		}
 	}
 
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
 		IEEE80215_FETCH_U16(skb, MAC_CB(skb)->da.pan_id);
 
-		if (MAC_CB_IS_INTRAPAN(skb)) { // ! panid compress
-			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __FUNCTION__);
+		if (MAC_CB_IS_INTRAPAN(skb)) { /* ! panid compress */
+			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __func__);
 			MAC_CB(skb)->sa.pan_id = MAC_CB(skb)->da.pan_id;
 			pr_debug("%s(): src PAN address %04x\n",
-					__FUNCTION__, MAC_CB(skb)->sa.pan_id);
+					__func__, MAC_CB(skb)->sa.pan_id);
 		}
 
 		pr_debug("%s(): dst PAN address %04x\n",
-				__FUNCTION__, MAC_CB(skb)->da.pan_id);
+				__func__, MAC_CB(skb)->da.pan_id);
 
 		if (MAC_CB(skb)->da.addr_type == IEEE80215_ADDR_SHORT) {
 			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->da.short_addr);
 			pr_debug("%s(): dst SHORT address %04x\n",
-					__FUNCTION__, MAC_CB(skb)->da.short_addr);
+					__func__, MAC_CB(skb)->da.short_addr);
 
 		} else {
 			IEEE80215_FETCH_U64(skb, MAC_CB(skb)->da.hwaddr);
-			pr_debug("%s(): dst hardware addr\n", __FUNCTION__);
+			pr_debug("%s(): dst hardware addr\n", __func__);
 		}
 	}
 
@@ -626,24 +632,24 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 	int ret;
 
 	BUILD_BUG_ON(sizeof(struct ieee80215_mac_cb) > sizeof(skb->cb));
-	pr_debug("%s()\n", __FUNCTION__);
+	pr_debug("%s()\n", __func__);
 
 	ret = parse_frame_start(skb); /* 3 bytes pulled after this */
 	if (ret) {
-		pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
+		pr_debug("%s(): Got invalid frame\n", __func__);
 		goto out;
 	}
 
 	if (!priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM) {
 		if (skb->len < 2) {
-			pr_debug("%s(): Got invalid frame\n", __FUNCTION__);
+			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
 		}
 		// FIXME: check CRC if necessary
-		skb_trim(skb, skb->len - 2); // CRC
+		skb_trim(skb, skb->len - 2); /* CRC */
 	}
 
-	pr_debug("%s() frame %d\n", __FUNCTION__, MAC_CB_TYPE(skb));
+	pr_debug("%s() frame %d\n", __func__, MAC_CB_TYPE(skb));
 
 	rcu_read_lock();
 
@@ -712,7 +718,7 @@ struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *add
 }
 EXPORT_SYMBOL(ieee80215_get_dev);
 
-struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev)
+struct ieee80215_mac *ieee80215_get_mac_bydev(struct net_device *dev)
 {
 	struct ieee80215_netdev_priv *priv;
 	priv = netdev_priv(dev);
@@ -770,34 +776,34 @@ EXPORT_SYMBOL(ieee80215_slave_get_hw);
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib)
 {
 	int ret;
-	struct ieee80215_priv * priv = ieee80215_to_priv(hw);
+	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
 	BUG_ON(!hw);
 	BUG_ON(!pib);
-	switch(pib->type) {
-		case IEEE80215_PIB_CURCHAN:
-			/* Our internal mask is inverted
-			 * 0 = channel is available
-			 * 1 = channel is unavailable
-			 * this saves initialization */
-			if(hw->channel_mask & (1 << (pib->val - 1)))
-				return -EINVAL;
-			ret = priv->ops->set_channel(hw, pib->val);
-			if(ret == PHY_ERROR)
-				return -EINVAL; /* FIXME */
-			hw->current_channel =  pib->val;
-			break;
-		case IEEE80215_PIB_CHANSUPP:
-			hw->channel_mask = ~(pib->val);
-			break;
-		case IEEE80215_PIB_TRPWR:
-			/* TODO */
-			break;
-		case IEEE80215_PIB_CCAMODE:
-			/* TODO */
-			break;
-		default:
-			pr_debug("Unknown PIB type value\n");
-			return -ENOTSUPP;
+	switch (pib->type) {
+	case IEEE80215_PIB_CURCHAN:
+		/* Our internal mask is inverted
+		 * 0 = channel is available
+		 * 1 = channel is unavailable
+		 * this saves initialization */
+		if (hw->channel_mask & (1 << (pib->val - 1)))
+			return -EINVAL;
+		ret = priv->ops->set_channel(hw, pib->val);
+		if (ret == PHY_ERROR)
+			return -EINVAL; /* FIXME */
+		hw->current_channel =  pib->val;
+		break;
+	case IEEE80215_PIB_CHANSUPP:
+		hw->channel_mask = ~(pib->val);
+		break;
+	case IEEE80215_PIB_TRPWR:
+		/* TODO */
+		break;
+	case IEEE80215_PIB_CCAMODE:
+		/* TODO */
+		break;
+	default:
+		pr_debug("Unknown PIB type value\n");
+		return -ENOTSUPP;
 	}
 	return 0;
 }
@@ -806,22 +812,22 @@ int ieee80215_pib_get(struct ieee80215_dev *hw, struct ieee80215_pib *pib)
 {
 	BUG_ON(!hw);
 	BUG_ON(!pib);
-	switch(pib->type) {
-		case IEEE80215_PIB_CURCHAN:
-			pib->val = hw->current_channel;
-			break;
-		case IEEE80215_PIB_CHANSUPP:
-			pib->val = ~(hw->channel_mask);
-			break;
-		case IEEE80215_PIB_TRPWR:
-			pib->val = 0;
-			break;
-		case IEEE80215_PIB_CCAMODE:
-			pib->val = 0;
-			break;
-		default:
-			pr_debug("Unknown PIB type value\n");
-			return -ENOTSUPP;
+	switch (pib->type) {
+	case IEEE80215_PIB_CURCHAN:
+		pib->val = hw->current_channel;
+		break;
+	case IEEE80215_PIB_CHANSUPP:
+		pib->val = ~(hw->channel_mask);
+		break;
+	case IEEE80215_PIB_TRPWR:
+		pib->val = 0;
+		break;
+	case IEEE80215_PIB_CCAMODE:
+		pib->val = 0;
+		break;
+	default:
+		pr_debug("Unknown PIB type value\n");
+		return -ENOTSUPP;
 	}
 	return 0;
 }

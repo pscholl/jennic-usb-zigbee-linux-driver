@@ -59,7 +59,8 @@ const u16 ieee80215_crc_table[256] = {
 };
 
 #if 0
-void generate() {
+void generate()
+{
 	int i, j;
 	uint16_t crc = 1;
 

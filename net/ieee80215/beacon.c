@@ -1,4 +1,4 @@
-/* 
+/*
  * MAC beacon interface
  *
  * Copyright 2007, 2008 Siemens AG
@@ -34,7 +34,7 @@
 
 /* Beacon frame format per specification is the followinf:
  * Standard MAC frame header:
- * FC (2) SEQ (1) 
+ * FC (2) SEQ (1)
  * Addressing (4-20)
  * Beacon fields:
  * <Superframe specification> (2)
@@ -153,17 +153,17 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 	/* Superframe */
 	sf = IEEE80215_BEACON_SF_BO_BEACONLESS;
 	sf |= IEEE80215_BEACON_SF_SO_INACTIVE;
-	if(flags & IEEE80215_BEACON_FLAG_PANCOORD)
+	if (flags & IEEE80215_BEACON_FLAG_PANCOORD)
 		sf |= IEEE80215_BEACON_SF_PANCOORD;
 
-	if(flags & IEEE80215_BEACON_FLAG_CANASSOC)
+	if (flags & IEEE80215_BEACON_FLAG_CANASSOC)
 		sf |= IEEE80215_BEACON_SF_CANASSOC;
 	memcpy(skb_put(skb,  sizeof(sf)), &sf, sizeof(sf));
 
 	/* TODO GTS */
 	gts = 0;
 
-	if(flags & IEEE80215_BEACON_FLAG_GTSPERMIT)
+	if (flags & IEEE80215_BEACON_FLAG_GTSPERMIT)
 		gts |= IEEE80215_BEACON_GTS_PERMIT;
 	memcpy(skb_put(skb, sizeof(gts)), &gts, sizeof(gts));
 
@@ -173,11 +173,11 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 #if 0
 	/* need more thinking about this */
 	list_for_each_entry(l, al->list, list) {
-		struct ieee80215_addr * s = container_of(l, struct list_head, list);
-		if(s->addr_type == IEEE80215_ADDR_LONG)
+		struct ieee80215_addr *s = container_of(l, struct list_head, list);
+		if (s->addr_type == IEEE80215_ADDR_LONG)
 			addr16_cnt++;
 
-		if(s->addr_type == IEEE80215_ADDR_SHORT)
+		if (s->addr_type == IEEE80215_ADDR_SHORT)
 			addr64_cnt++;
 	}
 #endif
@@ -195,7 +195,7 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 /* at entry to this function we need skb->data to point to start
  * of beacon field and MAC frame already parsed into MAC_CB */
 
-int parse_beacon_frame(struct sk_buff *skb, u8 * buf,
+int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 		int *flags, struct list_head *al)
 {
 	int offt = 0;
@@ -218,14 +218,14 @@ int parse_beacon_frame(struct sk_buff *skb, u8 * buf,
 
 	*flags = 0;
 
-	if(sf & IEEE80215_BEACON_SF_PANCOORD)
+	if (sf & IEEE80215_BEACON_SF_PANCOORD)
 		*flags |= IEEE80215_BEACON_FLAG_PANCOORD;
 
-	if(sf & IEEE80215_BEACON_SF_CANASSOC)
+	if (sf & IEEE80215_BEACON_SF_CANASSOC)
 		*flags |= IEEE80215_BEACON_FLAG_CANASSOC;
 	BUG_ON(skb->len - offt < 0);
-	/* FIRME */
-	if(buf && (skb->len - offt > 0))
+	/* FIXME */
+	if (buf && (skb->len - offt > 0))
 		memcpy(buf, skb->data + offt, skb->len - offt);
 	return 0;
 }

@@ -379,7 +379,7 @@ int ieee80215_pd_data_confirm(struct ieee80215_mac *mac, int code)
 				goto process_confirm;
 			}
 		}
-		pr_debug("%s:%s: queue access error\n", __FILE__, __FUNCTION__);
+		pr_debug("%s:%s: queue access error\n", __FILE__, __func__);
 		return -EFAULT;
 	}
 process_confirm:
@@ -388,18 +388,18 @@ process_confirm:
 	if (code != IEEE80215_PHY_SUCCESS) {
 		mpdu->retries++;
 		if (mpdu->retries >= IEEE80215_MAX_FRAME_RETRIES) {
-			pr_debug("%s:%s: out of retry limit\n", __FILE__, __FUNCTION__);
+			pr_debug("%s:%s: out of retry limit\n", __FILE__, __func__);
 			goto exit_ptr;
 		}
-		pr_debug("%s:%s: xmit request failed, retry\n", __FILE__, __FUNCTION__);
+		pr_debug("%s:%s: xmit request failed, retry\n", __FILE__, __func__);
 		dev_queue_xmit(msg);
 		return 0;
 	}
 
-	pr_debug("%s:%s: xmit request: done\n", __FILE__, __FUNCTION__);
+	pr_debug("%s:%s: xmit request: done\n", __FILE__, __func__);
 
 	if (skb_to_mpdu(msg)->mhr->fc.ack_req) {
-		pr_debug("%s:%s: ACK required, set RX_ON\n", __FILE__, __FUNCTION__);
+		pr_debug("%s:%s: ACK required, set RX_ON\n", __FILE__, __func__);
 		ieee80215_net_set_trx_state(mac, IEEE80215_RX_ON, ieee80215_data_ack_wait);
 		return 0;
 	}

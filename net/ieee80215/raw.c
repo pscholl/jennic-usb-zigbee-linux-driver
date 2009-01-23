@@ -177,7 +177,7 @@ out:
 	return copied;
 }
 
-static int raw_rcv_skb(struct sock * sk, struct sk_buff * skb)
+static int raw_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
 	if (sock_queue_rcv_skb(sk, skb) < 0) {
 		atomic_inc(&sk->sk_drops);

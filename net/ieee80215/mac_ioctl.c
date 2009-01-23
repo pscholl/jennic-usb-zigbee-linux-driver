@@ -8,7 +8,6 @@
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/netdev.h>
-// #include <net/ieee80215/mac_lib.h>
 
 static int run_dev_worker(struct ieee80215_priv *hw, void *data)
 {
@@ -24,7 +23,7 @@ int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *
 	struct ieee80215_user_data kdata;
 	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
-		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		printk(KERN_ERR "copy_to_user() failed in %s", __func__);
 		return -EFAULT;
 	}
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
@@ -60,7 +59,7 @@ int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data __user *
 	struct ieee80215_user_data kdata;
 	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
-		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		printk(KERN_ERR "copy_to_user() failed in %s", __func__);
 		return -EFAULT;
 	}
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
@@ -91,7 +90,7 @@ int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data __user *dat
 	struct ieee80215_user_data kdata;
 	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
-		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		printk(KERN_ERR "copy_to_user() failed in %s", __func__);
 		return -EFAULT;
 	}
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
@@ -116,7 +115,7 @@ int ioctl_start_router(struct sock *sk, struct ieee80215_user_data __user *data)
 	struct ieee80215_user_data kdata;
 	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
-		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		printk(KERN_ERR "copy_to_user() failed in %s", __func__);
 		return -EFAULT;
 	}
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
@@ -144,7 +143,7 @@ int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data)
 	struct ieee80215_user_data kdata;
 	struct net_device * dev;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
-		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		printk(KERN_ERR "copy_to_user() failed in %s", __func__);
 		return -EFAULT;
 	}
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);
@@ -183,7 +182,7 @@ int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data)
 	int ret;
 	struct ieee80215_work_data *wdata;
 	if(copy_from_user(&kdata, data, sizeof(struct ieee80215_user_data))) {
-		printk(KERN_ERR "copy_to_user() failed in %s", __FUNCTION__);
+		printk(KERN_ERR "copy_to_user() failed in %s", __func__);
 		return -EFAULT;
 	}
 	dev = dev_get_by_name(sock_net(sk), kdata.ifr_name);

@@ -63,9 +63,9 @@ static int ieee80215_master_open(struct net_device *dev)
 	struct ieee80215_mnetdev_priv *priv;
 	phy_status_t status;
 	priv = netdev_priv(dev);
-	if(!priv) {
+	if (!priv) {
 		pr_debug("%s:%s: unable to get master private data\n",
-				__FILE__, __FUNCTION__);
+				__FILE__, __func__);
 		return -ENODEV;
 	}
 	status = priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_RX_ON);
@@ -94,7 +94,7 @@ static struct net_device_stats *ieee80215_get_master_stats(struct net_device *de
 }
 static int ieee80215_master_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
-	struct ieee80215_mnetdev_priv * priv = netdev_priv(dev);
+	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
 	switch (cmd) {
 	case IEEE80215_SIOC_ADD_SLAVE:
 		if (!capable(CAP_NET_ADMIN))
@@ -124,7 +124,7 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 
 	dev = alloc_netdev(sizeof(struct ieee80215_mnetdev_priv),
 			"mwpan%d", ieee80215_netdev_setup_master);
-	if(!dev) {
+	if (!dev) {
 		printk(KERN_ERR "Failure to initialize master IEEE80215 device\n");
 		return -ENOMEM;
 	}

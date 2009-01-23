@@ -54,7 +54,7 @@ ieee80215_mpdu_t *mpdu_clone(ieee80215_mpdu_t *mpdu)
 
 	skb = skb_clone(mpdu_to_skb(mpdu), prio);
 	if (!skb) {
-		printk(KERN_ERR "%s(): Unable to alloc memory\n", __FUNCTION__);
+		printk(KERN_ERR "%s(): Unable to alloc memory\n", __func__);
 		return NULL;
 	}
 	buf_len = (size_t)((char*)mpdu->skb->end - (char*)mpdu->skb->head);
@@ -128,10 +128,10 @@ ieee80215_mpdu_t *mpdu_clone(ieee80215_mpdu_t *mpdu)
 		ret->skb->tail = (u8*)((char*)ret->skb->head + offset);
 	}
 
-	printk(KERN_INFO "%s(): original:\n", __FUNCTION__);
+	printk(KERN_INFO "%s(): original:\n", __func__);
 	__print_mpdu(mpdu);
 
-	printk(KERN_INFO "%s(): cloned:\n", __FUNCTION__);
+	printk(KERN_INFO "%s(): cloned:\n", __func__);
 	__print_mpdu(ret);
 
 	return ret;
@@ -146,7 +146,7 @@ EXPORT_SYMBOL_GPL(__kfree_mpdu);
 
 static int __init ieee80215_lib_init(void)
 {
-	printk(KERN_INFO "%s()\n", __FUNCTION__);
+	printk(KERN_INFO "%s()\n", __func__);
 	mpdu_head_cache = kmem_cache_create("mpdu_head_cache",
 		sizeof(ieee80215_mpdu_t), 0, SLAB_HWCACHE_ALIGN | SLAB_PANIC, NULL);
 	if (mpdu_head_cache)
@@ -157,7 +157,7 @@ static int __init ieee80215_lib_init(void)
 
 static void __exit ieee80215_lib_exit(void)
 {
-	printk(KERN_INFO "%s()\n", __FUNCTION__);
+	printk(KERN_INFO "%s()\n", __func__);
 	kmem_cache_destroy(mpdu_head_cache);
 }
 

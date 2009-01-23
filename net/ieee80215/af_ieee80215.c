@@ -1,4 +1,4 @@
-/* 
+/*
  * IEEE80215.4 socket interface
  *
  * Copyright 2007, 2008 Siemens AG
@@ -40,8 +40,8 @@
 
 #define DBG_DUMP(data, len) { \
 	int i; \
-	pr_debug("file %s: function: %s: data: len %d:\n", __FILE__, __FUNCTION__, len); \
-	for(i = 0; i < len; i++) {\
+	pr_debug("file %s: function: %s: data: len %d:\n", __FILE__, __func__, len); \
+	for (i = 0; i < len; i++) {\
 		pr_debug("%02x: %02x\n", i, (data)[i]); \
 	} \
 }
@@ -67,9 +67,8 @@ static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int 
 {
 	struct sock *sk = sock->sk;
 
-	if (sk->sk_prot->bind) {
+	if (sk->sk_prot->bind)
 		return sk->sk_prot->bind(sk, uaddr, addr_len);
-	}
 
 	return sock_no_bind(sock, uaddr, addr_len);
 }
@@ -79,9 +78,8 @@ static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 {
 	struct sock *sk = sock->sk;
 
-	if (uaddr->sa_family == AF_UNSPEC) {
+	if (uaddr->sa_family == AF_UNSPEC)
 		return sk->sk_prot->disconnect(sk, flags);
-	}
 
 	return sk->sk_prot->connect(sk, uaddr, addr_len);
 }
@@ -113,8 +111,7 @@ static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned 
 {
 	struct sock *sk = sock->sk;
 
-	switch(cmd)
-	{
+	switch (cmd) {
 	case SIOCGSTAMP:
 		return sock_get_timestamp(sk, (struct timeval __user *)arg);
 	case SIOCGSTAMPNS:
@@ -246,7 +243,7 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
 	DBG_DUMP(skb->data, skb->len);
-	if(!netif_running(dev))
+	if (!netif_running(dev))
 		return -ENODEV;
 	pr_debug("got frame, type %d, dev %p\n", dev->type, dev);
 	// FIXME: init_net

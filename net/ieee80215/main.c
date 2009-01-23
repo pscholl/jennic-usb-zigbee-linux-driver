@@ -54,19 +54,19 @@ EXPORT_SYMBOL(ieee80215_free_device);
 
 static void dev_worker(struct work_struct *work)
 {
-	struct ieee80215_priv * priv = container_of(work, struct ieee80215_priv, dev_work);
+	struct ieee80215_priv *priv = container_of(work, struct ieee80215_priv, dev_work);
 	struct ieee80215_work_data *wd = priv->work_data;
 	pr_debug("Running worker\n");
-	if(!wd)
+	if (!wd)
 		goto out;
-	switch(wd->cmd) {
-		case IEEE80215_MAC_CMD_SCAN:
-			ieee80215_mlme_scan_req(priv,
-				wd->scan.type, wd->scan.channels, wd->scan.duration);
-			break;
-		default:
-			pr_debug("Unknown command id %d\n", wd->cmd);
-			break;
+	switch (wd->cmd) {
+	case IEEE80215_MAC_CMD_SCAN:
+		ieee80215_mlme_scan_req(priv,
+			wd->scan.type, wd->scan.channels, wd->scan.duration);
+		break;
+	default:
+		pr_debug("Unknown command id %d\n", wd->cmd);
+		break;
 	}
 out:
 	complete(&priv->dev_work_complete);

@@ -30,7 +30,7 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 	struct sk_buff *msg;
 	void *hdr;
 
-	printk("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
 	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
 	if (!msg)
@@ -44,7 +44,7 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
 	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
 
-	// FIXME: check that we really received hw address 
+	// FIXME: check that we really received hw address
 	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_SRC_HW_ADDR, addr->hwaddr);
 
 	NLA_PUT_U8(msg, IEEE80215_ATTR_CAPABILITY, cap);
@@ -67,7 +67,7 @@ int ieee80215_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status
 	struct sk_buff *msg;
 	void *hdr;
 
-	printk("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
 	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
 	if (!msg)
@@ -102,7 +102,7 @@ int ieee80215_nl_disassoc_indic(struct net_device *dev, struct ieee80215_addr *a
 	struct sk_buff *msg;
 	void *hdr;
 
-	printk("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
 	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
 	if (!msg)
@@ -141,7 +141,7 @@ int ieee80215_nl_disassoc_confirm(struct net_device *dev, u8 status)
 	struct sk_buff *msg;
 	void *hdr;
 
-	printk("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
 	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
 	if (!msg)
@@ -389,7 +389,7 @@ static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info
 	struct net_device *dev;
 
 
-	printk("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
 	if (!info->attrs[IEEE80215_ATTR_DEV_NAME])
 		return -EINVAL;
@@ -409,7 +409,7 @@ static int ieee80215_coordinator_rcv(struct sk_buff *skb, struct genl_info *info
 		goto out_free;
 
 	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, name);
-	NLA_PUT_U64(msg, IEEE80215_ATTR_HW_ADDR, *(u64*)&dev->dev_addr);
+	NLA_PUT_U64(msg, IEEE80215_ATTR_HW_ADDR, *(u64 *)&dev->dev_addr);
 
 	if (!genlmsg_end(msg, hdr))
 		goto out_free;

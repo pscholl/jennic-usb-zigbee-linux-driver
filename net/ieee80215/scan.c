@@ -44,20 +44,20 @@ static int scan_ed(struct ieee80215_priv *hw, u32 channels, u8 duration)
 	int i, ret;
 	BUG_ON(!hw);
 	pr_debug("ed scan channels %d duration %d\n", channels, duration);
-	for(i = 1; i < 28; i++) {
+	for (i = 1; i < 28; i++) {
 		u8 e;
-		if(hw->hw.channel_mask & (1 << (i - 1)))
+		if (hw->hw.channel_mask & (1 << (i - 1)))
 			continue; /* FIXME */
 		BUG_ON(!hw->ops);
 		BUG_ON(!hw->ops->set_channel);
 		ret = hw->ops->set_channel(&hw->hw,  i);
-		if(ret == PHY_ERROR)
+		if (ret == PHY_ERROR)
 			goto exit_error;
 		/* Lets suppose we have energy on all channels
 		 * till we fix something regarding hardware or driver */
 #if 0
 		ret = hw->ops->ed(&hw->hw, &e);
-		if(ret == PHY_ERROR)
+		if (ret == PHY_ERROR)
 			goto exit_error;
 #else
 		e = 190;
@@ -99,12 +99,12 @@ static int scan_orphan(struct ieee80215_priv *hw, u32 channels, u8 duration)
  */
 int ieee80215_mlme_scan_req(struct ieee80215_priv *hw, u8 type, u32 channels, u8 duration)
 {
-	pr_debug("%s()\n", __FUNCTION__);
+	pr_debug("%s()\n", __func__);
 	/* TODO: locking, workqueue */
-	if(duration > 14)
+	if (duration > 14)
 		return -EINVAL;
 
-	switch(type) {
+	switch (type) {
 	case IEEE80215_MAC_SCAN_ED:
 		return scan_ed(hw, channels, duration);
 	case IEEE80215_MAC_SCAN_ACTIVE:
@@ -114,7 +114,7 @@ int ieee80215_mlme_scan_req(struct ieee80215_priv *hw, u8 type, u32 channels, u8
 	case IEEE80215_MAC_SCAN_ORPHAN:
 		return scan_orphan(hw, channels, duration);
 	default:
-		pr_debug("%s(): incalid type %d\n", __FUNCTION__, type);
+		pr_debug("%s(): incalid type %d\n", __func__, type);
 		break;
 	}
 

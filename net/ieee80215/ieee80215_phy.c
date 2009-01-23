@@ -422,7 +422,7 @@ static void _set_channel_confirm(struct ieee80215_phy *phy, u8 status)
 	BUG_ON(!phy);
 	BUG_ON(!_mac(phy));
 	pr_debug("%s:%s status = %u\n", __FILE__,
-			__FUNCTION__, status);
+			__func__, status);
 	if(!_mac(phy)->plme_set_confirm)
 		return;
 	_mac(phy)->plme_set_confirm(_mac(phy), status, &phy->pib_attr);
@@ -433,7 +433,7 @@ static void _ed_confirm(struct ieee80215_phy *phy, u8 status, u8 level)
 	BUG_ON(!phy);
 	BUG_ON(!_mac(phy));
 	pr_debug("%s:%s status = %u, level = %u\n",
-			__FILE__, __FUNCTION__,
+			__FILE__, __func__,
 			status, level);
 	DEFINED_CALLBACK(_mac(phy)->plme_ed_confirm);
 	_mac(phy)->plme_ed_confirm(_mac(phy), status, level);
@@ -444,7 +444,7 @@ static void _set_state_confirm(struct ieee80215_phy *phy, u8 status)
 	BUG_ON(!phy);
 	BUG_ON(!_mac(phy));
 	pr_debug("%s:%s: status = %u\n", __FILE__,
-			__FUNCTION__, status);
+			__func__, status);
 	DEFINED_CALLBACK(_mac(phy)->plme_set_trx_state_confirm);
 	if (IEEE80215_PHY_SUCCESS == status) {
 		phy->state = phy->pending_state;
@@ -457,7 +457,7 @@ static void _xmit_confirm(struct ieee80215_phy *phy, u8 status)
 	BUG_ON(!phy);
 	BUG_ON(!_mac(phy));
 	pr_debug("%s:%s: status = %u\n", __FILE__,
-			__FUNCTION__, status);
+			__func__, status);
 	DEFINED_CALLBACK(_mac(phy)->pd_data_confirm);
 	_mac(phy)->pd_data_confirm(_mac(phy), status);
 }
@@ -467,7 +467,7 @@ static void _cca_confirm(struct ieee80215_phy *phy, u8 status)
 	BUG_ON(!phy);
 	BUG_ON(!_mac(phy));
 	pr_debug("%s:%s: status = %u\n", __FILE__,
-			__FUNCTION__, status);
+			__func__, status);
 	DEFINED_CALLBACK(_mac(phy)->plme_cca_confirm);
 	_mac(phy)->plme_cca_confirm(_mac(phy), status);
 }

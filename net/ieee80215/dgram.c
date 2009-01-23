@@ -142,7 +142,7 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 		break;
 	case IEEE80215_SIOC_MAC_CMD:
 		return ioctl_mac_cmd(sk, (struct ieee80215_user_data __user *) arg);
-		
+
 		break;
 	}
 	return -ENOIOCTLCMD;
@@ -296,7 +296,7 @@ out:
 	return copied;
 }
 
-static int dgram_rcv_skb(struct sock * sk, struct sk_buff * skb)
+static int dgram_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
 	if (sock_queue_rcv_skb(sk, skb) < 0) {
 		atomic_inc(&sk->sk_drops);
