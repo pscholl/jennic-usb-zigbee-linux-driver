@@ -272,9 +272,9 @@ err_alloc:
 static int __devexit ieee80215fake_remove(struct platform_device *pdev)
 {
 	struct fake_priv *priv = platform_get_drvdata(pdev);
-	struct fake_dev_priv *dp;
+	struct fake_dev_priv *dp, *temp;
 
-	list_for_each_entry(dp, &priv->list, list)
+	list_for_each_entry_safe(dp, temp, &priv->list, list)
 		ieee80215fake_del_priv(dp);
 	sysfs_remove_group(&pdev->dev.kobj, &fake_group);
 	kfree(priv);
