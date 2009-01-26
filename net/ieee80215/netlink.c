@@ -170,6 +170,46 @@ out_msg:
 	return -ENOBUFS;
 }
 
+int ieee80215_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, u32 unscanned,
+		u8 *edl/* , struct list_head *pan_desc_list */)
+{
+	struct sk_buff *msg;
+	void *hdr;
+
+	pr_debug("%s\n", __func__);
+
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!msg)
+		goto out_msg;
+
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_SCAN_CONF);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+
+	NLA_PUT_U8(msg, IEEE80215_ATTR_STATUS, status);
+	NLA_PUT_U8(msg, IEEE80215_ATTR_SCAN_TYPE, scan_type);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_CHANNELS, unscanned);
+
+	if (edl)
+		NLA_PUT(msg, IEEE80215_ATTR_ED_LIST, 27, edl);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
+
 /* Requests from userspace */
 
 static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
