@@ -565,7 +565,7 @@ enum ieee80215_rcodes {
 	 * A SET/GET request was issued with a parameter in the primitive that
 	 * is out of the valid range
 	 */
-	IEEE80215_INVALID_PARAMETER = 0x5,
+	IEEE80215_PHY_INVALID_PARAMETER = 0x5,
 	/**
 	 * The transceiver is in or is to be configured into the receiver
 	 * enabled state
@@ -640,7 +640,7 @@ enum ieee80215_mac_rcodes {
 	 */
 	IEEE80215_INVALID_HANDLE = 0xe7,
 	/**< A parameter in the primitive is out of the valid range.*/
-	IEEE80215_INVALID_PARAM = 0xe8,
+	IEEE80215_INVALID_PARAMETER = 0xe8,
 	/**< No acknowledgment was received after aMaxFrameRetries. */
 	IEEE80215_NO_ACK = 0xe9,
 	/**< A scan operation failed to find any network beacons.*/

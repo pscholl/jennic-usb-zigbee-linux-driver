@@ -27,6 +27,7 @@
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/mac_def.h>
+#include <net/ieee80215/nl.h>
 
 struct scan_work {
 	struct work_struct work;
@@ -36,6 +37,7 @@ struct scan_work {
 
 	u8 edl[27];
 
+	u8 type;
 	u32 channels;
 	u8 duration;
 };
@@ -90,18 +92,22 @@ static void scanner(struct work_struct *work)
 		ret = sw->scan_ch(sw, i, sw->duration);
 		if (ret)
 			goto exit_error;
+
+		sw->channels &= ~(1 << i);
 	}
 
-	// FIXME: send results via NL
+	ieee80215_nl_scan_confirm(sw->dev, IEEE80215_SUCCESS, sw->type, sw->channels,
+			sw->edl/*, NULL */);
 
 	kfree(sw);
 
 	return;
 
 exit_error:
+	ieee80215_nl_scan_confirm(sw->dev, IEEE80215_INVALID_PARAMETER, sw->type, sw->channels,
+			NULL/*, NULL */);
 	kfree(sw);
 	return;
-	// FIXME: report error
 }
 
 /**
@@ -134,6 +140,7 @@ int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 du
 	work->dev = dev;
 	work->channels = channels;
 	work->duration = duration;
+	work->type = type;
 
 	switch (type) {
 	case IEEE80215_MAC_SCAN_ED:
@@ -159,7 +166,8 @@ int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 du
 	return 0;
 
 inval:
-	// FIXME: send INVALID_PARAM nl
+	ieee80215_nl_scan_confirm(dev, IEEE80215_INVALID_PARAMETER, type, channels,
+			NULL/*, NULL */);
 	return -EINVAL;
 }
 EXPORT_SYMBOL(ieee80215_mlme_scan_req);
