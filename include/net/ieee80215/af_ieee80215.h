@@ -64,6 +64,20 @@ struct ieee80215_user_data {
 #define IEEE80215_SIOC_ADD_SLAVE		(SIOCDEVPRIVATE + 0)
 
 #ifdef __KERNEL__
+/* Per spec; optimizations are needed */
+struct ieee80215_pandsc {
+	struct list_head	list;
+	struct ieee80215_addr	addr; /* Contains panid */
+	int			channel;
+	u16			sf;
+	bool			gts_permit;
+	u8			lqi;
+	u32			timestamp; /* FIXME */
+	bool			security;
+	u8			mac_sec;
+	bool			sec_fail;
+};
+
 int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data __user *data);

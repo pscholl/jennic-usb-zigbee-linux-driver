@@ -74,8 +74,17 @@ static int scan_ed(struct scan_work *work, int channel, u8 duration)
  * and waiting for beacons which is useful for collecting LWPAN information */
 static int scan_active(struct scan_work *work, int channel, u8 duration)
 {
+	int ret;
+	unsigned long j;
 	pr_debug("active scan channel %d duration %d\n", channel, duration);
-	return 0;
+	ret = ieee80215_send_beacon_req(work->dev);
+	if (ret < 0)
+		return ret;
+	/* Hope 2 msecs will be enough for scan */
+	j = msecs_to_jiffies(2);
+	while (j > 0) {
+		j = schedule_timeout(msecs_to_jiffies(2));
+	}
 }
 static int scan_passive(struct scan_work *work, int channel, u8 duration)
 {

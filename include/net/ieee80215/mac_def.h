@@ -77,6 +77,7 @@ int ieee80215_send_cmd(struct net_device *dev,
 		struct ieee80215_addr *addr, struct ieee80215_addr *saddr,
 		const u8 *buf, int len);
 
+int ieee80215_send_beacon_req(struct net_device *dev);
 int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration);
 
 #define IEEE80215_MAC_SCAN_ED		0
