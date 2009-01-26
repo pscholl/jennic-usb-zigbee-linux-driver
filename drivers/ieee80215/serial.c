@@ -556,8 +556,17 @@ ieee80215_serial_set_channel(struct ieee80215_dev *dev, int channel)
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
+	/* Our channels are actually from 11 to 26
+	 * We have IEEE802.15.4 channel no from 0 to 26.
+	 * channels 0-10 are not valid for us */
+	BUG_ON(channel < 11 || channel > 26);
+	/* ...  but our crappy firmware numbers channels from 1 to 16
+	 * which is a mystery. We suould enforce that using PIB API
+	 * but additional checking here won't kill, and gcc will
+	 * optimize this stuff anyway. */
+	BUG_ON((channel - 10) < 1 && (channel - 10) > 16);
 
-	if (send_cmd2(zbdev, CMD_SET_CHANNEL, channel) != 0) {
+	if (send_cmd2(zbdev, CMD_SET_CHANNEL, channel - 10) != 0) {
 		ret = PHY_ERROR;
 		goto out;
 	}
