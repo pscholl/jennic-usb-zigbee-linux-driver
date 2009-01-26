@@ -47,18 +47,12 @@ struct scan_work {
 
 static int scan_ed(struct scan_work *work, int channel, u8 duration)
 {
+	int ret;
+	struct ieee80215_priv *hw = ieee80215_slave_get_hw(work->dev);
 	pr_debug("ed scan channel %d duration %d\n", channel, duration);
-		/* Lets suppose we have energy on all channels
-		 * till we fix something regarding hardware or driver */
-#if 0
-	ret = hw->ops->ed(&hw->hw, &e);
-	if (ret == PHY_ERROR)
-		goto exit_error;
-#else
-	work->edl[channel] = 190;
-#endif
+	ret = hw->ops->ed(&hw->hw, &work->edl[channel]);
 	pr_debug("ed scan channel %d value %d\n", channel, work->edl[channel]);
-	return 0;
+	return ret;
 }
 
 static int scan_passive(struct scan_work *work, int channel, u8 duration)
