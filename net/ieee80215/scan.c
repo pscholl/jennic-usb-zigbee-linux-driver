@@ -38,15 +38,18 @@
 #include <net/ieee80215/af_ieee80215.h>
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
+/*
+ * ED scan is periodic issuing of ed device function
+ * on evry permitted channel, so it is virtually PHY-only scan */
 
 static int scan_ed(struct ieee80215_priv *hw, u32 channels, u8 duration)
 {
 	int i, ret;
 	BUG_ON(!hw);
 	pr_debug("ed scan channels %d duration %d\n", channels, duration);
-	for (i = 1; i < 28; i++) {
+	for (i = 0; i < 27; i++) {
 		u8 e;
-		if (hw->hw.channel_mask & (1 << (i - 1)))
+		if (hw->hw.channel_mask & (1 << (i)))
 			continue; /* FIXME */
 		BUG_ON(!hw->ops);
 		BUG_ON(!hw->ops->set_channel);
@@ -70,9 +73,13 @@ exit_error:
 	pr_debug("PHY fault during ED scan\n");
 	return -EINVAL;
 }
+
+/* Active scan is periodic submission of beacon request
+ * and waiting for beacons which is useful for collecting LWPAN information */
 static int scan_active(struct ieee80215_priv *hw, u32 channels, u8 duration)
 {
 	pr_debug("active scan channels %d duration %d\n", channels, duration);
+
 	return 0;
 }
 static int scan_passive(struct ieee80215_priv *hw, u32 channels, u8 duration)
