@@ -61,16 +61,10 @@ static int scan_ed(struct scan_work *work, int channel, u8 duration)
 	return 0;
 }
 
-/* Active scan is periodic submission of beacon request
- * and waiting for beacons which is useful for collecting LWPAN information */
-static int scan_active(struct scan_work *work, int channel, u8 duration)
+static int scan_passive(struct scan_work *work, int channel, u8 duration)
 {
-	int ret;
 	unsigned long j;
-	pr_debug("active scan channel %d duration %d\n", channel, duration);
-	ret = ieee80215_send_beacon_req(work->dev);
-	if (ret < 0)
-		return ret;
+	pr_debug("passive scan channel %d duration %d\n", channel, duration);
 	/* Hope 2 msecs will be enough for scan */
 	j = msecs_to_jiffies(2);
 	while (j > 0) {
@@ -78,10 +72,16 @@ static int scan_active(struct scan_work *work, int channel, u8 duration)
 	}
 	return 0;
 }
-static int scan_passive(struct scan_work *work, int channel, u8 duration)
+/* Active scan is periodic submission of beacon request
+ * and waiting for beacons which is useful for collecting LWPAN information */
+static int scan_active(struct scan_work *work, int channel, u8 duration)
 {
-	pr_debug("passive scan channel %d duration %d\n", channel, duration);
-	return 0;
+	int ret;
+	pr_debug("active scan channel %d duration %d\n", channel, duration);
+	ret = ieee80215_send_beacon_req(work->dev);
+	if (ret < 0)
+		return ret;
+	return scan_passive(work, channel, duration);
 }
 static int scan_orphan(struct scan_work *work, int channel, u8 duration)
 {
@@ -101,11 +101,11 @@ static void scanner(struct work_struct *work)
 			continue;
 
 		ret = hw->ops->set_channel(&hw->hw,  i);
-		if (ret == PHY_ERROR)
+		if (ret != PHY_SUCCESS)
 			goto exit_error;
 
 		ret = sw->scan_ch(sw, i, sw->duration);
-		if (ret)
+		if (ret != PHY_SUCCESS)
 			goto exit_error;
 
 		sw->channels &= ~(1 << i);
