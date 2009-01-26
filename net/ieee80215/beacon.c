@@ -201,7 +201,15 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 	int offt = 0;
 	u8 gts_spec;
 	u8 pa_spec;
+	struct ieee80215_priv *hw = ieee80215_slave_get_hw(skb->dev);
 	u16 sf = skb->data[0] + (skb->data[1] << 8);
+	struct ieee80215_pandsc * pd;
+#if 0
+	pd = kzalloc(sizeof(struct ieee80215_pandsc), GFP_KERNEL);
+	pd->lqi = MAC_CB(skb)->phy.lqi;
+	pd->sf = sf;
+	memcpy(&pd->addr, &MAC_CB(skb)->da, sizeof(struct ieee80215_addr));
+#endif
 	offt += 2;
 	gts_spec = skb->data[offt++];
 	/* FIXME !!! */
