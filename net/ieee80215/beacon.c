@@ -133,7 +133,7 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 
 	BUG_ON(dev->type != ARPHRD_IEEE80215);
 
-	skb = alloc_skb(LL_ALLOCATED_SPACE(dev) + len, GFP_KERNEL);
+	skb = alloc_skb(LL_ALLOCATED_SPACE(dev) + len, GFP_ATOMIC);
 	if (!skb)
 		return -ENOMEM;
 
