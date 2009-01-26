@@ -47,7 +47,7 @@ struct scan_work {
 
 static int scan_ed(struct scan_work *work, int channel, u8 duration)
 {
-	pr_debug("ed scan channel %d duration %d\n", channels, duration);
+	pr_debug("ed scan channel %d duration %d\n", channel, duration);
 		/* Lets suppose we have energy on all channels
 		 * till we fix something regarding hardware or driver */
 #if 0
@@ -74,8 +74,9 @@ static int scan_active(struct scan_work *work, int channel, u8 duration)
 	/* Hope 2 msecs will be enough for scan */
 	j = msecs_to_jiffies(2);
 	while (j > 0) {
-		j = schedule_timeout(msecs_to_jiffies(2));
+		j = schedule_timeout(j);
 	}
+	return 0;
 }
 static int scan_passive(struct scan_work *work, int channel, u8 duration)
 {

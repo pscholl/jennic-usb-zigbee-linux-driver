@@ -194,7 +194,8 @@ int ieee80215_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, u
 	NLA_PUT_U8(msg, IEEE80215_ATTR_SCAN_TYPE, scan_type);
 	NLA_PUT_U32(msg, IEEE80215_ATTR_CHANNELS, unscanned);
 
-	NLA_PUT(msg, IEEE80215_ATTR_ED_LIST, 27, edl);
+	if (edl)
+		NLA_PUT(msg, IEEE80215_ATTR_ED_LIST, 27, edl);
 
 	if (!genlmsg_end(msg, hdr))
 		goto out_free;
