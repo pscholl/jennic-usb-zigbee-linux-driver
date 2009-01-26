@@ -61,6 +61,7 @@ out:
 	dev_kfree_skb(xw->skb);
 
 	xw->priv->hw->ops->set_trx_state(&xw->priv->hw->hw, PHY_RX_ON);
+	kfree(xw);
 }
 
 static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)

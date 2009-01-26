@@ -71,9 +71,6 @@ int ioctl_start_router(struct sock *sk, struct ieee80215_user_data __user *data)
 int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data);
 int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data);
 
-struct ieee80215_priv;
-int ieee80215_mlme_scan_req(struct ieee80215_priv *hw, u8 type, u32 channels, u8 duration);
-
 extern struct proto ieee80215_raw_prot;
 extern struct proto ieee80215_dgram_prot;
 void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb);

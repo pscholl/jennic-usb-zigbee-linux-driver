@@ -76,6 +76,14 @@ int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb);
 int ieee80215_send_cmd(struct net_device *dev,
 		struct ieee80215_addr *addr, struct ieee80215_addr *saddr,
 		const u8 *buf, int len);
+
+int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration);
+
+#define IEEE80215_MAC_SCAN_ED		0
+#define IEEE80215_MAC_SCAN_ACTIVE	1
+#define IEEE80215_MAC_SCAN_PASSIVE	2
+#define IEEE80215_MAC_SCAN_ORPHAN	3
+
 #endif
 
 #endif

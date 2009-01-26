@@ -358,7 +358,7 @@ static int ieee80215_scan_req(struct sk_buff *skb, struct genl_info *info)
 	channels = nla_get_u32(info->attrs[IEEE80215_ATTR_CHANNELS]);
 	duration = nla_get_u8(info->attrs[IEEE80215_ATTR_DURATION]);
 
-	ret = ieee80215_mlme_scan_req(ieee80215_slave_get_hw(dev), type, channels, duration);
+	ret = ieee80215_mlme_scan_req(dev, type, channels, duration);
 
 	dev_put(dev);
 	return ret;
