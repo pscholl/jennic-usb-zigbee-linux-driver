@@ -33,8 +33,9 @@ static phy_status_t
 hw_ed(struct ieee80215_dev *dev, u8 *level)
 {
 	pr_debug("%s\n", __func__);
+	might_sleep();
 	BUG_ON(!level);
-	*level = 0;
+	*level = 0xbe;
 	return PHY_SUCCESS;
 }
 
@@ -42,6 +43,7 @@ static phy_status_t
 hw_cca(struct ieee80215_dev *dev)
 {
 	pr_debug("%s\n", __func__);
+	might_sleep();
 	return PHY_IDLE;
 }
 
@@ -50,6 +52,7 @@ hw_state(struct ieee80215_dev *dev, phy_status_t state)
 {
 	struct fake_dev_priv *priv = dev->priv;
 	pr_debug("%s %d %d\n", __func__, priv->cur_state, state);
+	might_sleep();
 	if (state != PHY_TRX_OFF && state != PHY_RX_ON && state != PHY_TX_ON && state != PHY_FORCE_TRX_OFF)
 		return PHY_INVAL;
 	else if (state == PHY_FORCE_TRX_OFF) {
@@ -73,6 +76,7 @@ static phy_status_t
 hw_channel(struct ieee80215_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
+	might_sleep();
 	return PHY_SUCCESS;
 }
 
@@ -91,6 +95,8 @@ hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 {
 	struct fake_dev_priv *priv = dev->priv;
 	struct fake_priv *fake = priv->fake;
+
+	might_sleep();
 
 	read_lock_bh(&fake->lock);
 	if (priv->list.next == priv->list.prev) {
