@@ -33,29 +33,57 @@ struct ieee80215_mnetdev_priv {
 	struct net_device_stats stats;
 };
 
+struct xmit_work {
+	struct sk_buff *skb;
+	struct work_struct work;
+	struct ieee80215_mnetdev_priv *priv;
+};
+
+static void ieee80215_xmit_worker(struct work_struct *work)
+{
+	struct xmit_work *xw = container_of(work, struct xmit_work, work);
+	phy_status_t res;
+
+	res = xw->priv->hw->ops->set_trx_state(&xw->priv->hw->hw, PHY_TX_ON);
+	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
+		pr_debug("set_trx_state returned %d\n", res);
+		goto out;
+	}
+
+	res = xw->priv->hw->ops->cca(&xw->priv->hw->hw);
+	if (res != PHY_IDLE)
+		goto out;
+
+	res = xw->priv->hw->ops->tx(&xw->priv->hw->hw, xw->skb);
+
+out:
+	// FIXME: result processing and/or requeue!!!
+	dev_kfree_skb(xw->skb);
+
+	xw->priv->hw->ops->set_trx_state(&xw->priv->hw->hw, PHY_RX_ON);
+}
+
 static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
-	phy_status_t res;
+	struct xmit_work *work;
 
 	if (skb_cow_head(skb, priv->hw->hw.extra_tx_headroom)) {
 		dev_kfree_skb(skb);
-		return 1;
+		return NETDEV_TX_OK;
 	}
 
-/*	res = priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_TX_ON);
-	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
-		pr_debug("set_trx_state returned %d\n", res);
+	work = kzalloc(sizeof(struct xmit_work), GFP_ATOMIC);
+	if (!work)
 		return NETDEV_TX_BUSY;
-	}*/
 
-	res = priv->hw->ops->tx(&priv->hw->hw, skb);
-	if (res == PHY_SUCCESS) {
-		dev_kfree_skb(skb);
-//		priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_RX_ON);
-		return NETDEV_TX_OK;
-	} else
-		return NETDEV_TX_BUSY;
+	INIT_WORK(&work->work, ieee80215_xmit_worker);
+	work->skb = skb;
+	work->priv = priv;
+
+	queue_work(priv->hw->dev_workqueue, &work->work);
+
+	return NETDEV_TX_OK;
 }
 
 static int ieee80215_master_open(struct net_device *dev)
@@ -111,7 +139,7 @@ static void ieee80215_netdev_setup_master(struct net_device *dev)
 	dev->features		= NETIF_F_NO_CSUM;
 	dev->hard_header_len	= 0;
 	dev->mtu		= 127;
-	dev->tx_queue_len	= 10;
+	dev->tx_queue_len	= 0;
 	dev->type		= ARPHRD_IEEE80215_PHY;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
