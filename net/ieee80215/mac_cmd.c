@@ -170,6 +170,18 @@ drop:
 	return NET_RX_DROP;
 }
 
+int ieee80215_send_beacon_req(struct net_device *dev)
+{
+	struct ieee80215_addr addr;
+	struct ieee80215_addr saddr;
+	u8 cmd = IEEE80215_CMD_BEACON_REQ;
+	addr.addr_type = IEEE80215_ADDR_SHORT;
+	addr.short_addr = IEEE80215_ADDR_BROADCAST;
+	addr.pan_id = IEEE80215_PANID_BROADCAST;
+	saddr.addr_type = IEEE80215_ADDR_NONE;
+	return ieee80215_send_cmd(dev, &addr, &saddr, &cmd, 1);
+}
+
 int ieee80215_send_cmd(struct net_device *dev,
 		struct ieee80215_addr *addr, struct ieee80215_addr *saddr,
 		const u8 *buf, int len)
