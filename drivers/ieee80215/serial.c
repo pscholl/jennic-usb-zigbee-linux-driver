@@ -111,7 +111,6 @@ struct zb_device {
 
 	/* Internal state */
 	struct completion	open_done;
-	struct completion	work_done;
 	unsigned char		opened;
 	u8			pending_id;
 	unsigned int		pending_size;
@@ -762,6 +761,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 	}
 	mutex_init(&zbdev->mutex);
 	init_completion(&zbdev->open_done);
+	init_waitqueue_head(&zbdev->wq);
 
 	zbdev->dev = ieee80215_alloc_device();
 	if (!zbdev->dev) {
