@@ -44,15 +44,15 @@ static void ieee80215_xmit_worker(struct work_struct *work)
 	struct xmit_work *xw = container_of(work, struct xmit_work, work);
 	phy_status_t res;
 
+	res = xw->priv->hw->ops->cca(&xw->priv->hw->hw);
+	if (res != PHY_IDLE)
+		goto out;
+
 	res = xw->priv->hw->ops->set_trx_state(&xw->priv->hw->hw, PHY_TX_ON);
 	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
 		pr_debug("set_trx_state returned %d\n", res);
 		goto out;
 	}
-
-	res = xw->priv->hw->ops->cca(&xw->priv->hw->hw);
-	if (res != PHY_IDLE)
-		goto out;
 
 	res = xw->priv->hw->ops->tx(&xw->priv->hw->hw, xw->skb);
 
