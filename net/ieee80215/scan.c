@@ -23,67 +23,85 @@
  * Maxim Gorbachyov <maxim.gorbachev@siemens.com>
  */
 #include <linux/net.h>
-#include <linux/capability.h>
 #include <linux/module.h>
-#include <linux/if_arp.h>
-#include <linux/termios.h>	/* For TIOCOUTQ/INQ */
-#include <linux/crc-itu-t.h>
-#include <net/datalink.h>
-#include <net/psnap.h>
-#include <net/sock.h>
-#include <net/tcp_states.h>
-#include <net/route.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
 
-static int scan_ed(struct ieee80215_priv *hw, u32 channels, u8 duration)
+struct scan_work {
+	struct work_struct work;
+
+	int (*scan_ch)(struct scan_work *work, int channel, u8 duration);
+	struct net_device *dev;
+
+	u8 edl[27];
+
+	u32 channels;
+	u8 duration;
+};
+
+static int scan_ed(struct scan_work *work, int channel, u8 duration)
 {
-	int i, ret;
-	BUG_ON(!hw);
-	pr_debug("ed scan channels %d duration %d\n", channels, duration);
-	for (i = 1; i < 28; i++) {
-		u8 e;
-		if (hw->hw.channel_mask & (1 << (i - 1)))
-			continue; /* FIXME */
-		BUG_ON(!hw->ops);
-		BUG_ON(!hw->ops->set_channel);
-		ret = hw->ops->set_channel(&hw->hw,  i);
-		if (ret == PHY_ERROR)
-			goto exit_error;
+	pr_debug("ed scan channel %d duration %d\n", channel, duration);
+
 		/* Lets suppose we have energy on all channels
 		 * till we fix something regarding hardware or driver */
 #if 0
-		ret = hw->ops->ed(&hw->hw, &e);
+	ret = hw->ops->ed(&hw->hw, &e);
+	if (ret == PHY_ERROR)
+		goto exit_error;
+#else
+	work->edl[channel] = 190;
+#endif
+	pr_debug("ed scan channel %d value %d\n", channel, work->edl[channel]);
+	return 0;
+}
+static int scan_active(struct scan_work *work, int channel, u8 duration)
+{
+	pr_debug("active scan channel %d duration %d\n", channel, duration);
+	return 0;
+}
+static int scan_passive(struct scan_work *work, int channel, u8 duration)
+{
+	pr_debug("passive scan channel %d duration %d\n", channel, duration);
+	return 0;
+}
+static int scan_orphan(struct scan_work *work, int channel, u8 duration)
+{
+	pr_debug("orphan scan channel %d duration %d\n", channel, duration);
+	return 0;
+}
+
+static void scanner(struct work_struct *work)
+{
+	struct scan_work *sw = container_of(work, struct scan_work, work);
+	struct ieee80215_priv *hw = ieee80215_slave_get_hw(sw->dev);
+	int i;
+	phy_status_t ret;
+
+	for (i = 0; i < 27; i++) {
+		if (!(sw->channels & (1 << i)))
+			continue;
+
+		ret = hw->ops->set_channel(&hw->hw,  i);
 		if (ret == PHY_ERROR)
 			goto exit_error;
-#else
-		e = 190;
-#endif
-//		hw->channel_levels[i - 1] = e;
-		pr_debug("ed scan channel %d value %d\n", i, e);
+
+		ret = sw->scan_ch(sw, i, sw->duration);
+		if (ret)
+			goto exit_error;
 	}
-	return 0;
+
+	// FIXME: send results via NL
+
+	kfree(sw);
+
+	return;
+
 exit_error:
-	pr_debug("PHY fault during ED scan\n");
-	return -EINVAL;
-}
-static int scan_active(struct ieee80215_priv *hw, u32 channels, u8 duration)
-{
-	pr_debug("active scan channels %d duration %d\n", channels, duration);
-	return 0;
-}
-static int scan_passive(struct ieee80215_priv *hw, u32 channels, u8 duration)
-{
-	pr_debug("passive scan channels %d duration %d\n", channels, duration);
-	return 0;
-}
-static int scan_orphan(struct ieee80215_priv *hw, u32 channels, u8 duration)
-{
-	pr_debug("orphan scan channels %d duration %d\n", channels, duration);
-	return 0;
+	kfree(sw);
+	return;
+	// FIXME: report error
 }
 
 /**
@@ -97,27 +115,51 @@ static int scan_orphan(struct ieee80215_priv *hw, u32 channels, u8 duration)
  * @param duration scan duration, see ieee802.15.4-2003.pdf, page 145.
  * @return 0 if request is ok, errno otherwise.
  */
-int ieee80215_mlme_scan_req(struct ieee80215_priv *hw, u8 type, u32 channels, u8 duration)
+int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
 {
+	struct ieee80215_priv *hw = ieee80215_slave_get_hw(dev);
+	struct scan_work *work;
+
 	pr_debug("%s()\n", __func__);
-	/* TODO: locking, workqueue */
+
 	if (duration > 14)
-		return -EINVAL;
+		goto inval;
+	if (channels & hw->hw.channel_mask)
+		goto inval;
+
+	work = kzalloc(sizeof(struct scan_work), GFP_KERNEL);
+	if (!work)
+		goto inval;
+
+	work->dev = dev;
+	work->channels = channels;
+	work->duration = duration;
 
 	switch (type) {
 	case IEEE80215_MAC_SCAN_ED:
-		return scan_ed(hw, channels, duration);
-	case IEEE80215_MAC_SCAN_ACTIVE:
-		return scan_active(hw, channels, duration);
-	case IEEE80215_MAC_SCAN_PASSIVE:
-		return scan_passive(hw, channels, duration);
-	case IEEE80215_MAC_SCAN_ORPHAN:
-		return scan_orphan(hw, channels, duration);
-	default:
-		pr_debug("%s(): incalid type %d\n", __func__, type);
+		work->scan_ch = scan_ed;
 		break;
+	case IEEE80215_MAC_SCAN_ACTIVE:
+		work->scan_ch = scan_active;
+		break;
+	case IEEE80215_MAC_SCAN_PASSIVE:
+		work->scan_ch = scan_passive;
+		break;
+	case IEEE80215_MAC_SCAN_ORPHAN:
+		work->scan_ch = scan_orphan;
+		break;
+	default:
+		pr_debug("%s(): invalid type %d\n", __func__, type);
+		goto inval;
 	}
 
+	INIT_WORK(&work->work, scanner);
+	queue_work(hw->dev_workqueue, &work->work);
+
+	return 0;
+
+inval:
+	// FIXME: send INVALID_PARAM nl
 	return -EINVAL;
 }
 EXPORT_SYMBOL(ieee80215_mlme_scan_req);
