@@ -26,6 +26,7 @@
 #include <linux/module.h>
 #include <linux/if_arp.h>
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
+#include <linux/notifier.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -48,6 +49,9 @@ struct ieee80215_netdev_priv {
 
 	__le16 pan_id;
 	__le16 short_addr;
+
+	/* This one is used to provide notifications */
+	struct blocking_notifier_head events;
 };
 
 static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -302,6 +306,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	priv = netdev_priv(dev);
 	priv->dev = dev;
 	priv->hw = ieee80215_to_priv(hw);
+	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	memcpy(dev->dev_addr, addr, dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 	dev->open = ieee80215_slave_open;
@@ -832,4 +837,22 @@ int ieee80215_pib_get(struct ieee80215_dev *hw, struct ieee80215_pib *pib)
 	return 0;
 }
 
+int ieee80215_slave_register_notifier(struct net_device *dev, struct notifier_block *nb)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+	return blocking_notifier_chain_register(&priv->events, nb);
+}
+EXPORT_SYMBOL(ieee80215_slave_register_notifier);
+int ieee80215_slave_unregister_notifier(struct net_device *dev, struct notifier_block *nb)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+	return blocking_notifier_chain_unregister(&priv->events, nb);
+}
+EXPORT_SYMBOL(ieee80215_slave_unregister_notifier);
+int ieee80215_slave_event(struct net_device *dev, int event, void *data)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+	return blocking_notifier_call_chain(&priv->events, event, data);
+}
+EXPORT_SYMBOL(ieee80215_slave_event);
 
