@@ -88,8 +88,11 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi);
 
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib);
 int ieee80215_pib_get(struct ieee80215_dev *hw, struct ieee80215_pib *pib);
+
 int ieee80215_slave_register_notifier(struct net_device *dev, struct notifier_block *nb);
-int ieee80215_slave_uregister_notifier(struct net_device *dev, struct notifier_block *nb);
+int ieee80215_slave_unregister_notifier(struct net_device *dev, struct notifier_block *nb);
 int ieee80215_slave_event(struct net_device *dev, int event, void *data);
+
+#define IEEE80215_NOTIFIER_BEACON		0x0
 
 #endif
