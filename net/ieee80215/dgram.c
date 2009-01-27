@@ -349,7 +349,7 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 struct proto ieee80215_dgram_prot = {
 	.name		= "IEEE-802.15.4-MAC",
 	.owner		= THIS_MODULE,
-	.obj_size	= sizeof(struct sock),
+	.obj_size	= sizeof(struct dgram_sock),
 	.init		= dgram_init,
 	.close		= dgram_close,
 	.bind		= dgram_bind,
