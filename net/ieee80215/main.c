@@ -92,10 +92,9 @@ void ieee80215_unregister_device(struct ieee80215_dev *dev)
 }
 EXPORT_SYMBOL(ieee80215_unregister_device);
 
-void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
+static void __ieee80215_rx_prepare(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
-	struct sk_buff *skb2;
 
 	BUG_ON(!skb);
 
@@ -108,13 +107,56 @@ void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
 	skb->protocol = htons(ETH_P_IEEE80215);
 
 	skb_reset_mac_header(skb);
+}
 
-	skb2 = skb_clone(skb, GFP_ATOMIC);
+void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
+{
+	struct sk_buff *skb2;
+
+	__ieee80215_rx_prepare(dev, skb, lqi);
+
+	skb2 = skb_clone(skb, GFP_KERNEL);
 	netif_rx(skb2);
 
 	ieee80215_subif_rx(dev, skb);
 }
 EXPORT_SYMBOL(ieee80215_rx);
+
+struct rx_work {
+	struct sk_buff *skb;
+	struct work_struct work;
+	struct ieee80215_dev *dev;
+};
+
+static void ieee80215_rx_worker(struct work_struct *work)
+{
+	struct rx_work *rw = container_of(work, struct rx_work, work);
+	struct sk_buff *skb = rw->skb;
+
+	struct sk_buff *skb2 = skb_clone(skb, GFP_KERNEL);
+	netif_rx(skb2);
+
+	ieee80215_subif_rx(rw->dev, skb);
+	kfree(rw);
+}
+
+void ieee80215_rx_irqsafe(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
+{
+	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
+	struct rx_work *work = kzalloc(sizeof(struct rx_work), GFP_ATOMIC);
+
+	if (!work)
+		return;
+
+	__ieee80215_rx_prepare(dev, skb, lqi);
+
+	INIT_WORK(&work->work, ieee80215_rx_worker);
+	work->skb = skb;
+	work->dev = dev;
+
+	queue_work(priv->dev_workqueue, &work->work);
+}
+EXPORT_SYMBOL(ieee80215_rx_irqsafe);
 
 static int __init ieee80215_init(void)
 {

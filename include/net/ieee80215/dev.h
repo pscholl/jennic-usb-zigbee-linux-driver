@@ -85,6 +85,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr);
 void ieee80215_drop_slaves(struct ieee80215_dev *hw);
 
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi);
+void ieee80215_rx_irqsafe(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi);
 
 int ieee80215_pib_set(struct ieee80215_dev *hw, struct ieee80215_pib *pib);
 int ieee80215_pib_get(struct ieee80215_dev *hw, struct ieee80215_pib *pib);
