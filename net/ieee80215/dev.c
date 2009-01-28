@@ -59,7 +59,7 @@ static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ieee80215_netdev_priv *priv;
 	priv = netdev_priv(dev);
 
-	if (!(priv->hw->ops->flags & IEEE80215_OPS_OMIT_CKSUM)) {
+	if (!(priv->hw->hw.flags & IEEE80215_OPS_OMIT_CKSUM)) {
 		u16 crc = ieee80215_crc(0, skb->data, skb->len);
 		u8 *data = skb_put(skb, 2);
 		data[0] = crc & 0xff;
@@ -645,7 +645,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 		goto out;
 	}
 
-	if (!priv->ops->flags & IEEE80215_OPS_OMIT_CKSUM) {
+	if (!priv->hw.flags & IEEE80215_OPS_OMIT_CKSUM) {
 		if (skb->len < 2) {
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;

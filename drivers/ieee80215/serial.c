@@ -751,7 +751,6 @@ static struct ieee80215_ops serial_ops = {
 	.cca = ieee80215_serial_cca,
 	.set_trx_state = ieee80215_serial_set_state,
 	.set_channel	= ieee80215_serial_set_channel,
-	.flags = IEEE80215_OPS_OMIT_CKSUM,
 };
 
 
@@ -793,6 +792,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 	zbdev->dev->extra_tx_headroom	= 0;
 	zbdev->dev->channel_mask	= 0x7ff;
 	zbdev->dev->current_channel	= 11; /* it's 1st channel of 2.4 Ghz space */
+	zbdev->dev->flags		= IEEE80215_OPS_OMIT_CKSUM,
 
 	zbdev->tty = tty;
 	cleanup(zbdev);
