@@ -55,16 +55,42 @@ static int scan_ed(struct scan_work *work, int channel, u8 duration)
 	return ret;
 }
 
+struct scan_data {
+	struct notifier_block nb;
+	struct list_head scan_head;
+};
+
+static int beacon_notifier(struct notifier_block *p,
+                                unsigned long event, void *data)
+{
+	struct ieee80215_pandsc * pd = data;
+	struct scan_data * sd = container_of(p, struct scan_data, nb);
+	switch(event) {
+	case IEEE80215_NOTIFIER_BEACON:
+		/* TODO: add item to list here */
+		pr_debug("got a beacon frame addr_type %d pan_id %d\n",
+				pd->addr.addr_type, pd->addr.pan_id);
+		break;
+	}
+	return 0;
+}
+
+
 static int scan_passive(struct scan_work *work, int channel, u8 duration)
 {
 	unsigned long j;
+	struct scan_data * data = kzalloc(sizeof(struct scan_data), GFP_KERNEL);
 	pr_debug("passive scan channel %d duration %d\n", channel, duration);
+	data->nb.notifier_call = beacon_notifier;
+	ieee80215_slave_register_notifier(work->dev, &data->nb);
 	/* Hope 2 msecs will be enough for scan */
 	j = msecs_to_jiffies(2);
 	while (j > 0) {
 		j = schedule_timeout(j);
 	}
-	return 0;
+	ieee80215_slave_unregister_notifier(work->dev, &data->nb);
+	kfree(data);
+	return PHY_SUCCESS;
 }
 /* Active scan is periodic submission of beacon request
  * and waiting for beacons which is useful for collecting LWPAN information */
@@ -74,7 +100,7 @@ static int scan_active(struct scan_work *work, int channel, u8 duration)
 	pr_debug("active scan channel %d duration %d\n", channel, duration);
 	ret = ieee80215_send_beacon_req(work->dev);
 	if (ret < 0)
-		return ret;
+		return PHY_ERROR;
 	return scan_passive(work, channel, duration);
 }
 static int scan_orphan(struct scan_work *work, int channel, u8 duration)

@@ -191,7 +191,7 @@ int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data)
 		priv = ieee80215_slave_get_hw(dev);
 		if (!priv)
 			return -EFAULT;
-		ret = ieee80215_mlme_scan_req(dev, IEEE80215_MAC_SCAN_ED, priv->hw.channel_mask, 14);
+		ret = ieee80215_mlme_scan_req(dev, IEEE80215_MAC_SCAN_ED, ~priv->hw.channel_mask, 14);
 		dev_put(dev);
 		return ret;
 	default:
