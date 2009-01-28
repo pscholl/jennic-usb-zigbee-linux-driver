@@ -359,6 +359,8 @@ static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *inf
 	ret = ieee80215_send_cmd(dev, &addr, &saddr, buf, pos);
 
 	//FIXME: this should be after the ack receved
+	ieee80215_dev_set_pan_id(dev, 0xffff);
+	ieee80215_dev_set_short_addr(dev, 0xffff);
 	ieee80215_nl_disassoc_confirm(dev, 0x00);
 
 	dev_put(dev);
