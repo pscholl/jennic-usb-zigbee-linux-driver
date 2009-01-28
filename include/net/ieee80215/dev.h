@@ -41,7 +41,6 @@ struct ieee80215_dev {
 	void	*priv;		/* driver-specific data */
 	u32	channel_mask;
 	u8	current_channel;
-	u8	channel_levels[27]; /* FIXME constant */
 };
 
 struct ieee80215_ops {

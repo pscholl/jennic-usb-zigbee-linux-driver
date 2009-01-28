@@ -575,6 +575,9 @@ ieee80215_serial_set_channel(struct ieee80215_dev *dev, int channel)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
+
+	if (ret == PHY_SUCCESS)
+		zbdev->dev->current_channel = channel;
 out:
 	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n", __func__);
@@ -788,6 +791,8 @@ ieee80215_tty_open(struct tty_struct *tty)
 	zbdev->dev->name		= "serialdev";
 	zbdev->dev->priv		= zbdev;
 	zbdev->dev->extra_tx_headroom	= 0;
+	zbdev->dev->channel_mask	= 0x7ff;
+	zbdev->dev->current_channel	= 11; /* it's 1st channel of 2.4 Ghz space */
 
 	zbdev->tty = tty;
 	cleanup(zbdev);
