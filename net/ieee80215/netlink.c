@@ -326,7 +326,7 @@ static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *inf
 	int pos = 0;
 	int ret = -EINVAL;
 
-	if (!info->attrs[IEEE80215_ATTR_DEST_HW_ADDR]
+	if ((!info->attrs[IEEE80215_ATTR_DEST_HW_ADDR] && !info->attrs[IEEE80215_ATTR_DEST_SHORT_ADDR])
 	 || !info->attrs[IEEE80215_ATTR_REASON])
 		return -EINVAL;
 
@@ -346,8 +346,13 @@ static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *inf
 		return -EINVAL;
 	}
 
-	addr.addr_type = IEEE80215_ADDR_LONG;
-	NLA_GET_HW_ADDR(info->attrs[IEEE80215_ATTR_DEST_HW_ADDR], addr.hwaddr);
+	if (info->attrs[IEEE80215_ATTR_DEST_HW_ADDR]) {
+		addr.addr_type = IEEE80215_ADDR_LONG;
+		NLA_GET_HW_ADDR(info->attrs[IEEE80215_ATTR_DEST_HW_ADDR], addr.hwaddr);
+	} else {
+		addr.addr_type = IEEE80215_ADDR_SHORT;
+		addr.short_addr = nla_get_u16(info->attrs[IEEE80215_ATTR_DEST_SHORT_ADDR]);
+	}
 	addr.pan_id = ieee80215_dev_get_pan_id(dev);
 
 	saddr.addr_type = IEEE80215_ADDR_LONG;
