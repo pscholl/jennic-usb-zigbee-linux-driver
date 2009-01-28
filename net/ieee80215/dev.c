@@ -151,8 +151,8 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
 
 	fc = MAC_CB_TYPE(skb);
-//	if (MAC_CB_IS_ACKREQ(skb))
-//		fc |= IEEE80215_FC_ACK_REQ;
+	if (MAC_CB_IS_ACKREQ(skb))
+		fc |= IEEE80215_FC_ACK_REQ;
 
 	pos = 2;
 
@@ -306,7 +306,6 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	priv = netdev_priv(dev);
 	priv->dev = dev;
 	priv->hw = ieee80215_to_priv(hw);
-	hw->channel_mask = 0xfffUL; /* FIXME hack */
 	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	memcpy(dev->dev_addr, addr, dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
