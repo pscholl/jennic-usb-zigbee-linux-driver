@@ -122,7 +122,7 @@ static struct ieee80215_ops fake_ops = {
 	.set_channel = hw_channel,
 };
 
-static int ieee80215fake_add_priv(struct fake_priv *fake, const u8 *macaddr)
+static int ieee80215fake_add_priv(struct device *dev, struct fake_priv *fake, const u8 *macaddr)
 {
 	struct fake_dev_priv *priv;
 	int err = -ENOMEM;
@@ -138,6 +138,7 @@ static int ieee80215fake_add_priv(struct fake_priv *fake, const u8 *macaddr)
 		goto err_alloc_dev;
 	priv->dev->name = "IEEE 802.15.4 fake";
 	priv->dev->priv = priv;
+	priv->dev->parent = dev;
 	priv->fake = fake;
 
 	err = ieee80215_register_device(priv->dev, &fake_ops);
@@ -211,7 +212,7 @@ adddev_store(struct device *dev, struct device_attribute *attr,
 	}
 	if (i != 16)
 		return -EINVAL;
-	err = ieee80215fake_add_priv(priv, hw);
+	err = ieee80215fake_add_priv(dev, priv, hw);
 	if (err)
 		return err;
 	return n;
@@ -247,7 +248,7 @@ static int __devinit ieee80215fake_probe(struct platform_device *pdev)
 	if (err)
 		goto err_grp;
 
-	err = ieee80215fake_add_priv(priv, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
+	err = ieee80215fake_add_priv(&pdev->dev, priv, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
 	if (err < 0)
 		goto err_slave;
 
