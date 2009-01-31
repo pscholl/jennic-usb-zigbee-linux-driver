@@ -42,6 +42,7 @@ struct ieee80215_dev {
 	u32	channel_mask;
 	u8	current_channel;
 	u32 flags; /* Flags for device to set */
+	struct device *parent;
 };
 
 /* Checksum is in hardware and is omitted from packet */

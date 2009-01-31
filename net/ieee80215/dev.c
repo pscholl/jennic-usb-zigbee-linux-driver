@@ -293,6 +293,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 {
 	struct net_device *dev;
 	struct ieee80215_netdev_priv *priv;
+	struct ieee80215_priv *ipriv = ieee80215_to_priv(hw);
 	int err;
 
 	ASSERT_RTNL();
@@ -333,6 +334,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 		if (err < 0)
 			goto out;
 	}
+
+	SET_NETDEV_DEV(dev, &ipriv->master->dev);
 
 	err = register_netdevice(dev);
 	if (err < 0)

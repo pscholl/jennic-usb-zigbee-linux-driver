@@ -167,6 +167,7 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	dev->needed_headroom = hw->hw.extra_tx_headroom;
 	dev->get_stats = ieee80215_get_master_stats;
 	dev->do_ioctl = ieee80215_master_ioctl;
+	SET_NETDEV_DEV(dev, hw->hw.parent);
 	/* FIXME */
 //	hw->ops->set_channel(&hw->hw, 6);
 	register_netdev(dev);
