@@ -753,6 +753,11 @@ static struct ieee80215_ops serial_ops = {
 	.set_channel	= ieee80215_serial_set_channel,
 };
 
+static int dev_minor_match(struct device *dev, void *data)
+{
+	int *minor = data;
+	return (MINOR(dev->devt) == *minor);
+}
 
 /*
  * Called when a tty is put into ZB line discipline. Called in process context.
@@ -763,6 +768,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 {
 	struct zb_device *zbdev = tty->disc_data;
 	int err;
+	int minor;
 
 	pr_debug("Openning ldisc\n");
 	if (!capable(CAP_NET_ADMIN))
@@ -792,7 +798,10 @@ ieee80215_tty_open(struct tty_struct *tty)
 	zbdev->dev->extra_tx_headroom	= 0;
 	zbdev->dev->channel_mask	= 0x7ff;
 	zbdev->dev->current_channel	= 11; /* it's 1st channel of 2.4 Ghz space */
-	zbdev->dev->flags		= IEEE80215_OPS_OMIT_CKSUM,
+	zbdev->dev->flags		= IEEE80215_OPS_OMIT_CKSUM;
+
+	minor = tty->index + tty->driver->minor_start;
+	zbdev->dev->parent = class_find_device(tty_class, NULL, &minor, dev_minor_match);
 
 	zbdev->tty = tty;
 	cleanup(zbdev);
@@ -802,6 +811,9 @@ ieee80215_tty_open(struct tty_struct *tty)
 	tty->low_latency = 1;
 
 	err = ieee80215_register_device(zbdev->dev, &serial_ops);
+	/* we put it only after it has a chance to be get by network core */
+	if (zbdev->dev->parent)
+		put_device(zbdev->dev->parent);
 	if (err) {
 		printk(KERN_ERR "%s: device register failed\n", __func__);
 		goto out_free;
