@@ -324,7 +324,9 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 
 	dev->needed_headroom = priv->hw->master->needed_headroom;
 
-	list_add_tail_rcu(&priv->list, &ieee80215_to_priv(hw)->slaves);
+	spin_lock(&ieee80215_to_priv(hw)->slaves_lock);
+	list_add_tail(&priv->list, &ieee80215_to_priv(hw)->slaves);
+	spin_unlock(&ieee80215_to_priv(hw)->slaves_lock);
 	/*
 	 * If the name is a format string the caller wants us to do a
 	 * name allocation.
@@ -350,23 +352,28 @@ EXPORT_SYMBOL(ieee80215_add_slave);
 static void __ieee80215_del_slave(struct ieee80215_netdev_priv *ndp)
 {
 	struct net_device *dev = ndp->dev;
-	rtnl_lock();
 	dev_put(ndp->hw->master);
-	rtnl_unlock();
 	unregister_netdev(ndp->dev);
-	list_del_rcu(&ndp->list);
+
+	spin_lock(&ndp->hw->slaves_lock);
+	list_del(&ndp->list);
+	spin_unlock(&ndp->hw->slaves_lock);
+
 	free_netdev(dev);
 }
 
 void ieee80215_drop_slaves(struct ieee80215_dev *hw)
 {
 	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
-	struct ieee80215_netdev_priv *ndp;
+	struct ieee80215_netdev_priv *ndp, *next;
 
-	rcu_read_lock();
-	list_for_each_entry_rcu(ndp, &priv->slaves, list)
+	spin_lock(&priv->slaves_lock);
+	list_for_each_entry_safe(ndp, next, &priv->slaves, list) {
+		spin_unlock(&priv->slaves_lock);
 		__ieee80215_del_slave(ndp);
-	rcu_read_unlock();
+		spin_lock(&priv->slaves_lock);
+	}
+	spin_unlock(&priv->slaves_lock);
 }
 EXPORT_SYMBOL(ieee80215_drop_slaves);
 

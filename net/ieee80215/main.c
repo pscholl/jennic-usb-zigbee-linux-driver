@@ -26,7 +26,6 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/rculist.h>
 #include <linux/workqueue.h>
 
 #include <net/ieee80215/dev.h>
@@ -37,6 +36,7 @@ struct ieee80215_dev *ieee80215_alloc_device(void)
 {
 	struct ieee80215_priv *priv = kzalloc(sizeof(struct ieee80215_priv), GFP_KERNEL);
 	INIT_LIST_HEAD(&priv->slaves);
+	spin_lock_init(&priv->slaves_lock);
 	return &priv->hw;
 }
 EXPORT_SYMBOL(ieee80215_alloc_device);

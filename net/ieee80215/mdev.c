@@ -21,7 +21,6 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/etherdevice.h>
-#include <linux/rculist.h>
 
 #include <net/ieee80215/phy.h>
 #include <net/ieee80215/netdev.h>

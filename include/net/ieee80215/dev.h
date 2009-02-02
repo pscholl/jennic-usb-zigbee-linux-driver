@@ -67,6 +67,7 @@ struct ieee80215_priv {
 	struct ieee80215_ops	*ops;
 	struct net_device	*master;
 	struct list_head	slaves;
+	spinlock_t		slaves_lock;
 	/* This one is used for scanning and other
 	 * jobs not to be interfered with serial driver */
 	struct workqueue_struct	*dev_workqueue;
