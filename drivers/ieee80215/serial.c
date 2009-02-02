@@ -533,8 +533,10 @@ static int _open_dev(struct zb_device *zbdev)
 	zbdev->pending_data = NULL;
 	zbdev->pending_size = 0;
 
-	if (zbdev->opened)
+	if (zbdev->opened) {
+		printk(KERN_INFO "Opened connection to device\n");
 		return 1;
+	}
 
 	return 0;
 }
@@ -810,6 +812,13 @@ ieee80215_tty_open(struct tty_struct *tty)
 	tty->receive_room = MAX_DATA_SIZE;
 	tty->low_latency = 1;
 
+	/* FIXME: why is this needed. Note don't use ldisc_ref here as the
+	   open path is before the ldisc is referencable */
+
+	if (tty->ldisc.ops->flush_buffer)
+		tty->ldisc.ops->flush_buffer(tty);
+	tty_driver_flush_buffer(tty);
+
 	err = ieee80215_register_device(zbdev->dev, &serial_ops);
 	/* we put it only after it has a chance to be get by network core */
 	if (zbdev->dev->parent)
@@ -850,12 +859,15 @@ ieee80215_tty_close(struct tty_struct *tty)
 		printk(KERN_WARNING "%s: match is not found\n", __func__);
 		return;
 	}
-	/* FIXME !!! */
-	flush_scheduled_work();
+
+	tty->disc_data = NULL;
 
 	ieee80215_unregister_device(zbdev->dev);
 
-	tty->disc_data = NULL;
+	flush_scheduled_work();
+
+	tty_ldisc_flush(tty);
+	tty_driver_flush_buffer(tty);
 
 	ieee80215_free_device(zbdev->dev);
 	kfree(zbdev);
@@ -926,9 +938,7 @@ ieee80215_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cf
 	if (tty->driver->flush_chars)
 		tty->driver->flush_chars(tty);
 #endif
-	if (test_and_clear_bit(TTY_THROTTLED, &tty->flags) &&
-		tty->driver->ops->unthrottle)
-		tty->driver->ops->unthrottle(tty);
+	tty_unthrottle(tty);
 }
 
 /*
