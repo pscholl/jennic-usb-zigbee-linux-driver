@@ -54,6 +54,9 @@
 #define STATUS_BUSY_TX	7
 #define STATUS_ERR	8
 
+/* We re-use PPP ioctl for our purposes */
+#define	PPPIOCGUNIT	_IOR('t', 86, int)	/* get ppp unit number */
+
 /*
  * The following messages are used to control ZigBee firmware.
  * All communication has request/response format,
@@ -891,6 +894,9 @@ ieee80215_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd,
 {
 	struct zb_device *zbdev;
 	struct ifreq ifr;
+	struct ieee80215_priv *priv;
+	int err;
+	u8 * __user argp = (u8 *) arg;
 
 	pr_debug("cmd = 0x%x\n", cmd);
 	memset(&ifr, 0, sizeof(ifr));
@@ -901,7 +907,17 @@ ieee80215_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd,
 		return -EINVAL;
 	}
 
+
 	switch (cmd) {
+	case PPPIOCGUNIT:
+		/* TODO: some error checking */
+		priv = ieee80215_to_priv(zbdev->dev);
+		BUG_ON(!priv->master);
+		err = -EFAULT;
+		if (copy_to_user(argp, priv->master->name, strlen(priv->master->name)))
+			break;
+		err = 0;
+		break;
 	default:
 		pr_debug("Unknown ioctl cmd: %u\n", cmd);
 		return -EINVAL;
