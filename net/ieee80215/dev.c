@@ -175,6 +175,21 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 		saddr = &dev_addr;
 	}
 
+	if (daddr->addr_type != IEEE80215_ADDR_NONE) {
+		fc |= (daddr->addr_type << IEEE80215_FC_DAMODE_SHIFT);
+
+		head[pos++] = daddr->pan_id & 0xff;
+		head[pos++] = daddr->pan_id >> 8;
+
+		if (daddr->addr_type == IEEE80215_ADDR_SHORT) {
+			head[pos++] = daddr->short_addr & 0xff;
+			head[pos++] = daddr->short_addr >> 8;
+		} else {
+			memcpy(head + pos, daddr->hwaddr, IEEE80215_ADDR_LEN);
+			pos += IEEE80215_ADDR_LEN;
+		}
+	}
+
 	if (saddr->addr_type != IEEE80215_ADDR_NONE) {
 		fc |= (saddr->addr_type << IEEE80215_FC_SAMODE_SHIFT);
 
@@ -194,21 +209,6 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 		}
 	}
 
-	if (daddr->addr_type != IEEE80215_ADDR_NONE) {
-		fc |= (daddr->addr_type << IEEE80215_FC_DAMODE_SHIFT);
-
-		head[pos++] = daddr->pan_id & 0xff;
-		head[pos++] = daddr->pan_id >> 8;
-
-		if (daddr->addr_type == IEEE80215_ADDR_SHORT) {
-			head[pos++] = daddr->short_addr & 0xff;
-			head[pos++] = daddr->short_addr >> 8;
-		} else {
-			memcpy(head + pos, daddr->hwaddr, IEEE80215_ADDR_LEN);
-			pos += IEEE80215_ADDR_LEN;
-		}
-	}
-
 	head[0] = fc;
 	head[1] = fc >> 8;
 
@@ -222,43 +222,90 @@ static int ieee80215_header_parse(const struct sk_buff *skb, unsigned char *hadd
 	const u8 *hdr = skb_mac_header(skb), *tail = skb_tail_pointer(skb);
 	struct ieee80215_addr *addr = (struct ieee80215_addr *)haddr;
 	u16 fc;
+	int da_type;
 
 	if (hdr + 3 > tail)
 		goto malformed;
 
 	fc = hdr[0] | (hdr[1] << 8);
-	addr->addr_type = IEEE80215_FC_SAMODE(fc);
-	if (addr->addr_type != IEEE80215_ADDR_NONE) {
-		hdr += 3;
 
+	hdr += 3;
+
+	da_type = IEEE80215_FC_DAMODE(fc);
+	addr->addr_type = IEEE80215_FC_SAMODE(fc);
+
+	switch (da_type) {
+	case IEEE80215_ADDR_NONE:
+		if (fc & IEEE80215_FC_INTRA_PAN)
+			goto malformed;
+		break;
+
+	case IEEE80215_ADDR_LONG:
+		if (hdr + 2 > tail)
+			goto malformed;
+		if (fc & IEEE80215_FC_INTRA_PAN) {
+			addr->pan_id = hdr[0] | (hdr[1] << 8);
+			hdr += 2;
+		}
+
+		if (hdr + IEEE80215_ADDR_LEN > tail)
+			goto malformed;
+		hdr += IEEE80215_ADDR_LEN;
+		break;
+
+	case IEEE80215_ADDR_SHORT:
+		if (hdr + 2 > tail)
+			goto malformed;
+		if (fc & IEEE80215_FC_INTRA_PAN) {
+			addr->pan_id = hdr[0] | (hdr[1] << 8);
+			hdr += 2;
+		}
+
+		if (hdr + 2 > tail)
+			goto malformed;
+		hdr += 2;
+		break;
+
+	default:
+		goto malformed;
+
+	}
+
+	switch (addr->addr_type) {
+	case IEEE80215_ADDR_NONE:
+		break;
+
+	case IEEE80215_ADDR_LONG:
 		if (hdr + 2 > tail)
 			goto malformed;
 		if (!(fc & IEEE80215_FC_INTRA_PAN)) {
 			addr->pan_id = hdr[0] | (hdr[1] << 8);
 			hdr += 2;
 		}
-		switch (addr->addr_type) {
-		case IEEE80215_ADDR_LONG:
-			if (hdr + IEEE80215_ADDR_LEN > tail)
-				goto malformed;
-			memcpy(addr->hwaddr, hdr, IEEE80215_ADDR_LEN);
-			hdr += IEEE80215_ADDR_LEN;
-			break;
-		case IEEE80215_ADDR_SHORT:
-			if (hdr + 2 > tail)
-				goto malformed;
-			addr->short_addr = hdr[0] | (hdr[1] << 8);
-			hdr += 2;
-			break;
-		default:
+
+		if (hdr + IEEE80215_ADDR_LEN > tail)
 			goto malformed;
-		}
-		if ((fc & IEEE80215_FC_INTRA_PAN)) {
-			if (IEEE80215_FC_DAMODE(fc) == IEEE80215_ADDR_NONE)
-				goto malformed;
+		memcpy(addr->hwaddr, hdr, IEEE80215_ADDR_LEN);
+		hdr += IEEE80215_ADDR_LEN;
+		break;
+
+	case IEEE80215_ADDR_SHORT:
+		if (hdr + 2 > tail)
+			goto malformed;
+		if (!(fc & IEEE80215_FC_INTRA_PAN)) {
 			addr->pan_id = hdr[0] | (hdr[1] << 8);
 			hdr += 2;
 		}
+
+		if (hdr + 2 > tail)
+			goto malformed;
+		addr->short_addr = hdr[0] | (hdr[1] << 8);
+		hdr += 2;
+		break;
+
+	default:
+		goto malformed;
+
 	}
 
 	return sizeof(struct ieee80215_addr);
@@ -594,22 +641,6 @@ static int parse_frame_start(struct sk_buff *skb)
 			return -EINVAL;
 	}
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
-		pr_debug("%s(): got src non-NONE address\n", __func__);
-		if (!(MAC_CB_IS_INTRAPAN(skb))) { /* ! panid compress */
-			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.pan_id);
-			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __func__);
-		}
-
-		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
-			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.short_addr);
-			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __func__);
-		} else {
-			IEEE80215_FETCH_U64(skb, MAC_CB(skb)->sa.hwaddr);
-			pr_debug("%s(): src hardware addr\n", __func__);
-		}
-	}
-
 	if (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_NONE) {
 		IEEE80215_FETCH_U16(skb, MAC_CB(skb)->da.pan_id);
 
@@ -631,6 +662,22 @@ static int parse_frame_start(struct sk_buff *skb)
 		} else {
 			IEEE80215_FETCH_U64(skb, MAC_CB(skb)->da.hwaddr);
 			pr_debug("%s(): dst hardware addr\n", __func__);
+		}
+	}
+
+	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE) {
+		pr_debug("%s(): got src non-NONE address\n", __func__);
+		if (!(MAC_CB_IS_INTRAPAN(skb))) { /* ! panid compress */
+			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.pan_id);
+			pr_debug("%s(): src IEEE80215_FC_INTRA_PAN\n", __func__);
+		}
+
+		if (MAC_CB(skb)->sa.addr_type == IEEE80215_ADDR_SHORT) {
+			IEEE80215_FETCH_U16(skb, MAC_CB(skb)->sa.short_addr);
+			pr_debug("%s(): src IEEE80215_ADDR_SHORT\n", __func__);
+		} else {
+			IEEE80215_FETCH_U64(skb, MAC_CB(skb)->sa.hwaddr);
+			pr_debug("%s(): src hardware addr\n", __func__);
 		}
 	}
 
