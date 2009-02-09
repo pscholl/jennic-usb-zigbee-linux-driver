@@ -27,6 +27,7 @@
 #include <linux/if_arp.h>
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
 #include <linux/notifier.h>
+#include <linux/random.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -156,8 +157,7 @@ static int ieee80215_header_create(struct sk_buff *skb, struct net_device *dev,
 
 	pos = 2;
 
-	// FIXME: DSN
-	head[pos++] = 0x6a;
+	head[pos++] = MAC_CB(skb)->seq; /* DSN/BSN */
 
 	if (!daddr)
 		return -EINVAL;
@@ -336,6 +336,12 @@ static void ieee80215_netdev_setup(struct net_device *dev)
 	dev->watchdog_timeo	= 0;
 }
 
+static void ieee80215_init_seq(struct ieee80215_priv *priv)
+{
+	get_random_bytes(&priv->bsn, 1);
+	get_random_bytes(&priv->dsn, 1);
+}
+
 int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 {
 	struct net_device *dev;
@@ -354,6 +360,7 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	priv = netdev_priv(dev);
 	priv->dev = dev;
 	priv->hw = ieee80215_to_priv(hw);
+	ieee80215_init_seq(priv->hw);
 	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	memcpy(dev->dev_addr, addr, dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);

@@ -188,6 +188,7 @@ int ieee80215_send_cmd(struct net_device *dev,
 {
 	struct sk_buff *skb;
 	int err;
+	struct ieee80215_priv *hw = ieee80215_slave_get_hw(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE80215);
 
@@ -200,6 +201,7 @@ int ieee80215_send_cmd(struct net_device *dev,
 	skb_reset_network_header(skb);
 
 	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
+	MAC_CB(skb)->seq = hw->dsn;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, addr, saddr, len);
 	if (err < 0) {
 		kfree_skb(skb);
@@ -211,6 +213,7 @@ int ieee80215_send_cmd(struct net_device *dev,
 
 	skb->dev = dev;
 	skb->protocol = htons(ETH_P_IEEE80215);
+	hw->dsn++;
 
 	return dev_queue_xmit(skb);
 }

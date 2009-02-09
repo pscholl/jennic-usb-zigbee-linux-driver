@@ -221,6 +221,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	struct sk_buff *skb;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int err;
+	struct ieee80215_priv *hw;
 
 	if (msg->msg_flags & MSG_OOB) {
 		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
@@ -236,6 +237,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		pr_debug("no dev\n");
 		return -ENXIO;
 	}
+	hw = ieee80215_slave_get_hw(dev);
 	mtu = dev->mtu;
 	pr_debug("name = %s, mtu = %u\n", dev->name, mtu);
 
@@ -250,6 +252,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	skb_reset_network_header(skb);
 
 	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
+	MAC_CB(skb)->seq = hw->dsn;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
 	if (err < 0) {
 		kfree_skb(skb);
@@ -276,6 +279,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	skb->protocol = htons(ETH_P_IEEE80215);
 
 	err = dev_queue_xmit(skb);
+	hw->dsn++;
 
 	dev_put(dev);
 

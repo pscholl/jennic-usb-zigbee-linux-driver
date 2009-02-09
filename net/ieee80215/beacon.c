@@ -130,6 +130,7 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 	int addr16_cnt;
 	int addr64_cnt;
 	struct ieee80215_addr addr;
+	struct ieee80215_priv *hw = ieee80215_slave_get_hw(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE80215);
 
@@ -142,6 +143,8 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 	skb_reset_network_header(skb);
 
 	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_BEACON;
+	MAC_CB(skb)->seq = hw->bsn;
+
 	addr.addr_type = IEEE80215_ADDR_NONE;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, &addr, saddr, len);
 	if (err < 0) {
@@ -188,6 +191,7 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 
 	skb->dev = dev;
 	skb->protocol = htons(ETH_P_IEEE80215);
+	hw->bsn++; /* FIXME locking */
 
 	return dev_queue_xmit(skb);
 }

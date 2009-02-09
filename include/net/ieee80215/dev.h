@@ -71,6 +71,10 @@ struct ieee80215_priv {
 	/* This one is used for scanning and other
 	 * jobs not to be interfered with serial driver */
 	struct workqueue_struct	*dev_workqueue;
+	/* MAC BSN field */
+	u8 bsn;
+	/* MAC BSN field */
+	u8 dsn;
 };
 
 #define ieee80215_to_priv(_hw)	container_of(_hw, struct ieee80215_priv, hw)
