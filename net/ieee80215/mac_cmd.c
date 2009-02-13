@@ -118,7 +118,8 @@ static int ieee80215_cmd_disassoc_notify(struct sk_buff *skb)
 		return 0;
 
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
-	    MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_LONG ||
+	    (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_LONG &&
+	     MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_SHORT) ||
 	    MAC_CB(skb)->sa.pan_id != MAC_CB(skb)->da.pan_id)
 		return -EINVAL;
 
