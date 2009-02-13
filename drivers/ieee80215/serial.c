@@ -142,7 +142,8 @@ _send_pending_data(struct zb_device *zbdev)
 
 	BUG_ON(!zbdev);
 	tty = zbdev->tty;
-	BUG_ON(!tty);
+	if (!tty)
+		return -ENODEV;
 
 	zbdev->status = PHY_INVAL;
 
@@ -864,6 +865,7 @@ ieee80215_tty_close(struct tty_struct *tty)
 	}
 
 	tty->disc_data = NULL;
+	zbdev->tty = NULL;
 
 	ieee80215_unregister_device(zbdev->dev);
 
