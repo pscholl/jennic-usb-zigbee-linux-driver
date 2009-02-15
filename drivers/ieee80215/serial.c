@@ -869,8 +869,6 @@ ieee80215_tty_close(struct tty_struct *tty)
 
 	ieee80215_unregister_device(zbdev->dev);
 
-	flush_scheduled_work();
-
 	tty_ldisc_flush(tty);
 	tty_driver_flush_buffer(tty);
 
