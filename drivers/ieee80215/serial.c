@@ -577,7 +577,7 @@ ieee80215_serial_set_channel(struct ieee80215_dev *dev, int channel)
 		goto out;
 	}
 
-	if (!wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
+	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
@@ -613,7 +613,7 @@ ieee80215_serial_ed(struct ieee80215_dev *dev, u8 *level)
 		goto out;
 	}
 
-	if (!wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL)) {
+	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0) {
 		*level = zbdev->ed;
 		ret = zbdev->status;
 	} else
@@ -652,7 +652,7 @@ ieee80215_serial_cca(struct ieee80215_dev *dev)
 		goto out;
 	}
 
-	if (!wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
+	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
@@ -703,7 +703,7 @@ ieee80215_serial_set_state(struct ieee80215_dev *dev, phy_status_t state)
 		goto out;
 	}
 
-	if (!wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
+	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
@@ -735,7 +735,7 @@ ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
 		goto out;
 	}
 
-	if (!wait_event_interruptible(zbdev->wq, zbdev->status != PHY_INVAL))
+	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
