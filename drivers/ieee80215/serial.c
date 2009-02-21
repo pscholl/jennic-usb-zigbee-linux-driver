@@ -896,7 +896,7 @@ ieee80215_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd,
 	struct ifreq ifr;
 	struct ieee80215_priv *priv;
 	int err;
-	u8 * __user argp = (u8 *) arg;
+	void __user *argp = (void __user *) arg;
 
 	pr_debug("cmd = 0x%x\n", cmd);
 	memset(&ifr, 0, sizeof(ifr));
