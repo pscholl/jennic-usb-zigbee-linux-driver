@@ -23,6 +23,10 @@ static struct genl_multicast_group ieee80215_coord_mcgrp = {
 	.name		= IEEE80215_MCAST_COORD_NAME,
 };
 
+static struct genl_multicast_group ieee80215_beacon_mcgrp = {
+	.name		= IEEE80215_MCAST_BEACON_NAME,
+};
+
 /* Requests to userspace */
 
 int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr, u8 cap)
@@ -53,6 +57,37 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 		goto out_free;
 
 	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
+
+int ieee80215_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr) /* TODO */
+{
+	struct sk_buff *msg;
+	void *hdr;
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!msg)
+		goto out_msg;
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_ASSOCIATE_CONF);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT_U16(msg, IEEE80215_ATTR_COORD_SHORT_ADDR, coord_addr);
+	NLA_PUT_U16(msg, IEEE80215_ATTR_COORD_PAN_ID, panid);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	/* FIXME different multicast group needed */
+	return genlmsg_multicast(msg, 0, ieee80215_beacon_mcgrp.id, GFP_ATOMIC);
 
 nla_put_failure:
 	genlmsg_cancel(msg, hdr);
@@ -484,6 +519,10 @@ int __init ieee80215_nl_init(void)
 		goto fail;
 
 	rc = genl_register_mc_group(&ieee80215_coordinator_family, &ieee80215_coord_mcgrp);
+	if (rc)
+		goto fail;
+
+	rc = genl_register_mc_group(&ieee80215_coordinator_family, &ieee80215_beacon_mcgrp);
 	if (rc)
 		goto fail;
 

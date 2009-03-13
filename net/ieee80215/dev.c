@@ -467,11 +467,12 @@ static int ieee80215_process_beacon(struct net_device *dev, struct sk_buff *skb)
 	int ret;
 	ret = parse_beacon_frame(skb, NULL, &flags, NULL);
 
-	if (ret < 0)
-		ret = NET_RX_SUCCESS;
-	else
+	if (ret < 0) {
 		ret = NET_RX_DROP;
-
+		goto fail;
+	}
+	ret = NET_RX_SUCCESS;
+fail:
 	kfree_skb(skb);
 	return ret;
 }

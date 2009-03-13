@@ -23,6 +23,7 @@
 
 #define IEEE80215_NL_NAME "802.15.4 MAC"
 #define IEEE80215_MCAST_COORD_NAME "coordinator"
+#define IEEE80215_MCAST_BEACON_NAME "beacon"
 
 enum {
 	__IEEE80215_ATTR_INVALID,
@@ -153,6 +154,7 @@ int ieee80215_nl_disassoc_indic(struct net_device *dev, struct ieee80215_addr *a
 int ieee80215_nl_disassoc_confirm(struct net_device *dev, u8 status);
 int ieee80215_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, u32 unscanned,
 		u8 *edl/*, struct list_head *pan_desc_list */);
+int ieee80215_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr); /* TODO */
 #endif
 
 #endif
