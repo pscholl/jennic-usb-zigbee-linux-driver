@@ -40,6 +40,7 @@
 #include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/beacon_hash.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
@@ -467,10 +468,15 @@ static int ieee80215_process_beacon(struct net_device *dev, struct sk_buff *skb)
 	int ret;
 	ret = parse_beacon_frame(skb, NULL, &flags, NULL);
 
+	/* Here we have cb->sa = coordinator address, and PAN address */
+
 	if (ret < 0) {
 		ret = NET_RX_DROP;
 		goto fail;
 	}
+	printk("got beacon from pan %d\n", MAC_CB(skb)->sa.pan_id);
+	ieee80215_beacon_hash_add(&MAC_CB(skb)->sa);
+	ieee80215_beacon_hash_dump();
 	ret = NET_RX_SUCCESS;
 fail:
 	kfree_skb(skb);
