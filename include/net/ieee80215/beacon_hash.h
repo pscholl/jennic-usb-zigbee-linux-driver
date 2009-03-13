@@ -33,7 +33,8 @@ struct beacon_node {
 };
 struct beacon_node *ieee80215_beacon_find_pan(struct ieee80215_addr *coord_addr,
 			u16 pan_addr);
-void ieee80215_beacon_hash_add(struct ieee80215_addr *coord_addr, u16 pan_addr);
-void ieee80215_beacon_hash_del(struct ieee80215_addr *coord_addr, u16 pan_addr);
+void ieee80215_beacon_hash_add(struct ieee80215_addr *coord_addr);
+void ieee80215_beacon_hash_del(struct ieee80215_addr *coord_addr);
+void ieee80215_beacon_hash_dump(void);
 #endif
 
