@@ -47,7 +47,7 @@ struct ieee80215_user_data {
 	int as_router;
 	int power;
 	int mac_security;
-	u16 panid; 
+	u16 panid;
 	int cmd;
 //	struct ieee80215_dev_address addr; /**< Peer address */
 };

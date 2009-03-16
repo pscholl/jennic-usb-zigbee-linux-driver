@@ -677,7 +677,7 @@ enum ieee80215_mac_rcodes {
 	 * that is not supported.
 	 */
 	IEEE80215_UNSUPPORTED_ATTR = 0xf4,
-	/* 
+	/*
 	 * A request to perform a scan operation failed because the MLME was
 	 * in the process of performing a previously initiated scan operation.
 	 */
