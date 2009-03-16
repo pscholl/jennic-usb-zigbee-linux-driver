@@ -37,7 +37,6 @@
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/crc.h>
 #include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/beacon.h>
 #include <net/ieee80215/beacon_hash.h>
@@ -47,7 +46,6 @@ struct ieee80215_netdev_priv {
 	struct ieee80215_priv *hw;
 	struct net_device *dev;
 	struct net_device_stats stats;
-	struct ieee80215_mac mac;
 
 	__le16 pan_id;
 	__le16 short_addr;
@@ -716,7 +714,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 		goto out;
 	}
 
-	if (!priv->hw.flags & IEEE80215_OPS_OMIT_CKSUM) {
+	if (!(priv->hw.flags & IEEE80215_OPS_OMIT_CKSUM)) {
 		if (skb->len < 2) {
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
@@ -793,15 +791,6 @@ struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *add
 	return dev;
 }
 EXPORT_SYMBOL(ieee80215_get_dev);
-
-struct ieee80215_mac *ieee80215_get_mac_bydev(struct net_device *dev)
-{
-	struct ieee80215_netdev_priv *priv;
-	priv = netdev_priv(dev);
-	BUG_ON(!priv);
-	return &priv->mac;
-}
-EXPORT_SYMBOL(ieee80215_get_mac_bydev);
 
 u16 ieee80215_dev_get_pan_id(struct net_device *dev)
 {

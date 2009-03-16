@@ -29,7 +29,7 @@
 #include <net/ieee80215/beacon_hash.h>
 
 static struct hlist_head beacon_hash[IEEE80215_BEACON_HTABLE_SIZE];
-DEFINE_RWLOCK(beacon_hash_lock);
+static DEFINE_RWLOCK(beacon_hash_lock);
 
 static int beacon_hashfn(struct ieee80215_addr *coord_addr, u16 pan_addr)
 {
