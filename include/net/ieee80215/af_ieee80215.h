@@ -33,33 +33,6 @@ struct sockaddr_ieee80215 {
 	struct ieee80215_addr addr;
 };
 
-struct ieee80215_user_data {
-	/* This is used as ifr_name */
-	union
-	{
-		char	ifrn_name[IFNAMSIZ];		/* if name, e.g. "en0" */
-	} ifr_ifrn;
-	int channels;
-	int channel;
-	int duration;
-	int rejoin;
-	int rxon;
-	int as_router;
-	int power;
-	int mac_security;
-	u16 panid;
-	int cmd;
-//	struct ieee80215_dev_address addr; /**< Peer address */
-};
-
-/* PF_IEEE80215, SOCK_DGRAM */
-#define IEEE80215_SIOC_NETWORK_DISCOVERY	(SIOCPROTOPRIVATE + 0)
-#define IEEE80215_SIOC_NETWORK_FORMATION	(SIOCPROTOPRIVATE + 1)
-#define IEEE80215_SIOC_PERMIT_JOINING		(SIOCPROTOPRIVATE + 2)
-#define IEEE80215_SIOC_START_ROUTER		(SIOCPROTOPRIVATE + 3)
-#define IEEE80215_SIOC_JOIN			(SIOCPROTOPRIVATE + 4)
-#define IEEE80215_SIOC_MAC_CMD			(SIOCPROTOPRIVATE + 5)
-
 /* master device */
 #define IEEE80215_SIOC_ADD_SLAVE		(SIOCDEVPRIVATE + 0)
 
@@ -77,13 +50,6 @@ struct ieee80215_pandsc {
 	u8			mac_sec;
 	bool			sec_fail;
 };
-
-int ioctl_network_discovery(struct sock *sk, struct ieee80215_user_data __user *data);
-int ioctl_network_formation(struct sock *sk, struct ieee80215_user_data __user *data);
-int ioctl_permit_joining(struct sock *sk, struct ieee80215_user_data __user *data);
-int ioctl_start_router(struct sock *sk, struct ieee80215_user_data __user *data);
-int ioctl_mac_join(struct sock *sk, struct ieee80215_user_data __user *data);
-int ioctl_mac_cmd(struct sock *sk, struct ieee80215_user_data __user *data);
 
 extern struct proto ieee80215_raw_prot;
 extern struct proto ieee80215_dgram_prot;
