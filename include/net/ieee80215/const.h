@@ -26,9 +26,6 @@
 #ifndef IEEE80215_CONST_H
 #define IEEE80215_CONST_H
 
-/* address length, octets */
-#define IEEE80215_ADDR_LEN	8
-
 #define IEEE80215_ACK_LEN	3	/* Size of acknowledge frame */
 
 /* Time related constants, in microseconds.

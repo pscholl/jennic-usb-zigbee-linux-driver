@@ -24,6 +24,24 @@
 #ifndef IEEE80215_BEACON_H
 #define IEEE80215_BEACON_H
 
+#include <linux/skbuff.h>
+#include <linux/netdevice.h>
+#include "af_ieee80215.h"
+
+/* Per spec; optimizations are needed */
+struct ieee80215_pandsc {
+	struct list_head	list;
+	struct ieee80215_addr	addr; /* Contains panid */
+	int			channel;
+	u16			sf;
+	bool			gts_permit;
+	u8			lqi;
+	u32			timestamp; /* FIXME */
+	bool			security;
+	u8			mac_sec;
+	bool			sec_fail;
+};
+
 int parse_beacon_frame(struct sk_buff *skb, u8 * buf,
 		int *flags, struct list_head *al);
 
