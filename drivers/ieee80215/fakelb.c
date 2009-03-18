@@ -87,7 +87,7 @@ hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
 
 	newskb = pskb_copy(skb, GFP_ATOMIC);
 
-	ieee80215_rx(priv->dev, newskb, 0xcc);
+	ieee80215_rx_irqsafe(priv->dev, newskb, 0xcc);
 }
 
 static int
