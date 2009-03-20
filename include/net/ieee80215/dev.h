@@ -102,4 +102,6 @@ int ieee80215_slave_event(struct net_device *dev, int event, void *data);
 
 #define IEEE80215_NOTIFIER_BEACON		0x0
 
+void ieee80215_set_pan_id(struct net_device *dev, u16 panid);
 #endif
+
