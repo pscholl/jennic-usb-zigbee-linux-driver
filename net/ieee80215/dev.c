@@ -50,6 +50,8 @@ struct ieee80215_netdev_priv {
 	__le16 pan_id;
 	__le16 short_addr;
 
+	u8 chan;
+
 	/* This one is used to provide notifications */
 	struct blocking_notifier_head events;
 };
@@ -65,6 +67,9 @@ static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		data[0] = crc & 0xff;
 		data[1] = crc >> 8;
 	}
+
+	PHY_CB(skb)->chan = priv->chan;
+
 	skb->iif = dev->ifindex;
 	skb->dev = priv->hw->master;
 	dev->stats.tx_packets++;
@@ -827,6 +832,14 @@ void ieee80215_dev_set_short_addr(struct net_device *dev, u16 val)
 	BUG_ON(dev->type != ARPHRD_IEEE80215);
 
 	priv->short_addr = val;
+}
+void ieee80215_dev_set_channel(struct net_device *dev, u8 val)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE80215);
+
+	priv->chan = val;
 }
 
 // FIXME: come with better solution

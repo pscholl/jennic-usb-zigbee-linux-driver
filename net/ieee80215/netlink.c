@@ -291,8 +291,8 @@ static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 	memcpy(saddr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
 
 	// FIXME: set PIB/MIB info
-	// FIXME: set channel
 	ieee80215_dev_set_pan_id(dev, addr.pan_id);
+	ieee80215_dev_set_channel(dev, nla_get_u8(info->attrs[IEEE80215_ATTR_CHANNEL]));
 
 	buf[pos++] = IEEE80215_CMD_ASSOCIATION_REQ;
 	buf[pos++] = nla_get_u8(info->attrs[IEEE80215_ATTR_CAPABILITY]);
