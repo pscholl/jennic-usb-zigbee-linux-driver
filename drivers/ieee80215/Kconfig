@@ -1,0 +1,26 @@
+menuconfig IEEE802154_DRIVERS
+	bool "IEEE 802.15.4 drivers"
+	depends on NETDEVICES && IEEE802154
+	default y
+	---help---
+	  Say Y here to get to see options for IEEE 802.15.4 Low-Rate
+	  Wireless Personal Area Network device drivers. This option alone
+	  does not add any kernel code.
+
+	  If you say N, all options in this submenu will be skipped and disabled.
+
+if IEEE802154_DRIVERS && NETDEVICES && IEEE802154
+config IEEE802154_FAKELB
+	tristate "Fake LR-WPAN driver with several interconnected devices"
+	---help---
+	  Say Y here to enable the fake driver that can emulate a net
+          of several interconnected radio devices.
+
+          This driver can also be built as a module. To do so say M here.
+	  The module will be called 'fakelb'.
+
+config IEEE802154_SERIAL
+	tristate "Simple LR-WPAN UART driver"
+
+endif
+

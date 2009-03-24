@@ -185,6 +185,7 @@ source "net/x25/Kconfig"
 source "net/lapb/Kconfig"
 source "net/econet/Kconfig"
 source "net/wanrouter/Kconfig"
+source "net/ieee80215/Kconfig"
 source "net/sched/Kconfig"
 source "net/dcb/Kconfig"
 

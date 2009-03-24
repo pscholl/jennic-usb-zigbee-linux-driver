@@ -191,7 +191,9 @@ struct ucred {
 #define AF_RXRPC	33	/* RxRPC sockets 		*/
 #define AF_ISDN		34	/* mISDN sockets 		*/
 #define AF_PHONET	35	/* Phonet sockets		*/
-#define AF_MAX		36	/* For now.. */
+#define AF_IEEE80215	36	/* IEEE80215 sockets		*/
+#define AF_ZIGBEE	37	/* ZIGBEE sockets		*/
+#define AF_MAX		38	/* For now.. */
 
 /* Protocol families, same as address families. */
 #define PF_UNSPEC	AF_UNSPEC
@@ -229,6 +231,8 @@ struct ucred {
 #define PF_RXRPC	AF_RXRPC
 #define PF_ISDN		AF_ISDN
 #define PF_PHONET	AF_PHONET
+#define PF_IEEE80215	AF_IEEE80215
+#define PF_ZIGBEE	AF_ZIGBEE
 #define PF_MAX		AF_MAX
 
 /* Maximum queue length specifiable by listen.  */
