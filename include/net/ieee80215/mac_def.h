@@ -80,6 +80,10 @@ int ieee80215_send_cmd(struct net_device *dev,
 int ieee80215_send_beacon_req(struct net_device *dev);
 int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration);
 
+int ieee80215_mlme_start_req(struct net_device *dev, u16 panid, u8 channel,
+			     u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
+			     u8 coord_realign, u8 sec);
+
 #define IEEE80215_MAC_SCAN_ED		0
 #define IEEE80215_MAC_SCAN_ACTIVE	1
 #define IEEE80215_MAC_SCAN_PASSIVE	2

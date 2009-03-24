@@ -407,6 +407,73 @@ static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *inf
 	return ret;
 }
 
+/*
+ * PANid, channel, beacon_order = 15, superframe_order = 15,
+ * PAN_coordinator, battery_life_extension = 0,
+ * coord_realignment = 0, security_enable = 0
+*/
+static int ieee80215_start_req(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net_device *dev;
+	u16 panid;
+	u8 channel = 0, bcn_ord = 15, sf_ord = 15;
+	int pan_coord, blx = 0, coord_realign = 0, sec = 0;
+	u16 short_addr;
+	int ret;
+
+	if (!info->attrs[IEEE80215_ATTR_COORD_PAN_ID]
+	 || !info->attrs[IEEE80215_ATTR_COORD_SHORT_ADDR]
+/*
+	 || !info->attrs[IEEE80215_ATTR_CHANNEL]
+	 || !info->attrs[IEEE80215_ATTR_BCN_ORD]
+	 || !info->attrs[IEEE80215_ATTR_SF_ORD]
+*/
+	 || !info->attrs[IEEE80215_ATTR_PAN_COORD]
+/*
+	 || !info->attrs[IEEE80215_ATTR_BAT_EXT]
+	 || !info->attrs[IEEE80215_ATTR_COORD_REALIGN]
+	 || !info->attrs[IEEE80215_ATTR_SEC] */)
+		return -EINVAL;
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
+		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+
+
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
+	}
+	panid = nla_get_u16(info->attrs[IEEE80215_ATTR_COORD_PAN_ID]);
+#if 0
+	channel = nla_get_u8(info->attrs[IEEE80215_ATTR_CHANNEL]);
+	bcn_ord = nla_get_u8(info->attrs[IEEE80215_ATTR_BCN_ORD]);
+	sf_ord = nla_get_u8(info->attrs[IEEE80215_ATTR_SF_ORD]);
+#endif
+	pan_coord = nla_get_u8(info->attrs[IEEE80215_ATTR_PAN_COORD]);
+#if 0
+	blx = nla_get_u8(info->attrs[IEEE80215_ATTR_BAT_EXT]);
+	coord_realign = nla_get_u8(info->attrs[IEEE80215_ATTR_COORD_REALIGN]);
+	sec = nla_get_u8(info->attrs[IEEE80215_ATTR_COORD_SEC]);
+#endif
+	short_addr = nla_get_u16(info->attrs[IEEE80215_ATTR_COORD_SHORT_ADDR]);
+	ret = ieee80215_mlme_start_req(dev, panid, channel, bcn_ord, sf_ord,
+		pan_coord, blx, coord_realign, sec);
+	if (ret < 0)
+		goto out;
+	ieee80215_dev_set_short_addr(dev, short_addr);
+out:
+	dev_put(dev);
+	return ret;
+}
+
 static int ieee80215_scan_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
@@ -460,6 +527,7 @@ static struct genl_ops ieee80215_coordinator_ops[] = {
 	IEEE80215_OP(IEEE80215_ASSOCIATE_RESP, ieee80215_associate_resp),
 	IEEE80215_OP(IEEE80215_DISASSOCIATE_REQ, ieee80215_disassociate_req),
 	IEEE80215_OP(IEEE80215_SCAN_REQ, ieee80215_scan_req),
+	IEEE80215_OP(IEEE80215_START_REQ, ieee80215_start_req),
 };
 
 #if 0

@@ -929,3 +929,10 @@ int ieee80215_slave_event(struct net_device *dev, int event, void *data)
 }
 EXPORT_SYMBOL(ieee80215_slave_event);
 
+/* device should be locked before running */
+void ieee80215_set_pan_id(struct net_device *dev, u16 panid)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+	priv->pan_id = panid;
+}
+
