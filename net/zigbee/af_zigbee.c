@@ -129,31 +129,6 @@ static int zb_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long ar
 	}
 }
 
-static const struct proto_ops zb_raw_ops = {
-	.family		   = PF_ZIGBEE,
-	.owner		   = THIS_MODULE,
-	.release	   = zb_sock_release,
-	.bind		   = zb_sock_bind,
-	.connect	   = zb_sock_connect,
-	.socketpair	   = sock_no_socketpair,
-	.accept		   = sock_no_accept,
-	.getname	   = sock_no_getname,
-	.poll		   = datagram_poll,
-	.ioctl		   = zb_sock_ioctl,
-	.listen		   = sock_no_listen,
-	.shutdown	   = sock_no_shutdown,
-	.setsockopt	   = sock_common_setsockopt,
-	.getsockopt	   = sock_common_getsockopt,
-	.sendmsg	   = zb_sock_sendmsg,
-	.recvmsg	   = sock_common_recvmsg,
-	.mmap		   = sock_no_mmap,
-	.sendpage	   = sock_no_sendpage,
-#ifdef CONFIG_COMPAT
-	.compat_setsockopt = compat_sock_common_setsockopt,
-	.compat_getsockopt = compat_sock_common_getsockopt,
-#endif
-};
-
 static const struct proto_ops zb_dgram_ops = {
 	.family		   = PF_ZIGBEE,
 	.owner		   = THIS_MODULE,
@@ -195,16 +170,11 @@ static int zb_create(struct net *net, struct socket *sock, int protocol)
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
 
-	switch (sock->type) {
-	case SOCK_RAW:
-		proto = &zb_raw_prot;
-		ops = &zb_raw_ops;
-		break;
-	case SOCK_DGRAM:
+	if (sock->type == SOCK_DGRAM) {
 		proto = &zb_dgram_prot;
 		ops = &zb_dgram_ops;
-		break;
-	default:
+	}
+	else {
 		rc = -ESOCKTNOSUPPORT;
 		goto out;
 	}
@@ -262,11 +232,6 @@ static int zb_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_typ
 
 	zb_raw_deliver(dev, skb);
 
-#if 0
-	if (dev->type != ARPHRD_ZIGBEE)
-		goto drop;
-
-#endif
 	if (skb->pkt_type != PACKET_OTHERHOST)
 		return zb_dgram_deliver(dev, skb);
 
@@ -285,36 +250,32 @@ static int __init af_zb_init(void)
 {
 	int rc = -EINVAL;
 
-	rc = proto_register(&zb_raw_prot, 1);
-	if (rc)
-		goto out;
-
 	rc = proto_register(&zb_dgram_prot, 1);
 	if (rc)
-		goto err_dgram;
+		goto err;
 
 	/* Tell SOCKET that we are alive */
 	rc = sock_register(&zb_family_ops);
+
 	if (rc)
-		goto err_sock;
+		goto err;
+
 	dev_add_pack(&zb_packet_type);
 
 	rc = 0;
 	goto out;
 
-err_sock:
+err:
 	proto_unregister(&zb_dgram_prot);
-err_dgram:
-	proto_unregister(&zb_raw_prot);
 out:
 	return rc;
 }
+
 static void af_zb_remove(void)
 {
 	dev_remove_pack(&zb_packet_type);
 	sock_unregister(PF_ZIGBEE);
 	proto_unregister(&zb_dgram_prot);
-	proto_unregister(&zb_raw_prot);
 }
 
 module_init(af_zb_init);
