@@ -43,9 +43,19 @@ static void ieee80215_xmit_worker(struct work_struct *work)
 	struct xmit_work *xw = container_of(work, struct xmit_work, work);
 	phy_status_t res;
 
+	if (xw->priv->hw->hw.current_channel != PHY_CB(xw->skb)->chan) {
+		res = xw->priv->hw->ops->set_channel(&xw->priv->hw->hw, PHY_CB(xw->skb)->chan);
+		if (res != PHY_SUCCESS) {
+			pr_debug("set_channel failed\n");
+			goto out;
+		}
+	}
+
 	res = xw->priv->hw->ops->cca(&xw->priv->hw->hw);
-	if (res != PHY_IDLE)
+	if (res != PHY_IDLE) {
+		pr_debug("CCA failed\n");
 		goto out;
+	}
 
 	res = xw->priv->hw->ops->set_trx_state(&xw->priv->hw->hw, PHY_TX_ON);
 	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
@@ -167,8 +177,6 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	dev->get_stats = ieee80215_get_master_stats;
 	dev->do_ioctl = ieee80215_master_ioctl;
 	SET_NETDEV_DEV(dev, hw->hw.parent);
-	/* FIXME */
-//	hw->ops->set_channel(&hw->hw, 6);
 	register_netdev(dev);
 	return 0;
 }

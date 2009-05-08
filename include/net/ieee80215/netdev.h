@@ -28,8 +28,6 @@
 int ieee80215_register_netdev_master(struct ieee80215_priv *hw);
 void ieee80215_unregister_netdev_master(struct ieee80215_priv *hw);
 
-struct ieee80215_mac * ieee80215_get_mac_bydev(struct net_device *dev);
-
 // FIXME: this header should be probably separated, as it contains both driver-specific and stack specific things
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
 struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev);
@@ -42,9 +40,11 @@ u16 ieee80215_dev_get_pan_id(struct net_device *dev);
 u16 ieee80215_dev_get_short_addr(struct net_device *dev);
 void ieee80215_dev_set_pan_id(struct net_device *dev, u16 val);
 void ieee80215_dev_set_short_addr(struct net_device *dev, u16 val);
+void ieee80215_dev_set_channel(struct net_device *dev, u8 chan);
 
 struct ieee80215_phy_cb {
 	u8 lqi;
+	u8 chan;
 };
 
 #define PHY_CB(skb)	((struct ieee80215_phy_cb *)(skb)->cb)

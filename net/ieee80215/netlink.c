@@ -23,6 +23,10 @@ static struct genl_multicast_group ieee80215_coord_mcgrp = {
 	.name		= IEEE80215_MCAST_COORD_NAME,
 };
 
+static struct genl_multicast_group ieee80215_beacon_mcgrp = {
+	.name		= IEEE80215_MCAST_BEACON_NAME,
+};
+
 /* Requests to userspace */
 
 int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr, u8 cap)
@@ -53,6 +57,37 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 		goto out_free;
 
 	return genlmsg_multicast(msg, 0, ieee80215_coord_mcgrp.id, GFP_ATOMIC);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out_free:
+	nlmsg_free(msg);
+out_msg:
+	return -ENOBUFS;
+}
+
+int ieee80215_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr) /* TODO */
+{
+	struct sk_buff *msg;
+	void *hdr;
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	if (!msg)
+		goto out_msg;
+	hdr = genlmsg_put(msg, 0, ieee80215_seq_num++, &ieee80215_coordinator_family, /* flags*/ 0, IEEE80215_ASSOCIATE_CONF);
+	if (!hdr)
+		goto out_free;
+
+	NLA_PUT_STRING(msg, IEEE80215_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT_U16(msg, IEEE80215_ATTR_COORD_SHORT_ADDR, coord_addr);
+	NLA_PUT_U16(msg, IEEE80215_ATTR_COORD_PAN_ID, panid);
+
+	if (!genlmsg_end(msg, hdr))
+		goto out_free;
+
+	/* FIXME different multicast group needed */
+	return genlmsg_multicast(msg, 0, ieee80215_beacon_mcgrp.id, GFP_ATOMIC);
 
 nla_put_failure:
 	genlmsg_cancel(msg, hdr);
@@ -256,8 +291,8 @@ static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 	memcpy(saddr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
 
 	// FIXME: set PIB/MIB info
-	// FIXME: set channel
 	ieee80215_dev_set_pan_id(dev, addr.pan_id);
+	ieee80215_dev_set_channel(dev, nla_get_u8(info->attrs[IEEE80215_ATTR_CHANNEL]));
 
 	buf[pos++] = IEEE80215_CMD_ASSOCIATION_REQ;
 	buf[pos++] = nla_get_u8(info->attrs[IEEE80215_ATTR_CAPABILITY]);
@@ -372,6 +407,73 @@ static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *inf
 	return ret;
 }
 
+/*
+ * PANid, channel, beacon_order = 15, superframe_order = 15,
+ * PAN_coordinator, battery_life_extension = 0,
+ * coord_realignment = 0, security_enable = 0
+*/
+static int ieee80215_start_req(struct sk_buff *skb, struct genl_info *info)
+{
+	struct net_device *dev;
+	u16 panid;
+	u8 channel = 0, bcn_ord = 15, sf_ord = 15;
+	int pan_coord, blx = 0, coord_realign = 0, sec = 0;
+	u16 short_addr;
+	int ret;
+
+	if (!info->attrs[IEEE80215_ATTR_COORD_PAN_ID]
+	 || !info->attrs[IEEE80215_ATTR_COORD_SHORT_ADDR]
+/*
+	 || !info->attrs[IEEE80215_ATTR_CHANNEL]
+	 || !info->attrs[IEEE80215_ATTR_BCN_ORD]
+	 || !info->attrs[IEEE80215_ATTR_SF_ORD]
+*/
+	 || !info->attrs[IEEE80215_ATTR_PAN_COORD]
+/*
+	 || !info->attrs[IEEE80215_ATTR_BAT_EXT]
+	 || !info->attrs[IEEE80215_ATTR_COORD_REALIGN]
+	 || !info->attrs[IEEE80215_ATTR_SEC] */)
+		return -EINVAL;
+	if (info->attrs[IEEE80215_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE80215_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE80215_ATTR_DEV_INDEX]) {
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE80215_ATTR_DEV_INDEX]));
+	} else
+		return -ENODEV;
+
+	if (!dev)
+		return -ENODEV;
+
+
+	if (dev->type != ARPHRD_IEEE80215) {
+		dev_put(dev);
+		return -EINVAL;
+	}
+	panid = nla_get_u16(info->attrs[IEEE80215_ATTR_COORD_PAN_ID]);
+#if 0
+	channel = nla_get_u8(info->attrs[IEEE80215_ATTR_CHANNEL]);
+	bcn_ord = nla_get_u8(info->attrs[IEEE80215_ATTR_BCN_ORD]);
+	sf_ord = nla_get_u8(info->attrs[IEEE80215_ATTR_SF_ORD]);
+#endif
+	pan_coord = nla_get_u8(info->attrs[IEEE80215_ATTR_PAN_COORD]);
+#if 0
+	blx = nla_get_u8(info->attrs[IEEE80215_ATTR_BAT_EXT]);
+	coord_realign = nla_get_u8(info->attrs[IEEE80215_ATTR_COORD_REALIGN]);
+	sec = nla_get_u8(info->attrs[IEEE80215_ATTR_COORD_SEC]);
+#endif
+	short_addr = nla_get_u16(info->attrs[IEEE80215_ATTR_COORD_SHORT_ADDR]);
+	ret = ieee80215_mlme_start_req(dev, panid, channel, bcn_ord, sf_ord,
+		pan_coord, blx, coord_realign, sec);
+	if (ret < 0)
+		goto out;
+	ieee80215_dev_set_short_addr(dev, short_addr);
+out:
+	dev_put(dev);
+	return ret;
+}
+
 static int ieee80215_scan_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
@@ -425,6 +527,7 @@ static struct genl_ops ieee80215_coordinator_ops[] = {
 	IEEE80215_OP(IEEE80215_ASSOCIATE_RESP, ieee80215_associate_resp),
 	IEEE80215_OP(IEEE80215_DISASSOCIATE_REQ, ieee80215_disassociate_req),
 	IEEE80215_OP(IEEE80215_SCAN_REQ, ieee80215_scan_req),
+	IEEE80215_OP(IEEE80215_START_REQ, ieee80215_start_req),
 };
 
 #if 0
@@ -484,6 +587,10 @@ int __init ieee80215_nl_init(void)
 		goto fail;
 
 	rc = genl_register_mc_group(&ieee80215_coordinator_family, &ieee80215_coord_mcgrp);
+	if (rc)
+		goto fail;
+
+	rc = genl_register_mc_group(&ieee80215_coordinator_family, &ieee80215_beacon_mcgrp);
 	if (rc)
 		goto fail;
 

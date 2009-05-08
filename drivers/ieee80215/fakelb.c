@@ -77,6 +77,7 @@ hw_channel(struct ieee80215_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
+	dev->current_channel = channel;
 	return PHY_SUCCESS;
 }
 
@@ -87,7 +88,7 @@ hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
 
 	newskb = pskb_copy(skb, GFP_ATOMIC);
 
-	ieee80215_rx(priv->dev, newskb, 0xcc);
+	ieee80215_rx_irqsafe(priv->dev, newskb, 0xcc);
 }
 
 static int
@@ -105,7 +106,7 @@ hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	} else {
 		struct fake_dev_priv *dp;
 		list_for_each_entry(dp, &priv->fake->list, list)
-			if (dp != priv)
+			if (dp != priv && dp->dev->current_channel == priv->dev->current_channel)
 				hw_deliver(dp, skb);
 	}
 	read_unlock_bh(&fake->lock);

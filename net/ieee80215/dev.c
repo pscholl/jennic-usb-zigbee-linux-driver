@@ -37,19 +37,20 @@
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/crc.h>
 #include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_struct.h>
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/beacon_hash.h>
 
 struct ieee80215_netdev_priv {
 	struct list_head list;
 	struct ieee80215_priv *hw;
 	struct net_device *dev;
 	struct net_device_stats stats;
-	struct ieee80215_mac mac;
 
 	__le16 pan_id;
 	__le16 short_addr;
+
+	u8 chan;
 
 	/* This one is used to provide notifications */
 	struct blocking_notifier_head events;
@@ -66,6 +67,9 @@ static int ieee80215_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		data[0] = crc & 0xff;
 		data[1] = crc >> 8;
 	}
+
+	PHY_CB(skb)->chan = priv->chan;
+
 	skb->iif = dev->ifindex;
 	skb->dev = priv->hw->master;
 	dev->stats.tx_packets++;
@@ -467,11 +471,17 @@ static int ieee80215_process_beacon(struct net_device *dev, struct sk_buff *skb)
 	int ret;
 	ret = parse_beacon_frame(skb, NULL, &flags, NULL);
 
-	if (ret < 0)
-		ret = NET_RX_SUCCESS;
-	else
-		ret = NET_RX_DROP;
+	/* Here we have cb->sa = coordinator address, and PAN address */
 
+	if (ret < 0) {
+		ret = NET_RX_DROP;
+		goto fail;
+	}
+	printk("got beacon from pan %d\n", MAC_CB(skb)->sa.pan_id);
+	ieee80215_beacon_hash_add(&MAC_CB(skb)->sa);
+	ieee80215_beacon_hash_dump();
+	ret = NET_RX_SUCCESS;
+fail:
 	kfree_skb(skb);
 	return ret;
 }
@@ -709,7 +719,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 		goto out;
 	}
 
-	if (!priv->hw.flags & IEEE80215_OPS_OMIT_CKSUM) {
+	if (!(priv->hw.flags & IEEE80215_OPS_OMIT_CKSUM)) {
 		if (skb->len < 2) {
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
@@ -787,15 +797,6 @@ struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *add
 }
 EXPORT_SYMBOL(ieee80215_get_dev);
 
-struct ieee80215_mac *ieee80215_get_mac_bydev(struct net_device *dev)
-{
-	struct ieee80215_netdev_priv *priv;
-	priv = netdev_priv(dev);
-	BUG_ON(!priv);
-	return &priv->mac;
-}
-EXPORT_SYMBOL(ieee80215_get_mac_bydev);
-
 u16 ieee80215_dev_get_pan_id(struct net_device *dev)
 {
 	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
@@ -831,6 +832,14 @@ void ieee80215_dev_set_short_addr(struct net_device *dev, u16 val)
 	BUG_ON(dev->type != ARPHRD_IEEE80215);
 
 	priv->short_addr = val;
+}
+void ieee80215_dev_set_channel(struct net_device *dev, u8 val)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE80215);
+
+	priv->chan = val;
 }
 
 // FIXME: come with better solution
@@ -919,4 +928,11 @@ int ieee80215_slave_event(struct net_device *dev, int event, void *data)
 	return blocking_notifier_call_chain(&priv->events, event, data);
 }
 EXPORT_SYMBOL(ieee80215_slave_event);
+
+/* device should be locked before running */
+void ieee80215_set_pan_id(struct net_device *dev, u16 panid)
+{
+	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
+	priv->pan_id = panid;
+}
 

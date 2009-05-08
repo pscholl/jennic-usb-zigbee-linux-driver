@@ -31,6 +31,7 @@
 #include <net/ieee80215/mac_def.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/beacon.h>
+#include <net/ieee80215/nl.h>
 
 /* Beacon frame format per specification is the followinf:
  * Standard MAC frame header:
@@ -218,6 +219,7 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 
 	/* Supplying our nitifiers with data */
 	ieee80215_slave_event(skb->dev, IEEE80215_NOTIFIER_BEACON, pd);
+	ieee80215_nl_beacon_indic(skb->dev, 0xeba1, 1); /* FIXME */
 	kfree(pd);
 
 	offt += 2;

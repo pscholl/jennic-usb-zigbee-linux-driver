@@ -24,6 +24,8 @@
  */
 #include <linux/net.h>
 #include <linux/module.h>
+
+#include <net/ieee80215/beacon.h>
 #include <net/ieee80215/dev.h>
 #include <net/ieee80215/netdev.h>
 #include <net/ieee80215/mac_def.h>

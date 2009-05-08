@@ -26,9 +26,6 @@
 #ifndef IEEE80215_CONST_H
 #define IEEE80215_CONST_H
 
-/* address length, octets */
-#define IEEE80215_ADDR_LEN	8
-
 #define IEEE80215_ACK_LEN	3	/* Size of acknowledge frame */
 
 /* Time related constants, in microseconds.
@@ -677,7 +674,7 @@ enum ieee80215_mac_rcodes {
 	 * that is not supported.
 	 */
 	IEEE80215_UNSUPPORTED_ATTR = 0xf4,
-	/* 
+	/*
 	 * A request to perform a scan operation failed because the MLME was
 	 * in the process of performing a previously initiated scan operation.
 	 */

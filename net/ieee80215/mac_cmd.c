@@ -41,6 +41,11 @@ static int ieee80215_cmd_beacon_req(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
+	/* Checking if we're really PAN coordinator
+	 * before sending beacons */
+	if (!(skb->dev->priv_flags & IFF_IEEE80215_COORD))
+		return 0;
+
 	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE ||
 	    MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_SHORT ||
 	    MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST ||
