@@ -66,6 +66,7 @@
 #define IFF_SLAVE_NEEDARP 0x40		/* need ARPs for validation	*/
 #define IFF_ISATAP	0x80		/* ISATAP interface (RFC4214)	*/
 #define IFF_MASTER_ARPMON 0x100		/* bonding master, ARP mon in use */
+#define IFF_WAN_HDLC	0x200		/* WAN HDLC device		*/
 
 #define IFF_IEEE80215_COORD 0x100	/* IEEE802.15.4 PAN coordinator */
 
