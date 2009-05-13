@@ -98,7 +98,7 @@ static int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsign
 	dev_load(sock_net(sk), ifr.ifr_name);
 	dev = dev_get_by_name(sock_net(sk), ifr.ifr_name);
 	if (dev->type == ARPHRD_IEEE80215 || dev->type == ARPHRD_IEEE80215_PHY)
-		ret = dev->do_ioctl(dev, &ifr, cmd);
+		ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, cmd);
 
 	if (!ret && copy_to_user(arg, &ifr, sizeof(struct ifreq)))
 		ret = -EFAULT;

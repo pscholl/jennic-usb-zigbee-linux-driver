@@ -332,7 +332,6 @@ static void ieee80215_netdev_setup(struct net_device *dev)
 	dev->hard_header_len	= 2 + 1 + 20 + 14;
 	dev->header_ops		= &ieee80215_header_ops;
 	dev->needed_tailroom	= 2; /* FCS */
-	dev->set_mac_address	= ieee80215_slave_mac_addr;
 	dev->mtu		= 127;
 	dev->tx_queue_len	= 10;
 	dev->type		= ARPHRD_IEEE80215;
@@ -345,6 +344,15 @@ static void ieee80215_init_seq(struct ieee80215_priv *priv)
 	get_random_bytes(&priv->bsn, 1);
 	get_random_bytes(&priv->dsn, 1);
 }
+
+static const struct net_device_ops ieee80215_slave_ops = {
+	.ndo_open		= ieee80215_slave_open,
+	.ndo_stop		= ieee80215_slave_close,
+	.ndo_start_xmit		= ieee80215_net_xmit,
+	.ndo_get_stats		= ieee80215_get_stats,
+	.ndo_do_ioctl		= ieee80215_slave_ioctl,
+	.ndo_set_mac_address	= ieee80215_slave_mac_addr,
+};
 
 int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 {
@@ -368,12 +376,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	memcpy(dev->dev_addr, addr, dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
-	dev->open = ieee80215_slave_open;
-	dev->stop = ieee80215_slave_close;
-	dev->hard_start_xmit = ieee80215_net_xmit;
-	dev->get_stats = ieee80215_get_stats;
 	dev->priv_flags = IFF_SLAVE_INACTIVE;
-	dev->do_ioctl = ieee80215_slave_ioctl;
+	dev->netdev_ops = &ieee80215_slave_ops;
 
 	priv->pan_id = IEEE80215_PANID_DEF;
 	priv->short_addr = IEEE80215_SHORT_ADDRESS_DEF;

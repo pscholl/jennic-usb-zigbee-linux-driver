@@ -155,6 +155,14 @@ static void ieee80215_netdev_setup_master(struct net_device *dev)
 	dev->watchdog_timeo	= 0;
 }
 
+static const struct net_device_ops ieee80215_master_ops = {
+	.ndo_open		= ieee80215_master_open,
+	.ndo_stop		= ieee80215_master_close,
+	.ndo_start_xmit		= ieee80215_master_hard_start_xmit,
+	.ndo_get_stats		= ieee80215_get_master_stats,
+	.ndo_do_ioctl		= ieee80215_master_ioctl,
+};
+
 int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 {
 	struct net_device *dev;
@@ -170,12 +178,8 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	priv->dev = dev;
 	priv->hw = hw;
 	hw->master = dev;
-	dev->open = ieee80215_master_open;
-	dev->stop = ieee80215_master_close;
-	dev->hard_start_xmit = ieee80215_master_hard_start_xmit;
+	dev->netdev_ops = &ieee80215_master_ops;
 	dev->needed_headroom = hw->hw.extra_tx_headroom;
-	dev->get_stats = ieee80215_get_master_stats;
-	dev->do_ioctl = ieee80215_master_ioctl;
 	SET_NETDEV_DEV(dev, hw->hw.parent);
 	register_netdev(dev);
 	return 0;
