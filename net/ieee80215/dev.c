@@ -45,7 +45,6 @@ struct ieee80215_netdev_priv {
 	struct list_head list;
 	struct ieee80215_priv *hw;
 	struct net_device *dev;
-	struct net_device_stats stats;
 
 	__le16 pan_id;
 	__le16 short_addr;
@@ -98,11 +97,6 @@ static int ieee80215_slave_close(struct net_device *dev)
 	return 0;
 }
 
-static struct net_device_stats *ieee80215_get_stats(struct net_device *dev)
-{
-	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
-	return &priv->stats;
-}
 
 static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
@@ -371,7 +365,6 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	dev->open = ieee80215_slave_open;
 	dev->stop = ieee80215_slave_close;
 	dev->hard_start_xmit = ieee80215_net_xmit;
-	dev->get_stats = ieee80215_get_stats;
 	dev->priv_flags = IFF_SLAVE_INACTIVE;
 	dev->do_ioctl = ieee80215_slave_ioctl;
 

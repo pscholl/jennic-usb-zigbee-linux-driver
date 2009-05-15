@@ -29,7 +29,6 @@
 struct ieee80215_mnetdev_priv {
 	struct ieee80215_priv *hw;
 	struct net_device *dev;
-	struct net_device_stats stats;
 };
 
 struct xmit_work {
@@ -125,11 +124,6 @@ static int ieee80215_master_close(struct net_device *dev)
 	priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_FORCE_TRX_OFF);
 	return 0;
 }
-static struct net_device_stats *ieee80215_get_master_stats(struct net_device *dev)
-{
-	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
-	return &priv->stats;
-}
 static int ieee80215_master_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
@@ -174,7 +168,6 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	dev->stop = ieee80215_master_close;
 	dev->hard_start_xmit = ieee80215_master_hard_start_xmit;
 	dev->needed_headroom = hw->hw.extra_tx_headroom;
-	dev->get_stats = ieee80215_get_master_stats;
 	dev->do_ioctl = ieee80215_master_ioctl;
 	SET_NETDEV_DEV(dev, hw->hw.parent);
 	register_netdev(dev);
