@@ -977,7 +977,7 @@ static struct tty_ldisc_ops ieee80215_ldisc = {
 
 static int __init ieee80215_serial_init(void)
 {
-	printk(KERN_INFO "Initializing ZigBee TTY interface");
+	printk(KERN_INFO "Initializing ZigBee TTY interface\n");
 
 	if (tty_register_ldisc(N_IEEE80215, &ieee80215_ldisc) != 0) {
 		printk(KERN_ERR "%s: line discipline register failed\n", __func__);
