@@ -45,7 +45,6 @@ struct ieee80215_netdev_priv {
 	struct list_head list;
 	struct ieee80215_priv *hw;
 	struct net_device *dev;
-	struct net_device_stats stats;
 
 	__le16 pan_id;
 	__le16 short_addr;
@@ -98,11 +97,6 @@ static int ieee80215_slave_close(struct net_device *dev)
 	return 0;
 }
 
-static struct net_device_stats *ieee80215_get_stats(struct net_device *dev)
-{
-	struct ieee80215_netdev_priv *priv = netdev_priv(dev);
-	return &priv->stats;
-}
 
 static int ieee80215_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
@@ -349,7 +343,6 @@ static const struct net_device_ops ieee80215_slave_ops = {
 	.ndo_open		= ieee80215_slave_open,
 	.ndo_stop		= ieee80215_slave_close,
 	.ndo_start_xmit		= ieee80215_net_xmit,
-	.ndo_get_stats		= ieee80215_get_stats,
 	.ndo_do_ioctl		= ieee80215_slave_ioctl,
 	.ndo_set_mac_address	= ieee80215_slave_mac_addr,
 };
