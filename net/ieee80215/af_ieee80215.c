@@ -309,4 +309,4 @@ module_init(af_ieee80215_init);
 module_exit(af_ieee80215_remove);
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_NETPROTO(PF_INET6);
+MODULE_ALIAS_NETPROTO(PF_IEEE80215);
