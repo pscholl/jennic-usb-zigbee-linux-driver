@@ -343,7 +343,6 @@
 /**
  * The sequence number added to the transmitted beacon frame.
  */
-//#define IEEE80215_BSN_DEF			ieee80215_random_range(0, 0xf)
 #define IEEE80215_BSN_MIN			0x0
 #define IEEE80215_BSN_MAX			0xff
 
@@ -363,7 +362,6 @@
 /**
  * The sequence number added to the transmitted data or MAC command frame.
  */
-//#define IEEE80215_DSN_DEF			ieee80215_random_range(0, 0xf)
 #define IEEE80215_DSN_MIN			0x0
 #define IEEE80215_DSN_MAX			0xff
 
