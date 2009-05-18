@@ -28,7 +28,7 @@
 
 enum {
 	IEEE80215_ADDR_NONE = 0x0,
-	// RESERVED = 0x01,
+	/* RESERVED = 0x01, */
 	IEEE80215_ADDR_SHORT = 0x2, /* 16-bit address + PANid */
 	IEEE80215_ADDR_LONG = 0x3, /* 64-bit address + PANid */
 };

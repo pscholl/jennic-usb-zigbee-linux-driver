@@ -131,7 +131,7 @@ static int ieee80215_slave_mac_addr(struct net_device *dev, void *p)
 
 	if (netif_running(dev))
 		return -EBUSY;
-	// FIXME: validate addr
+	/* FIXME: validate addr */
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
 	return 0;
 }
@@ -504,7 +504,7 @@ static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_bu
 	switch (MAC_CB(skb)->da.addr_type) {
 	case IEEE80215_ADDR_NONE:
 		if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE)
-			// FIXME: check if we are PAN coordinator :)
+			/* FIXME: check if we are PAN coordinator :) */
 			skb->pkt_type = PACKET_OTHERHOST;
 		else
 			/* ACK comes with both addresses empty */
@@ -516,7 +516,7 @@ static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_bu
 		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
 		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN))
-			// FIXME: is this correct?
+			/* FIXME: is this correct? */
 			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
@@ -721,7 +721,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
 		}
-		// FIXME: check CRC if necessary
+		/* FIXME: check CRC if necessary */
 		skb_trim(skb, skb->len - 2); /* CRC */
 	}
 
@@ -839,7 +839,7 @@ void ieee80215_dev_set_channel(struct net_device *dev, u8 val)
 	priv->chan = val;
 }
 
-// FIXME: come with better solution
+/* FIXME: come with better solution */
 struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev)
 {
 	struct ieee80215_netdev_priv *priv;

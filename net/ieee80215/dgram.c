@@ -141,7 +141,7 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 			 * of this packet since that is all
 			 * that will be read.
 			 */
-			// FIXME: parse the header for more correct value
+			/* FIXME: parse the header for more correct value */
 			amount = skb->len - (3+8+8);
 		}
 		spin_unlock_bh(&sk->sk_receive_queue.lock);
@@ -152,7 +152,7 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 	return -ENOIOCTLCMD;
 }
 
-// FIXME: autobind
+/* FIXME: autobind */
 static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
 			int len)
 {
@@ -287,7 +287,7 @@ static int dgram_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		copied = len;
 	}
 
-	// FIXME: skip headers if necessary ?!
+	/* FIXME: skip headers if necessary ?! */
 	err = skb_copy_datagram_iovec(skb, 0, msg->msg_iov, copied);
 	if (err)
 		goto done;

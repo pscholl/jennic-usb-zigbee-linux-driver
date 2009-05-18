@@ -127,7 +127,6 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 	u16 sf;
 	u8 gts;
 	u8 pa_spec;
-	// struct ieee80215_address_list *l;
 	int addr16_cnt;
 	int addr64_cnt;
 	struct ieee80215_addr addr;
