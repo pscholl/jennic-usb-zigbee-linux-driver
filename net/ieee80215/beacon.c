@@ -206,7 +206,7 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 	u8 gts_spec;
 	u8 pa_spec;
 	struct ieee80215_priv *hw = ieee80215_slave_get_hw(skb->dev);
-	struct ieee80215_pandsc * pd;
+	struct ieee80215_pandsc *pd;
 	u16 sf = skb->data[0] + (skb->data[1] << 8);
 
 	pd = kzalloc(sizeof(struct ieee80215_pandsc), GFP_KERNEL);

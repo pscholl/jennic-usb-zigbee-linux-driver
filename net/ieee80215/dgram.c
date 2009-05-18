@@ -318,7 +318,7 @@ static int dgram_rcv_skb(struct sock *sk, struct sk_buff *skb)
 int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk, *prev = NULL;
-	struct hlist_node*node;
+	struct hlist_node *node;
 	int ret = NET_RX_SUCCESS;
 
 	/* Data frame processing */

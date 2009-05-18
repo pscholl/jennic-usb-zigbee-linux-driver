@@ -21,8 +21,8 @@
  * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
  */
 
-#ifndef  _AF_IEEE80215_H
-#define  _AF_IEEE80215_H
+#ifndef _AF_IEEE80215_H
+#define _AF_IEEE80215_H
 
 #include <linux/socket.h> /* for sa_family_t */
 
