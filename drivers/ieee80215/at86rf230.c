@@ -324,5 +324,5 @@ static void __exit at86rf230_exit(void)
 module_exit(at86rf230_exit);
 
 MODULE_DESCRIPTION("AT86RF230 Transceiver Driver");
-MODULE_LICENSE("GPLv2");
+MODULE_LICENSE("GPL v2");
 
