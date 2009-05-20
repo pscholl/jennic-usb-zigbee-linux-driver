@@ -140,6 +140,88 @@ at86rf230_read_single(struct at86rf230_local *lp, u8 addr, u8* data)
 	return status;
 }
 
+static int
+at86rf230_write_fbuf(struct at86rf230_local *lp, u8 *buf, u8 len)
+{
+	int status;
+	struct spi_message msg;
+	struct spi_transfer xfer_head = {
+		.len		= 2,
+		.tx_buf		= lp->buf,
+
+	};
+	struct spi_transfer xfer_buf = {
+		.len		= len,
+		.tx_buf		= buf,
+	};
+
+	buf[0] = 0x60;
+	buf[1] = len;
+
+	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
+	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
+
+	spi_message_init(&msg);
+	spi_message_add_tail(&xfer_head, &msg);
+	spi_message_add_tail(&xfer_buf, &msg);
+
+	status = spi_sync(lp->spi, &msg);
+	dev_vdbg(&lp->spi->dev, "status = %d\n", status);
+	if (msg.status)
+		status = msg.status;
+	dev_vdbg(&lp->spi->dev, "status = %d\n", status);
+	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
+	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
+
+	return status;
+}
+
+static int
+at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *buf, u8 *len, u8 *lqi)
+{
+	int status;
+	struct spi_message msg;
+	struct spi_transfer xfer_head = {
+		.len		= 2,
+		.tx_buf		= lp->buf,
+		.rx_buf		= lp->buf,
+
+	};
+	struct spi_transfer xfer_buf = {
+		.len		= *len,
+		.tx_buf		= buf,
+	};
+
+	buf[0] = 0x20;
+	buf[1] = 0;
+
+	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
+	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
+
+	spi_message_init(&msg);
+	spi_message_add_tail(&xfer_head, &msg);
+	spi_message_add_tail(&xfer_buf, &msg);
+
+	status = spi_sync(lp->spi, &msg);
+	dev_vdbg(&lp->spi->dev, "status = %d\n", status);
+	if (msg.status)
+		status = msg.status;
+	dev_vdbg(&lp->spi->dev, "status = %d\n", status);
+	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
+	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
+
+	if (status)
+		return status;
+
+	if (lqi && *len >= lp->buf[1])
+		*lqi = buf[lp->buf[1]];
+
+	*len = lp->buf[1] - 1;
+
+	return status;
+}
+
+
 static irqreturn_t at86rf230_isr(int irq, void *data)
 {
 	struct at86rf230_local *lp = data;
