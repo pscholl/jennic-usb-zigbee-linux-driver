@@ -24,15 +24,19 @@
 #include <linux/interrupt.h>
 #include <linux/gpio.h>
 #include <linux/delay.h>
+#include <linux/mutex.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/at86rf230.h>
 
 struct at86rf230_local {
 	struct spi_device *spi;
+	int rstn, slp_tr, dig2;
+
 	u8 part;
 	u8 vers;
+
 	u8 buf[2];
-	int rstn, slp_tr, dig2;
+	struct mutex bmux;
 };
 
 #define	RG_TRX_STATUS	(0x01)
@@ -115,6 +119,7 @@ at86rf230_write_single(struct at86rf230_local *lp, u8 addr, u8 data)
 		.tx_buf		= buf,
 	};
 
+	mutex_lock(&lp->bmux);
 	buf[0] = (addr & CMD_REG_MASK) | CMD_REG | CMD_WRITE;
 	buf[1] = data;
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
@@ -130,6 +135,7 @@ at86rf230_write_single(struct at86rf230_local *lp, u8 addr, u8 data)
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
 
+	mutex_unlock(&lp->bmux);
 	return status;
 }
 
@@ -145,6 +151,7 @@ at86rf230_read_single(struct at86rf230_local *lp, u8 addr, u8* data)
 		.rx_buf		= buf,
 	};
 
+	mutex_lock(&lp->bmux);
 	buf[0] = (addr & CMD_REG_MASK) | CMD_REG;
 	buf[1] = 0xff;
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
@@ -162,24 +169,27 @@ at86rf230_read_single(struct at86rf230_local *lp, u8 addr, u8* data)
 	if (status == 0)
 		*data = buf[1];
 
+	mutex_unlock(&lp->bmux);
 	return status;
 }
 
 static int
-at86rf230_write_fbuf(struct at86rf230_local *lp, u8 *buf, u8 len)
+at86rf230_write_fbuf(struct at86rf230_local *lp, u8 *data, u8 len)
 {
+	u8 *buf = lp->buf;
 	int status;
 	struct spi_message msg;
 	struct spi_transfer xfer_head = {
 		.len		= 2,
-		.tx_buf		= lp->buf,
+		.tx_buf		= buf,
 
 	};
 	struct spi_transfer xfer_buf = {
 		.len		= len,
-		.tx_buf		= buf,
+		.tx_buf		= data,
 	};
 
+	mutex_lock(&lp->bmux);
 	buf[0] = CMD_WRITE | CMD_FB;
 	buf[1] = len;
 
@@ -198,25 +208,28 @@ at86rf230_write_fbuf(struct at86rf230_local *lp, u8 *buf, u8 len)
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
 
+	mutex_unlock(&lp->bmux);
 	return status;
 }
 
 static int
-at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *buf, u8 *len, u8 *lqi)
+at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 {
+	u8 *buf = lp->buf;
 	int status;
 	struct spi_message msg;
 	struct spi_transfer xfer_head = {
 		.len		= 2,
-		.tx_buf		= lp->buf,
-		.rx_buf		= lp->buf,
+		.tx_buf		= buf,
+		.rx_buf		= buf,
 
 	};
 	struct spi_transfer xfer_buf = {
 		.len		= *len,
-		.tx_buf		= buf,
+		.tx_buf		= data,
 	};
 
+	mutex_lock(&lp->bmux);
 	buf[0] = CMD_FB;
 	buf[1] = *len + 1;
 
@@ -235,13 +248,14 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *buf, u8 *len, u8 *lqi)
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
 
-	if (status)
-		return status;
+	if (!status) {
+		if (lqi && *len >= lp->buf[1])
+			*lqi = buf[lp->buf[1]];
 
-	if (lqi && *len >= lp->buf[1])
-		*lqi = buf[lp->buf[1]];
+		*len = lp->buf[1] - 1;
+	}
 
-	*len = lp->buf[1] - 1;
+	mutex_unlock(&lp->bmux);
 
 	return status;
 }
@@ -279,7 +293,7 @@ static int at86rf230_hw_init(struct at86rf230_local *lp)
 	}
 
 	rc = at86rf230_write_single(lp, RG_IRQ_MASK,
-			IRQ_TRX_UR | IRQ_CCA_ED | IRQ_TRX_END | IRQ_PLL_UNL);
+			IRQ_TRX_UR | IRQ_CCA_ED | IRQ_TRX_END | IRQ_PLL_UNL | IRQ_PLL_LOCK);
 	if (rc)
 		return rc;
 
@@ -362,6 +376,8 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	lp->rstn = pdata->rstn;
 	lp->slp_tr = pdata->slp_tr;
 	lp->dig2 = pdata->dig2;
+
+	mutex_init(&lp->bmux);
 
 	spi_set_drvdata(spi, lp);
 
@@ -446,6 +462,7 @@ err_slp_tr:
 err_rstn:
 err:
 	spi_set_drvdata(spi, NULL);
+	mutex_destroy(&lp->bmux);
 	kfree(lp);
 	return rc;
 }
@@ -460,6 +477,7 @@ static int __devexit at86rf230_remove(struct spi_device *spi)
 	gpio_free(lp->rstn);
 
 	spi_set_drvdata(spi, NULL);
+	mutex_destroy(&lp->bmux);
 	kfree(lp);
 
 	dev_dbg(&spi->dev, "unregistered at86rf230\n");
