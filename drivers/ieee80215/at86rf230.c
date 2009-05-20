@@ -97,15 +97,26 @@ struct at86rf230_local {
 #define IRQ_PLL_UNL	(1 << 1)
 #define IRQ_PLL_LOCK	(1 << 0)
 
-#define STATE_P_ON	0x00
-#define STATE_BUSY_RX	0x01
-#define STATE_BUSY_TX	0x02
-#define STATE_FORCE_TRX_OFF 0x03
-#define STATE_FORCE_PLL_ON 0x04
-#define STATE_RX_ON	0x06
-#define STATE_TRX_OFF	0x08
-#define STATE_PLL_ON	0x09
-#define STATE_SLEEP
+#define STATE_P_ON		0x00
+#define STATE_BUSY_RX		0x01
+#define STATE_BUSY_TX		0x02
+#define STATE_FORCE_TRX_OFF	0x03
+#define STATE_FORCE_PLL_ON	0x04
+/* 0x05 */
+#define STATE_RX_ON		0x06
+/* 0x07 */
+#define STATE_TRX_OFF		0x08
+#define STATE_PLL_ON		0x09
+/* 0x0a - 0x0e */
+#define STATE_SLEEP		0x0F
+#define STATE_BUSY_RX_AACK	0x11
+#define STATE_BUSY_TX_ARET	0x12
+#define STATE_BUSY_RX_AACK_ON	0x16
+#define STATE_BUSY_TX_ARET_ON	0x19
+#define STATE_RX_ON_NOCLK	0x1C
+#define STATE_RX_AACK_ON_NOCLK	0x1D
+#define STATE_BUSY_RX_AACK_NOCLK 0x1E
+#define STATE_TRANSITION_IN_PROGRESS 0x1F
 
 
 static int
