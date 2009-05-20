@@ -35,49 +35,63 @@ struct at86rf230_local {
 	int rstn, slp_tr, dig2;
 };
 
-#define		RG_TRX_STATUS	(0x01)
-#define		RG_TRX_STATE	(0x02)
-#define		RG_TRX_CTRL_0	(0x03)
-#define		RG_TRX_CTRL_1	(0x04)
-#define		RG_PHY_TX_PWR	(0x05)
-#define		RG_PHY_RSSI	(0x06)
-#define		RG_PHY_ED_LEVEL	(0x07)
-#define		RG_PHY_CC_CCA	(0x08)
-#define		RG_CCA_THRES	(0x09)
-#define		RG_RX_CTRL	(0x0a)
-#define		RG_SFD_VALUE	(0x0b)
-#define		RG_TRX_CTRL_2	(0x0c)
-#define		RG_ANT_DIV	(0x0d)
-#define		RG_IRQ_MASK	(0x0e)
-#define		RG_IRQ_STATUS	(0x0f)
-#define		RG_VREG_CTRL	(0x10)
-#define		RG_BATMON	(0x11)
-#define		RG_XOSC_CTRL	(0x12)
-#define		RG_RX_SYN	(0x15)
-#define		RG_XAH_CTRL_1	(0x17)
-#define		RG_FTN_CTRL	(0x18)
-#define		RG_PLL_CF	(0x1a)
-#define		RG_PLL_DCU	(0x1b)
-#define		RG_PART_NUM	(0x1c)
-#define		RG_VERSION_NUM	(0x1d)
-#define		RG_MAN_ID_0	(0x1e)
-#define		RG_MAN_ID_1	(0x1f)
-#define		RG_SHORT_ADDR_0	(0x20)
-#define		RG_SHORT_ADDR_1	(0x21)
-#define		RG_PAN_ID_0	(0x22)
-#define		RG_PAN_ID_1	(0x23)
-#define		RG_IEEE_ADDR_0	(0x24)
-#define		RG_IEEE_ADDR_1	(0x25)
-#define		RG_IEEE_ADDR_2	(0x26)
-#define		RG_IEEE_ADDR_3	(0x27)
-#define		RG_IEEE_ADDR_4	(0x28)
-#define		RG_IEEE_ADDR_5	(0x29)
-#define		RG_IEEE_ADDR_6	(0x2a)
-#define		RG_IEEE_ADDR_7	(0x2b)
-#define		RG_XAH_CTRL_0	(0x2c)
-#define		RG_CSMA_SEED_0	(0x2d)
-#define		RG_CSMA_SEED_1	(0x2e)
-#define		RG_CSMA_BE	(0x2f)
+#define	RG_TRX_STATUS	(0x01)
+#define	RG_TRX_STATE	(0x02)
+#define	RG_TRX_CTRL_0	(0x03)
+#define	RG_TRX_CTRL_1	(0x04)
+#define	RG_PHY_TX_PWR	(0x05)
+#define	RG_PHY_RSSI	(0x06)
+#define	RG_PHY_ED_LEVEL	(0x07)
+#define	RG_PHY_CC_CCA	(0x08)
+#define	RG_CCA_THRES	(0x09)
+#define	RG_RX_CTRL	(0x0a)
+#define	RG_SFD_VALUE	(0x0b)
+#define	RG_TRX_CTRL_2	(0x0c)
+#define	RG_ANT_DIV	(0x0d)
+#define	RG_IRQ_MASK	(0x0e)
+#define	RG_IRQ_STATUS	(0x0f)
+#define	RG_VREG_CTRL	(0x10)
+#define	RG_BATMON	(0x11)
+#define	RG_XOSC_CTRL	(0x12)
+#define	RG_RX_SYN	(0x15)
+#define	RG_XAH_CTRL_1	(0x17)
+#define	RG_FTN_CTRL	(0x18)
+#define	RG_PLL_CF	(0x1a)
+#define	RG_PLL_DCU	(0x1b)
+#define	RG_PART_NUM	(0x1c)
+#define	RG_VERSION_NUM	(0x1d)
+#define	RG_MAN_ID_0	(0x1e)
+#define	RG_MAN_ID_1	(0x1f)
+#define	RG_SHORT_ADDR_0	(0x20)
+#define	RG_SHORT_ADDR_1	(0x21)
+#define	RG_PAN_ID_0	(0x22)
+#define	RG_PAN_ID_1	(0x23)
+#define	RG_IEEE_ADDR_0	(0x24)
+#define	RG_IEEE_ADDR_1	(0x25)
+#define	RG_IEEE_ADDR_2	(0x26)
+#define	RG_IEEE_ADDR_3	(0x27)
+#define	RG_IEEE_ADDR_4	(0x28)
+#define	RG_IEEE_ADDR_5	(0x29)
+#define	RG_IEEE_ADDR_6	(0x2a)
+#define	RG_IEEE_ADDR_7	(0x2b)
+#define	RG_XAH_CTRL_0	(0x2c)
+#define	RG_CSMA_SEED_0	(0x2d)
+#define	RG_CSMA_SEED_1	(0x2e)
+#define	RG_CSMA_BE	(0x2f)
+
+#define CMD_REG		0x80
+#define CMD_REG_MASK	0x3f
+#define CMD_WRITE	0x40
+#define CMD_FB		0x20
+
+#define IRQ_BAT_LOW	(1 << 7)
+#define IRQ_TRX_UR	(1 << 6)
+#define IRQ_AMI		(1 << 5)
+#define IRQ_CCA_ED	(1 << 4)
+#define IRQ_TRX_END	(1 << 3)
+#define IRQ_RX_START	(1 << 2)
+#define IRQ_PLL_UNL	(1 << 1)
+#define iRQ_PLL_LOCK	(1 << 0)
 
 static int
 at86rf230_write_single(struct at86rf230_local *lp, u8 addr, u8 data)
@@ -90,7 +104,7 @@ at86rf230_write_single(struct at86rf230_local *lp, u8 addr, u8 data)
 		.tx_buf		= buf,
 	};
 
-	buf[0] = (addr & 0x3f) | 0x80 | 0x40;
+	buf[0] = (addr & CMD_REG_MASK) | CMD_REG | CMD_WRITE;
 	buf[1] = data;
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
@@ -120,7 +134,7 @@ at86rf230_read_single(struct at86rf230_local *lp, u8 addr, u8* data)
 		.rx_buf		= buf,
 	};
 
-	buf[0] = (addr & 0x3f) | 0x80;
+	buf[0] = (addr & CMD_REG_MASK) | CMD_REG;
 	buf[1] = 0xff;
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	spi_message_init(&msg);
@@ -155,7 +169,7 @@ at86rf230_write_fbuf(struct at86rf230_local *lp, u8 *buf, u8 len)
 		.tx_buf		= buf,
 	};
 
-	buf[0] = 0x60;
+	buf[0] = CMD_WRITE | CMD_FB;
 	buf[1] = len;
 
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
@@ -192,8 +206,8 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *buf, u8 *len, u8 *lqi)
 		.tx_buf		= buf,
 	};
 
-	buf[0] = 0x20;
-	buf[1] = 0;
+	buf[0] = CMD_FB;
+	buf[1] = *len + 1;
 
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
@@ -225,13 +239,54 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *buf, u8 *len, u8 *lqi)
 static irqreturn_t at86rf230_isr(int irq, void *data)
 {
 	struct at86rf230_local *lp = data;
-	struct spi_device *spi = lp->spi;
+	u8 rc;
+	u8 status;
 
-	dev_info(&spi->dev, "IRQ!\n");
+	dev_dbg(&lp->spi->dev, "IRQ!\n");
+#if 0
+	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
+	if (rc)
+		return IRQ_NONE;
+
+	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
+#endif
+
 
 	return IRQ_HANDLED;
 }
 
+
+static int at86rf230_hw_init(struct at86rf230_local *lp)
+{
+	u8 status;
+	int rc;
+
+	rc = at86rf230_write_single(lp, RG_IRQ_MASK,
+			IRQ_TRX_UR | IRQ_CCA_ED | IRQ_TRX_END | IRQ_PLL_UNL);
+	if (rc)
+		return rc;
+
+	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
+	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
+
+	rc = at86rf230_read_single(lp, RG_TRX_STATUS, &status);
+	if (rc)
+		return rc;
+
+	dev_info(&lp->spi->dev, "Status: %02x\n", status);
+	if (status == 0) { /* P_ON */
+		rc = at86rf230_write_single(lp, RG_TRX_STATE, 0x08); /* TRX_OFF */
+		if (rc)
+			return rc;
+		msleep(1);
+		rc = at86rf230_read_single(lp, RG_TRX_STATUS, &status);
+		if (rc)
+			return rc;
+		dev_info(&lp->spi->dev, "Status: %02x\n", status);
+	}
+
+	return 0;
+}
 
 static int at86rf230_suspend(struct spi_device *spi, pm_message_t message)
 {
@@ -250,7 +305,6 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	int rc;
 	const char *chip;
 	int supported = 0;
-	u8 status;
 	struct at86rf230_platform_data *pdata = spi->dev.platform_data;
 
 	if (!lp)
@@ -342,14 +396,9 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 		goto err_irq;
 	}
 
-	at86rf230_read_single(lp, RG_TRX_STATUS, &status);
-	dev_info(&spi->dev, "Status: %02x\n", status);
-	if (status == 0) { /* P_ON */
-		at86rf230_write_single(lp, RG_TRX_STATE, 0x08); /* TRX_OFF */
-		msleep(1);
-		at86rf230_read_single(lp, RG_TRX_STATUS, &status);
-		dev_info(&spi->dev, "Status: %02x\n", status);
-	}
+	rc = at86rf230_hw_init(lp);
+	if (rc)
+		goto err_irq;
 
 	dev_dbg(&spi->dev, "registered at86rf230\n");
 	return rc;
