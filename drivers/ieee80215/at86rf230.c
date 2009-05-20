@@ -91,7 +91,18 @@ struct at86rf230_local {
 #define IRQ_TRX_END	(1 << 3)
 #define IRQ_RX_START	(1 << 2)
 #define IRQ_PLL_UNL	(1 << 1)
-#define iRQ_PLL_LOCK	(1 << 0)
+#define IRQ_PLL_LOCK	(1 << 0)
+
+#define STATE_P_ON	0x00
+#define STATE_BUSY_RX	0x01
+#define STATE_BUSY_TX	0x02
+#define STATE_FORCE_TRX_OFF 0x03
+#define STATE_FORCE_PLL_ON 0x04
+#define STATE_RX_ON	0x06
+#define STATE_TRX_OFF	0x08
+#define STATE_PLL_ON	0x09
+#define STATE_SLEEP
+
 
 static int
 at86rf230_write_single(struct at86rf230_local *lp, u8 addr, u8 data)
@@ -239,18 +250,8 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *buf, u8 *len, u8 *lqi)
 static irqreturn_t at86rf230_isr(int irq, void *data)
 {
 	struct at86rf230_local *lp = data;
-	u8 rc;
-	u8 status;
 
 	dev_dbg(&lp->spi->dev, "IRQ!\n");
-#if 0
-	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
-	if (rc)
-		return IRQ_NONE;
-
-	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
-#endif
-
 
 	return IRQ_HANDLED;
 }
@@ -261,21 +262,13 @@ static int at86rf230_hw_init(struct at86rf230_local *lp)
 	u8 status;
 	int rc;
 
-	rc = at86rf230_write_single(lp, RG_IRQ_MASK,
-			IRQ_TRX_UR | IRQ_CCA_ED | IRQ_TRX_END | IRQ_PLL_UNL);
-	if (rc)
-		return rc;
-
-	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
-	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
-
 	rc = at86rf230_read_single(lp, RG_TRX_STATUS, &status);
 	if (rc)
 		return rc;
 
 	dev_info(&lp->spi->dev, "Status: %02x\n", status);
-	if (status == 0) { /* P_ON */
-		rc = at86rf230_write_single(lp, RG_TRX_STATE, 0x08); /* TRX_OFF */
+	if (status == STATE_P_ON) {
+		rc = at86rf230_write_single(lp, RG_TRX_STATE, STATE_TRX_OFF);
 		if (rc)
 			return rc;
 		msleep(1);
@@ -285,6 +278,48 @@ static int at86rf230_hw_init(struct at86rf230_local *lp)
 		dev_info(&lp->spi->dev, "Status: %02x\n", status);
 	}
 
+	rc = at86rf230_write_single(lp, RG_IRQ_MASK,
+			IRQ_TRX_UR | IRQ_CCA_ED | IRQ_TRX_END | IRQ_PLL_UNL);
+	if (rc)
+		return rc;
+
+	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
+	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
+
+	/* rc = at86rf230_write_single(lp, RG_TRX_CTRL_0, 0x19); */
+	rc = at86rf230_write_single(lp, RG_TRX_CTRL_0, 0x00); /* PAD_IO = 2mA, turn CLKM off */
+	if (rc)
+		return rc;
+
+	msleep(100);
+
+	rc = at86rf230_write_single(lp, RG_TRX_STATE, STATE_PLL_ON);
+	if (rc)
+		return rc;
+	msleep(1);
+#if 0
+	msleep(10);
+	at86rf230_read_single(lp, RG_PLL_CF, &status);
+	status |= 0x80;
+	at86rf230_write_single(lp, RG_PLL_CF, status);
+	msleep(10);
+#endif
+	rc = at86rf230_read_single(lp, RG_TRX_STATUS, &status);
+	if (rc)
+		return rc;
+	dev_info(&lp->spi->dev, "Status: %02x\n", status);
+
+	rc = at86rf230_read_single(lp, RG_VREG_CTRL, &status);
+	if (rc)
+		return rc;
+	if ((status & 0x44) != 0x44) { /* AVDD_OK, DVDD_OK */
+		dev_err(&lp->spi->dev, "Voltage error: %02x\n", status);
+		return -EINVAL;
+	}
+
+	msleep(10);
+	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
+	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
 	return 0;
 }
 
@@ -346,35 +381,30 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	/* Reset */
 	msleep(1);
 	gpio_set_value(lp->rstn, 0);
-
-	rc = request_irq(spi->irq, at86rf230_isr, IRQF_DISABLED, dev_name(&spi->dev), lp);
-	if (rc)
-		goto err_gpio_dir;
-
 	msleep(1);
 	gpio_set_value(lp->rstn, 1);
 	msleep(1);
 
 	rc = at86rf230_read_single(lp, RG_MAN_ID_0, &man_id_0);
 	if (rc)
-		goto err_irq;
+		goto err_gpio_dir;
 	rc = at86rf230_read_single(lp, RG_MAN_ID_1, &man_id_1);
 	if (rc)
-		goto err_irq;
+		goto err_gpio_dir;
 
 	if (man_id_1 != 0x00 || man_id_0 != 0x1f) {
 		dev_err(&spi->dev, "Non-Atmel device found (MAN_ID %02x %02x)\n", man_id_1, man_id_0);
 		rc = -EINVAL;
-		goto err_irq;
+		goto err_gpio_dir;
 	}
 
 	rc = at86rf230_read_single(lp, RG_PART_NUM, &lp->part);
 	if (rc)
-		goto err_irq;
+		goto err_gpio_dir;
 
 	rc = at86rf230_read_single(lp, RG_VERSION_NUM, &lp->vers);
 	if (rc)
-		goto err_irq;
+		goto err_gpio_dir;
 
 	switch (lp->part) {
 	case 2:
@@ -393,17 +423,21 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	dev_info(&spi->dev, "Detected %s chip version %d\n", chip, lp->vers);
 	if (!supported) {
 		rc = -ENOTSUPP;
-		goto err_irq;
+		goto err_gpio_dir;
 	}
 
 	rc = at86rf230_hw_init(lp);
 	if (rc)
-		goto err_irq;
+		goto err_gpio_dir;
+
+	rc = request_irq(spi->irq, at86rf230_isr, IRQF_DISABLED, dev_name(&spi->dev), lp);
+	if (rc)
+		goto err_gpio_dir;
 
 	dev_dbg(&spi->dev, "registered at86rf230\n");
 	return rc;
 
-err_irq:
+/*err_irq: */
 	free_irq(spi->irq, lp);
 err_gpio_dir:
 	gpio_free(lp->slp_tr);
