@@ -208,15 +208,16 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 		goto err_gpio_dir;
 
 	/* Reset */
-	udelay(1);
+	msleep(1);
 	gpio_set_value(lp->rstn, 0);
 
 	rc = request_irq(spi->irq, at86rf230_isr, IRQF_DISABLED, dev_name(&spi->dev), lp);
 	if (rc)
 		goto err_gpio_dir;
 
-	udelay(1);
+	msleep(1);
 	gpio_set_value(lp->rstn, 1);
+	msleep(1);
 
 	rc = at86rf230_read_single(lp, RG_MAN_ID_0, &man_id_0);
 	if (rc)
