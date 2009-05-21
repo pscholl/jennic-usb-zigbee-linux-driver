@@ -30,6 +30,8 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/at86rf230.h>
 
+#include <net/ieee80215/dev.h>
+
 struct at86rf230_local {
 	struct spi_device *spi;
 	int rstn, slp_tr, dig2;
@@ -41,6 +43,8 @@ struct at86rf230_local {
 	struct mutex bmux;
 
 	struct work_struct irqwork;
+
+	struct ieee80215_dev *dev;
 
 	spinlock_t lock;
 	unsigned irq_disabled:1;
@@ -278,6 +282,92 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 	return status;
 }
 
+static phy_status_t
+at86rf230_ed(struct ieee80215_dev *dev, u8 *level)
+{
+	pr_debug("%s\n", __func__);
+	might_sleep();
+	BUG_ON(!level);
+	*level = 0xbe;
+	return PHY_SUCCESS;
+}
+
+static phy_status_t
+at86rf230_cca(struct ieee80215_dev *dev)
+{
+	pr_debug("%s\n", __func__);
+	might_sleep();
+	return PHY_IDLE;
+}
+
+static phy_status_t
+at86rf230_state(struct ieee80215_dev *dev, phy_status_t state)
+{
+	pr_debug("%s %d\n", __func__/*, priv->cur_state*/, state);
+	might_sleep();
+	return PHY_SUCCESS;
+}
+
+static phy_status_t
+at86rf230_channel(struct ieee80215_dev *dev, int channel)
+{
+	pr_debug("%s %d\n", __func__, channel);
+	might_sleep();
+	dev->current_channel = channel;
+
+	return PHY_SUCCESS;
+}
+
+static int
+at86rf230_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
+{
+	pr_debug("%s\n", __func__);
+
+	might_sleep();
+
+	return PHY_SUCCESS;
+}
+
+static struct ieee80215_ops at86rf230_ops = {
+	.owner = THIS_MODULE,
+	.tx = at86rf230_tx,
+	.ed = at86rf230_ed,
+	.cca = at86rf230_cca,
+	.set_trx_state = at86rf230_state,
+	.set_channel = at86rf230_channel,
+};
+
+static int at86rf230_register(struct at86rf230_local *lp)
+{
+	int rc = -ENOMEM;
+
+	lp->dev = ieee80215_alloc_device();
+	if (!lp->dev)
+		goto err_alloc;
+
+	lp->dev->name = dev_name(&lp->spi->dev);
+	lp->dev->priv = lp;
+	lp->dev->parent = &lp->spi->dev;
+
+	rc = ieee80215_register_device(lp->dev, &at86rf230_ops);
+	if (rc)
+		goto err_register;
+
+	return 0;
+
+	ieee80215_unregister_device(lp->dev);
+err_register:
+	ieee80215_free_device(lp->dev);
+err_alloc:
+	return rc;
+}
+
+static void at86rf230_unregister(struct at86rf230_local *lp)
+{
+	ieee80215_unregister_device(lp->dev);
+	ieee80215_free_device(lp->dev);
+}
+
 static void at86rf230_irqwork(struct work_struct *work)
 {
 	struct at86rf230_local *lp = container_of(work, struct at86rf230_local, irqwork);
@@ -499,9 +589,15 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 		goto err_gpio_dir;
 
 	dev_dbg(&spi->dev, "registered at86rf230\n");
+
+	rc = at86rf230_register(lp);
+	if (rc)
+		goto err_irq;
+
 	return rc;
 
-/*err_irq: */
+	at86rf230_unregister(lp);
+err_irq:
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
 err_gpio_dir:
@@ -519,6 +615,8 @@ err:
 static int __devexit at86rf230_remove(struct spi_device *spi)
 {
 	struct at86rf230_local *lp = spi_get_drvdata(spi);
+
+	at86rf230_unregister(lp);
 
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
