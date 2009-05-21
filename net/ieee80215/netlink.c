@@ -1,3 +1,26 @@
+/*
+ * Netlink intefcace for IEEE 802.15.4 stack
+ *
+ * Copyright 2007, 2008 Siemens AG
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Written by:
+ * Sergey Lapin <sergey.lapin@siemens.com>
+ * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
+ */
+
 #include <linux/kernel.h>
 #include <linux/if_arp.h>
 #include <net/netlink.h>
@@ -48,7 +71,7 @@ int ieee80215_nl_assoc_indic(struct net_device *dev, struct ieee80215_addr *addr
 	NLA_PUT_U32(msg, IEEE80215_ATTR_DEV_INDEX, dev->ifindex);
 	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_HW_ADDR, dev->dev_addr);
 
-	// FIXME: check that we really received hw address
+	/* FIXME: check that we really received hw address */
 	NLA_PUT_HW_ADDR(msg, IEEE80215_ATTR_SRC_HW_ADDR, addr->hwaddr);
 
 	NLA_PUT_U8(msg, IEEE80215_ATTR_CAPABILITY, cap);
@@ -290,7 +313,7 @@ static int ieee80215_associate_req(struct sk_buff *skb, struct genl_info *info)
 	saddr.pan_id = IEEE80215_PANID_BROADCAST;
 	memcpy(saddr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN);
 
-	// FIXME: set PIB/MIB info
+	/* FIXME: set PIB/MIB info */
 	ieee80215_dev_set_pan_id(dev, addr.pan_id);
 	ieee80215_dev_set_channel(dev, nla_get_u8(info->attrs[IEEE80215_ATTR_CHANNEL]));
 
@@ -398,7 +421,7 @@ static int ieee80215_disassociate_req(struct sk_buff *skb, struct genl_info *inf
 	buf[pos++] = nla_get_u8(info->attrs[IEEE80215_ATTR_REASON]);
 	ret = ieee80215_send_cmd(dev, &addr, &saddr, buf, pos);
 
-	//FIXME: this should be after the ack receved
+	/* FIXME: this should be after the ack receved */
 	ieee80215_dev_set_pan_id(dev, 0xffff);
 	ieee80215_dev_set_short_addr(dev, 0xffff);
 	ieee80215_nl_disassoc_confirm(dev, 0x00);

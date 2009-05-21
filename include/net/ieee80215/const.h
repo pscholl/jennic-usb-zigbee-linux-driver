@@ -59,7 +59,7 @@
 /** The number of symbols forming a superframe when the superframe order is
  * equal to 0.
  */
-#define IEEE80215_BASE_SFD	IEEE80215_BASE_SD*IEEE80215_NUM_SFS
+#define IEEE80215_BASE_SFD	(IEEE80215_BASE_SD*IEEE80215_NUM_SFS)
 
 /** The 64 bit (IEEE) address assigned to the device. */
 #define IEEE80215_EXT_ADDR		0
@@ -73,7 +73,7 @@
 #define IEEE80215_MAX_BOVERHEAD		75
 
 /** The maximum size, in octets, of a beacon payload. */
-#define IEEE80215_MAX_BPAYLOAD	IEEE80215_MAX_PHY_PACKET_SIZE - IEEE80215_MAX_BOVERHEAD
+#define IEEE80215_MAX_BPAYLOAD	(IEEE80215_MAX_PHY_PACKET_SIZE - IEEE80215_MAX_BOVERHEAD)
 
 /** The number of superframes in which a GTS descriptor exists in the beacon
  * frame of a PAN coordinator.
@@ -105,7 +105,7 @@
 /** The maximum number of octets that can be transmitted in the MAC frame
  * payload field.
  */
-#define IEEE80215_MAX_FRAME_SIZE		IEEE80215_MAX_PHY_PACKET_SIZE - IEEE80215_MAX_FRAME_OVERHEAD
+#define IEEE80215_MAX_FRAME_SIZE		(IEEE80215_MAX_PHY_PACKET_SIZE - IEEE80215_MAX_FRAME_OVERHEAD)
 
 /** The maximum size of an MPDU, in octets, that can be followed by a short
  * interframe spacing (SIFS) period.
@@ -128,7 +128,7 @@
 /** The maximum number of symbols a device shall wait for a response command to
  * be available following a request command.
  */
-#define IEEE80215_RESPONSE_WAIT_TIME	32*IEEE80215_BASE_SFD
+#define IEEE80215_RESPONSE_WAIT_TIME	(32*IEEE80215_BASE_SFD)
 
 /** The number of symbols forming the basic time period used by the CSMA-CA
  * algorithm.
@@ -343,7 +343,6 @@
 /**
  * The sequence number added to the transmitted beacon frame.
  */
-//#define IEEE80215_BSN_DEF			ieee80215_random_range(0, 0xf)
 #define IEEE80215_BSN_MIN			0x0
 #define IEEE80215_BSN_MAX			0xff
 
@@ -363,7 +362,6 @@
 /**
  * The sequence number added to the transmitted data or MAC command frame.
  */
-//#define IEEE80215_DSN_DEF			ieee80215_random_range(0, 0xf)
 #define IEEE80215_DSN_MIN			0x0
 #define IEEE80215_DSN_MAX			0xff
 

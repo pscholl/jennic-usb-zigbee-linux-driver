@@ -28,14 +28,14 @@
 int ieee80215_register_netdev_master(struct ieee80215_priv *hw);
 void ieee80215_unregister_netdev_master(struct ieee80215_priv *hw);
 
-// FIXME: this header should be probably separated, as it contains both driver-specific and stack specific things
+/* FIXME: this header should be probably separated, as it contains both driver-specific and stack specific things */
 void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
 struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev);
 
 struct ieee80215_addr;
 struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *sa);
 
-// FIXME: should be dropped in favour of MIB getting
+/* FIXME: should be dropped in favour of MIB getting */
 u16 ieee80215_dev_get_pan_id(struct net_device *dev);
 u16 ieee80215_dev_get_short_addr(struct net_device *dev);
 void ieee80215_dev_set_pan_id(struct net_device *dev, u16 val);

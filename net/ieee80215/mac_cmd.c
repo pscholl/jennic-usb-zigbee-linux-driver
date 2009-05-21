@@ -75,7 +75,7 @@ static int ieee80215_cmd_assoc_req(struct sk_buff *skb)
 	    MAC_CB(skb)->sa.pan_id != IEEE80215_PANID_BROADCAST)
 		return -EINVAL;
 
-	// FIXME: check that we allow incoming ASSOC requests by consulting MIB
+	/* FIXME: check that we allow incoming ASSOC requests by consulting MIB */
 
 	cap = skb->data[1];
 
@@ -98,7 +98,7 @@ static int ieee80215_cmd_assoc_resp(struct sk_buff *skb)
 	    !(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN))
 		return -EINVAL;
 
-	// FIXME: check that we requested association ?
+	/* FIXME: check that we requested association ? */
 
 	status = skb->data[3];
 	short_addr = skb->data[1] | (skb->data[2] << 8);
@@ -130,9 +130,9 @@ static int ieee80215_cmd_disassoc_notify(struct sk_buff *skb)
 
 	reason = skb->data[1];
 
-	// FIXME: checks if this was our coordinator and the disassoc us
-	// FIXME: if we device, one should receive ->da and not ->sa
-	// FIXME: the status should also help
+	/* FIXME: checks if this was our coordinator and the disassoc us */
+	/* FIXME: if we device, one should receive ->da and not ->sa */
+	/* FIXME: the status should also help */
 
 	return ieee80215_nl_disassoc_indic(skb->dev, &MAC_CB(skb)->sa, reason);
 }

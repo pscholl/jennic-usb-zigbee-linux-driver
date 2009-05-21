@@ -65,7 +65,7 @@ static void ieee80215_xmit_worker(struct work_struct *work)
 	res = xw->priv->hw->ops->tx(&xw->priv->hw->hw, xw->skb);
 
 out:
-	// FIXME: result processing and/or requeue!!!
+	/* FIXME: result processing and/or requeue!!! */
 	dev_kfree_skb(xw->skb);
 
 	xw->priv->hw->ops->set_trx_state(&xw->priv->hw->hw, PHY_RX_ON);
