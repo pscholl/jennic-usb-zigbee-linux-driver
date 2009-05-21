@@ -25,6 +25,8 @@
 #include <linux/gpio.h>
 #include <linux/delay.h>
 #include <linux/mutex.h>
+#include <linux/workqueue.h>
+#include <linux/spinlock.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/at86rf230.h>
 
@@ -37,6 +39,11 @@ struct at86rf230_local {
 
 	u8 buf[2];
 	struct mutex bmux;
+
+	struct work_struct irqwork;
+
+	spinlock_t lock;
+	unsigned irq_disabled:1;
 };
 
 #define	RG_TRX_STATUS	(0x01)
@@ -271,12 +278,46 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 	return status;
 }
 
+static void at86rf230_irqwork(struct work_struct *work)
+{
+	struct at86rf230_local *lp = container_of(work, struct at86rf230_local, irqwork);
+	u8 status = 0, val;
+	int rc;
+	unsigned long flags;
+
+	dev_dbg(&lp->spi->dev, "IRQ Worker\n");
+
+	do {
+		rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &val);
+		status |= val;
+		dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
+
+		status &= ~IRQ_PLL_LOCK; /* ignore */
+
+	} while (status != 0);
+
+	spin_lock_irqsave(&lp->lock, flags);
+	if (lp->irq_disabled) {
+		lp->irq_disabled = 0;
+		enable_irq(lp->spi->irq);
+	}
+	spin_unlock_irqrestore(&lp->lock, flags);
+}
 
 static irqreturn_t at86rf230_isr(int irq, void *data)
 {
 	struct at86rf230_local *lp = data;
 
 	dev_dbg(&lp->spi->dev, "IRQ!\n");
+
+	spin_lock(&lp->lock);
+	if (!lp->irq_disabled) {
+		disable_irq_nosync(irq);
+		lp->irq_disabled = 1;
+	}
+	spin_unlock(&lp->lock);
+
+	schedule_work(&lp->irqwork);
 
 	return IRQ_HANDLED;
 }
@@ -304,12 +345,9 @@ static int at86rf230_hw_init(struct at86rf230_local *lp)
 	}
 
 	rc = at86rf230_write_single(lp, RG_IRQ_MASK,
-			IRQ_TRX_UR | IRQ_CCA_ED | IRQ_TRX_END | IRQ_PLL_UNL | IRQ_PLL_LOCK);
+			/*IRQ_TRX_UR | IRQ_CCA_ED | IRQ_TRX_END | IRQ_PLL_UNL | IRQ_PLL_LOCK*/ 0xff);
 	if (rc)
 		return rc;
-
-	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
-	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
 
 	/* rc = at86rf230_write_single(lp, RG_TRX_CTRL_0, 0x19); */
 	rc = at86rf230_write_single(lp, RG_TRX_CTRL_0, 0x00); /* PAD_IO = 2mA, turn CLKM off */
@@ -342,9 +380,6 @@ static int at86rf230_hw_init(struct at86rf230_local *lp)
 		return -EINVAL;
 	}
 
-	msleep(10);
-	rc = at86rf230_read_single(lp, RG_IRQ_STATUS, &status); /* clear irq */
-	dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
 	return 0;
 }
 
@@ -389,6 +424,8 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	lp->dig2 = pdata->dig2;
 
 	mutex_init(&lp->bmux);
+	INIT_WORK(&lp->irqwork, at86rf230_irqwork);
+	spin_lock_init(&lp->lock);
 
 	spi_set_drvdata(spi, lp);
 
@@ -457,7 +494,7 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	if (rc)
 		goto err_gpio_dir;
 
-	rc = request_irq(spi->irq, at86rf230_isr, IRQF_DISABLED, dev_name(&spi->dev), lp);
+	rc = request_irq(spi->irq, at86rf230_isr, IRQF_SHARED, dev_name(&spi->dev), lp);
 	if (rc)
 		goto err_gpio_dir;
 
@@ -466,6 +503,7 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 
 /*err_irq: */
 	free_irq(spi->irq, lp);
+	flush_work(&lp->irqwork);
 err_gpio_dir:
 	gpio_free(lp->slp_tr);
 err_slp_tr:
@@ -483,6 +521,7 @@ static int __devexit at86rf230_remove(struct spi_device *spi)
 	struct at86rf230_local *lp = spi_get_drvdata(spi);
 
 	free_irq(spi->irq, lp);
+	flush_work(&lp->irqwork);
 
 	gpio_free(lp->slp_tr);
 	gpio_free(lp->rstn);
