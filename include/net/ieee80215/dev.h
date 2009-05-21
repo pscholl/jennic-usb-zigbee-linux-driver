@@ -36,7 +36,7 @@ struct ieee80215_pib {
 #define IEEE80215_PIB_CCAMODE	3 /* CCA mode, u8 6.7.9 */
 
 struct ieee80215_dev {
-	char	*name;
+	const char *name;
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
 	void	*priv;		/* driver-specific data */
 	u32	channel_mask;
