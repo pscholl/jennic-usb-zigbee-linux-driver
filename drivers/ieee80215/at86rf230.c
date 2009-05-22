@@ -248,12 +248,12 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 	};
 	struct spi_transfer xfer_buf = {
 		.len		= *len,
-		.tx_buf		= data,
+		.rx_buf		= data,
 	};
 
 	mutex_lock(&lp->bmux);
 	buf[0] = CMD_FB;
-	buf[1] = *len + 1;
+	buf[1] = 0x00;
 
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
