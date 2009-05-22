@@ -390,6 +390,9 @@ static int at86rf230_register(struct at86rf230_local *lp)
 	lp->dev->name = dev_name(&lp->spi->dev);
 	lp->dev->priv = lp;
 	lp->dev->parent = &lp->spi->dev;
+	lp->dev->extra_tx_headroom = 0;
+	lp->dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
+	lp->dev->flags = IEEE80215_OPS_OMIT_CKSUM;
 
 	rc = ieee80215_register_device(lp->dev, &at86rf230_ops);
 	if (rc)
@@ -425,6 +428,36 @@ static void at86rf230_irqwork(struct work_struct *work)
 		dev_dbg(&lp->spi->dev, "IRQ Status: %02x\n", status);
 
 		status &= ~IRQ_PLL_LOCK; /* ignore */
+		status &= ~IRQ_RX_START; /* ignore */
+		status &= ~IRQ_TRX_UR; /* FIXME: possibly handle ???*/
+
+		if (status & IRQ_TRX_END) {
+
+			// FIXME: handle TX
+			u8 len = 128;
+			u8 lqi = 0;
+			struct sk_buff *skb;
+			int i;
+
+			status &= ~IRQ_TRX_END;
+
+			skb = alloc_skb(len, GFP_KERNEL);
+			if (!skb)
+				break;
+
+			rc = at86rf230_read_fbuf(lp, skb_put(skb, 0), &len, &lqi);
+			if (len < 2) {
+				kfree_skb(skb);
+				continue;
+			}
+
+			skb_put(skb, len-2); /* We do not put CRC into the frame */
+
+			skb_pull(skb, 2); // FIXME: hack for old firmware of mc13192
+			ieee80215_rx_irqsafe(lp->dev, skb, lqi);
+
+			dev_dbg(&lp->spi->dev, "READ_FBUF: %d %d %x\n", rc, len, lqi);
+		}
 
 	} while (status != 0);
 
