@@ -51,6 +51,7 @@ struct at86rf230_local {
 };
 
 #define	RG_TRX_STATUS	(0x01)
+#define	RG_TRX_STATUS_STATUS_MASK	0x1f
 #define	RG_TRX_STATE	(0x02)
 #define	RG_TRX_CTRL_0	(0x03)
 #define	RG_TRX_CTRL_1	(0x04)
@@ -303,9 +304,50 @@ at86rf230_cca(struct ieee80215_dev *dev)
 static phy_status_t
 at86rf230_state(struct ieee80215_dev *dev, phy_status_t state)
 {
+	struct at86rf230_local *lp = dev->priv;
+	int rc;
+	u8 val;
+
 	pr_debug("%s %d\n", __func__/*, priv->cur_state*/, state);
 	might_sleep();
-	return PHY_SUCCESS;
+
+	if (state != PHY_TRX_OFF && state != PHY_RX_ON && state != PHY_TX_ON && state != PHY_FORCE_TRX_OFF)
+		return PHY_INVAL;
+
+	do {
+		rc = at86rf230_read_single(lp, RG_TRX_STATUS, &val);
+		if (rc)
+			goto err;
+		pr_debug("%s val1 = %x\n", __func__, val);
+		val &= RG_TRX_STATUS_STATUS_MASK;
+	} while (val == STATE_TRANSITION_IN_PROGRESS);
+
+	if (val == state)
+		return state;
+
+	/* FIXME: handle all non-standard states here!!! */
+
+	/* state is equal to phy states */
+	rc = at86rf230_write_single(lp, RG_TRX_STATE, state);
+	if (rc)
+		goto err;
+
+	do {
+		rc = at86rf230_read_single(lp, RG_TRX_STATUS, &val);
+		if (rc)
+			goto err;
+		pr_debug("%s val2 = %x\n", __func__, val);
+		val &= RG_TRX_STATUS_STATUS_MASK;
+	} while (val == STATE_TRANSITION_IN_PROGRESS);
+
+	if (val == state)
+		return PHY_SUCCESS;
+
+	return val;
+
+err:
+	pr_err("%s error: %d\n", __func__, rc);
+	return PHY_ERROR;
 }
 
 static phy_status_t
