@@ -108,17 +108,17 @@ struct at86rf230_local {
 #define IRQ_PLL_UNL	(1 << 1)
 #define IRQ_PLL_LOCK	(1 << 0)
 
-#define STATE_P_ON		0x00
+#define STATE_P_ON		0x00	/* BUSY */
 #define STATE_BUSY_RX		0x01
 #define STATE_BUSY_TX		0x02
 #define STATE_FORCE_TRX_OFF	0x03
-#define STATE_FORCE_PLL_ON	0x04
-/* 0x05 */
+#define STATE_FORCE_TX_ON	0x04	/* IDLE */
+/* 0x05 */				/* INVALID_PARAMETER */
 #define STATE_RX_ON		0x06
-/* 0x07 */
+/* 0x07 */				/* SUCCESS */
 #define STATE_TRX_OFF		0x08
-#define STATE_PLL_ON		0x09
-/* 0x0a - 0x0e */
+#define STATE_TX_ON		0x09
+/* 0x0a - 0x0e */			/* 0x0a - UNSUPPORTED_ATTRIBUTE */
 #define STATE_SLEEP		0x0F
 #define STATE_BUSY_RX_AACK	0x11
 #define STATE_BUSY_TX_ARET	0x12
@@ -446,7 +446,7 @@ static int at86rf230_hw_init(struct at86rf230_local *lp)
 
 	msleep(100);
 
-	rc = at86rf230_write_single(lp, RG_TRX_STATE, STATE_PLL_ON);
+	rc = at86rf230_write_single(lp, RG_TRX_STATE, STATE_TX_ON);
 	if (rc)
 		return rc;
 	msleep(1);
