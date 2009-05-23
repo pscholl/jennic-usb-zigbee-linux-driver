@@ -22,11 +22,12 @@
 #include <linux/interrupt.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
+#include <linux/gpio.h>
 
 #include <asm/irq.h>
 #include <mach/hardware.h>
 #include <asm/hardware/scoop.h>
-#include <asm/dma.h>
+#include <mach/dma.h>
 #include <mach/collie.h>
 #include <asm/mach/sharpsl_param.h>
 #include <asm/hardware/sharpsl_pm.h>
@@ -58,6 +59,9 @@ static void collie_charger_init(void)
 		return;
 	}
 
+	gpio_request(COLLIE_GPIO_CHARGE_ON, "charge on");
+	gpio_direction_output(COLLIE_GPIO_CHARGE_ON, 1);
+
 	ucb1x00_io_set_dir(ucb, 0, COLLIE_TC35143_GPIO_MBAT_ON | COLLIE_TC35143_GPIO_TMP_ON |
 			           COLLIE_TC35143_GPIO_BBAT_ON);
 	return;
@@ -73,17 +77,11 @@ static void collie_measure_temp(int on)
 
 static void collie_charge(int on)
 {
-	extern struct platform_device colliescoop_device;
-
 	/* Zaurus seems to contain LTC1731; it should know when to
 	 * stop charging itself, so setting charge on should be
 	 * relatively harmless (as long as it is not done too often).
 	 */
-	if (on) {
-		set_scoop_gpio(&colliescoop_device.dev, COLLIE_SCP_CHARGE_ON);
-	} else {
-		reset_scoop_gpio(&colliescoop_device.dev, COLLIE_SCP_CHARGE_ON);
-	}
+	gpio_set_value(COLLIE_GPIO_CHARGE_ON, on);
 }
 
 static void collie_discharge(int on)
@@ -263,24 +261,24 @@ static int __init collie_pm_ucb_add(struct ucb1x00_dev *pdev)
 }
 
 static struct ucb1x00_driver collie_pm_ucb_driver = {
-	.add            = collie_pm_ucb_add,
+	.add	= collie_pm_ucb_add,
 };
 
 static struct platform_device *collie_pm_device;
 
 static int __init collie_pm_init(void)
 {
-        int ret;
+	int ret;
 
-        collie_pm_device = platform_device_alloc("sharpsl-pm", -1);
-        if (!collie_pm_device)
-                return -ENOMEM;
+	collie_pm_device = platform_device_alloc("sharpsl-pm", -1);
+	if (!collie_pm_device)
+		return -ENOMEM;
 
-        collie_pm_device->dev.platform_data = &collie_pm_machinfo;
-        ret = platform_device_add(collie_pm_device);
+	collie_pm_device->dev.platform_data = &collie_pm_machinfo;
+	ret = platform_device_add(collie_pm_device);
 
-        if (ret)
-                platform_device_put(collie_pm_device);
+	if (ret)
+		platform_device_put(collie_pm_device);
 
 	if (!ret)
 		ret = ucb1x00_register_driver(&collie_pm_ucb_driver);
@@ -291,7 +289,7 @@ static int __init collie_pm_init(void)
 static void __exit collie_pm_exit(void)
 {
 	ucb1x00_unregister_driver(&collie_pm_ucb_driver);
-        platform_device_unregister(collie_pm_device);
+	platform_device_unregister(collie_pm_device);
 }
 
 module_init(collie_pm_init);

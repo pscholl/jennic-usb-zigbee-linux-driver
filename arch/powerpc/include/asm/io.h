@@ -632,6 +632,9 @@ static inline void iosync(void)
  *   ioremap_flags and cannot be hooked (but can be used by a hook on one
  *   of the previous ones)
  *
+ * * __ioremap_caller is the same as above but takes an explicit caller
+ *   reference rather than using __builtin_return_address(0)
+ *
  * * __iounmap, is the low level implementation used by iounmap and cannot
  *   be hooked (but can be used by a hook on iounmap)
  *
@@ -646,6 +649,9 @@ extern void iounmap(volatile void __iomem *addr);
 
 extern void __iomem *__ioremap(phys_addr_t, unsigned long size,
 			       unsigned long flags);
+extern void __iomem *__ioremap_caller(phys_addr_t, unsigned long size,
+				      unsigned long flags, void *caller);
+
 extern void __iounmap(volatile void __iomem *addr);
 
 extern void __iomem * __ioremap_at(phys_addr_t pa, void *ea,
@@ -712,13 +718,6 @@ static inline void * phys_to_virt(unsigned long address)
  * Change "struct page" to physical address.
  */
 #define page_to_phys(page)	((phys_addr_t)page_to_pfn(page) << PAGE_SHIFT)
-
-/* We do NOT want virtual merging, it would put too much pressure on
- * our iommu allocator. Instead, we want drivers to be smart enough
- * to coalesce sglists that happen to have been mapped in a contiguous
- * way by the iommu
- */
-#define BIO_VMERGE_BOUNDARY	0
 
 /*
  * 32 bits still uses virt_to_bus() for it's implementation of DMA

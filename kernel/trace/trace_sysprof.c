@@ -88,7 +88,7 @@ static void backtrace_address(void *data, unsigned long addr, int reliable)
 	}
 }
 
-const static struct stacktrace_ops backtrace_ops = {
+static const struct stacktrace_ops backtrace_ops = {
 	.warning		= backtrace_warning,
 	.warning_symbol		= backtrace_warning_symbol,
 	.stack			= backtrace_stack,
@@ -196,27 +196,19 @@ static enum hrtimer_restart stack_trace_timer_fn(struct hrtimer *hrtimer)
 	return HRTIMER_RESTART;
 }
 
-static void start_stack_timer(int cpu)
+static void start_stack_timer(void *unused)
 {
-	struct hrtimer *hrtimer = &per_cpu(stack_trace_hrtimer, cpu);
+	struct hrtimer *hrtimer = &__get_cpu_var(stack_trace_hrtimer);
 
 	hrtimer_init(hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	hrtimer->function = stack_trace_timer_fn;
-	hrtimer->cb_mode = HRTIMER_CB_IRQSAFE_PERCPU;
 
 	hrtimer_start(hrtimer, ns_to_ktime(sample_period), HRTIMER_MODE_REL);
 }
 
 static void start_stack_timers(void)
 {
-	cpumask_t saved_mask = current->cpus_allowed;
-	int cpu;
-
-	for_each_online_cpu(cpu) {
-		set_cpus_allowed_ptr(current, &cpumask_of_cpu(cpu));
-		start_stack_timer(cpu);
-	}
-	set_cpus_allowed_ptr(current, &saved_mask);
+	on_each_cpu(start_stack_timer, NULL, 1);
 }
 
 static void stop_stack_timer(int cpu)
@@ -234,25 +226,6 @@ static void stop_stack_timers(void)
 		stop_stack_timer(cpu);
 }
 
-static void stack_reset(struct trace_array *tr)
-{
-	int cpu;
-
-	tr->time_start = ftrace_now(tr->cpu);
-
-	for_each_online_cpu(cpu)
-		tracing_reset(tr, cpu);
-}
-
-static void start_stack_trace(struct trace_array *tr)
-{
-	mutex_lock(&sample_timer_lock);
-	stack_reset(tr);
-	start_stack_timers();
-	tracer_enabled = 1;
-	mutex_unlock(&sample_timer_lock);
-}
-
 static void stop_stack_trace(struct trace_array *tr)
 {
 	mutex_lock(&sample_timer_lock);
@@ -261,27 +234,23 @@ static void stop_stack_trace(struct trace_array *tr)
 	mutex_unlock(&sample_timer_lock);
 }
 
-static void stack_trace_init(struct trace_array *tr)
+static int stack_trace_init(struct trace_array *tr)
 {
 	sysprof_trace = tr;
 
-	if (tr->ctrl)
-		start_stack_trace(tr);
+	tracing_start_cmdline_record();
+
+	mutex_lock(&sample_timer_lock);
+	start_stack_timers();
+	tracer_enabled = 1;
+	mutex_unlock(&sample_timer_lock);
+	return 0;
 }
 
 static void stack_trace_reset(struct trace_array *tr)
 {
-	if (tr->ctrl)
-		stop_stack_trace(tr);
-}
-
-static void stack_trace_ctrl_update(struct trace_array *tr)
-{
-	/* When starting a new trace, reset the buffers */
-	if (tr->ctrl)
-		start_stack_trace(tr);
-	else
-		stop_stack_trace(tr);
+	tracing_stop_cmdline_record();
+	stop_stack_trace(tr);
 }
 
 static struct tracer stack_trace __read_mostly =
@@ -289,7 +258,6 @@ static struct tracer stack_trace __read_mostly =
 	.name		= "sysprof",
 	.init		= stack_trace_init,
 	.reset		= stack_trace_reset,
-	.ctrl_update	= stack_trace_ctrl_update,
 #ifdef CONFIG_FTRACE_SELFTEST
 	.selftest    = trace_selftest_startup_sysprof,
 #endif
@@ -346,7 +314,7 @@ sysprof_sample_write(struct file *filp, const char __user *ubuf,
 	return cnt;
 }
 
-static struct file_operations sysprof_sample_fops = {
+static const struct file_operations sysprof_sample_fops = {
 	.read		= sysprof_sample_read,
 	.write		= sysprof_sample_write,
 };
@@ -359,5 +327,5 @@ void init_tracer_sysprof_debugfs(struct dentry *d_tracer)
 			d_tracer, NULL, &sysprof_sample_fops);
 	if (entry)
 		return;
-	pr_warning("Could not create debugfs 'dyn_ftrace_total_info' entry\n");
+	pr_warning("Could not create debugfs 'sysprof_sample_period' entry\n");
 }

@@ -41,6 +41,7 @@ MODULE_AUTHOR("Harald Welte <laforge@netfilter.org>");
 MODULE_DESCRIPTION("IRC (DCC) connection tracking helper");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("ip_conntrack_irc");
+MODULE_ALIAS_NFCT_HELPER("irc");
 
 module_param_array(ports, ushort, &ports_c, 0400);
 MODULE_PARM_DESC(ports, "port numbers of IRC servers");
@@ -65,7 +66,7 @@ static const char *const dccprotos[] = {
  *	ad_beg_p	returns pointer to first byte of addr data
  *	ad_end_p	returns pointer to last byte of addr data
  */
-static int parse_dcc(char *data, const char *data_end, u_int32_t *ip,
+static int parse_dcc(char *data, const char *data_end, __be32 *ip,
 		     u_int16_t *port, char **ad_beg_p, char **ad_end_p)
 {
 	char *tmp;
@@ -84,7 +85,7 @@ static int parse_dcc(char *data, const char *data_end, u_int32_t *ip,
 		return -1;
 
 	*ad_beg_p = data;
-	*ip = simple_strtoul(data, &data, 10);
+	*ip = cpu_to_be32(simple_strtoul(data, &data, 10));
 
 	/* skip blanks between ip and port */
 	while (*data == ' ') {
@@ -111,7 +112,7 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 	int dir = CTINFO2DIR(ctinfo);
 	struct nf_conntrack_expect *exp;
 	struct nf_conntrack_tuple *tuple;
-	u_int32_t dcc_ip;
+	__be32 dcc_ip;
 	u_int16_t dcc_port;
 	__be16 port;
 	int i, ret = NF_ACCEPT;
@@ -156,9 +157,9 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 		/* we have at least (19+MINMATCHLEN)-5 bytes valid data left */
 
 		iph = ip_hdr(skb);
-		pr_debug("DCC found in master %u.%u.%u.%u:%u %u.%u.%u.%u:%u\n",
-			 NIPQUAD(iph->saddr), ntohs(th->source),
-			 NIPQUAD(iph->daddr), ntohs(th->dest));
+		pr_debug("DCC found in master %pI4:%u %pI4:%u\n",
+			 &iph->saddr, ntohs(th->source),
+			 &iph->daddr, ntohs(th->dest));
 
 		for (i = 0; i < ARRAY_SIZE(dccprotos); i++) {
 			if (memcmp(data, dccprotos[i], strlen(dccprotos[i]))) {
@@ -176,19 +177,19 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 				pr_debug("unable to parse dcc command\n");
 				continue;
 			}
-			pr_debug("DCC bound ip/port: %u.%u.%u.%u:%u\n",
-				 HIPQUAD(dcc_ip), dcc_port);
+
+			pr_debug("DCC bound ip/port: %pI4:%u\n",
+				 &dcc_ip, dcc_port);
 
 			/* dcc_ip can be the internal OR external (NAT'ed) IP */
 			tuple = &ct->tuplehash[dir].tuple;
-			if (tuple->src.u3.ip != htonl(dcc_ip) &&
-			    tuple->dst.u3.ip != htonl(dcc_ip)) {
+			if (tuple->src.u3.ip != dcc_ip &&
+			    tuple->dst.u3.ip != dcc_ip) {
 				if (net_ratelimit())
 					printk(KERN_WARNING
-						"Forged DCC command from "
-						"%u.%u.%u.%u: %u.%u.%u.%u:%u\n",
-						NIPQUAD(tuple->src.u3.ip),
-						HIPQUAD(dcc_ip), dcc_port);
+						"Forged DCC command from %pI4: %pI4:%u\n",
+						&tuple->src.u3.ip,
+						&dcc_ip, dcc_port);
 				continue;
 			}
 

@@ -18,7 +18,7 @@ struct netpoll {
 	const char *name;
 	void (*rx_hook)(struct netpoll *, int, char *, int);
 
-	u32 local_ip, remote_ip;
+	__be32 local_ip, remote_ip;
 	u16 local_port, remote_port;
 	u8 remote_mac[ETH_ALEN];
 };
@@ -63,6 +63,13 @@ static inline int netpoll_rx(struct sk_buff *skb)
 	return ret;
 }
 
+static inline int netpoll_rx_on(struct sk_buff *skb)
+{
+	struct netpoll_info *npinfo = skb->dev->npinfo;
+
+	return npinfo && (npinfo->rx_np || npinfo->rx_flags);
+}
+
 static inline int netpoll_receive_skb(struct sk_buff *skb)
 {
 	if (!list_empty(&skb->dev->napi_list))
@@ -94,13 +101,12 @@ static inline void netpoll_poll_unlock(void *have)
 	rcu_read_unlock();
 }
 
-static inline void netpoll_netdev_init(struct net_device *dev)
-{
-	INIT_LIST_HEAD(&dev->napi_list);
-}
-
 #else
 static inline int netpoll_rx(struct sk_buff *skb)
+{
+	return 0;
+}
+static inline int netpoll_rx_on(struct sk_buff *skb)
 {
 	return 0;
 }

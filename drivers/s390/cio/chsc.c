@@ -8,6 +8,9 @@
  *		 Arnd Bergmann (arndb@de.ibm.com)
  */
 
+#define KMSG_COMPONENT "cio"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/init.h>
@@ -16,8 +19,8 @@
 #include <asm/cio.h>
 #include <asm/chpid.h>
 #include <asm/chsc.h>
+#include <asm/crw.h>
 
-#include "../s390mach.h"
 #include "css.h"
 #include "cio.h"
 #include "cio_debug.h"
@@ -333,6 +336,7 @@ static void chsc_process_sei_chp_config(struct chsc_sei_area *sei_area)
 	struct chp_config_data *data;
 	struct chp_id chpid;
 	int num;
+	char *events[3] = {"configure", "deconfigure", "cancel deconfigure"};
 
 	CIO_CRW_EVENT(4, "chsc: channel-path-configuration notification\n");
 	if (sei_area->rs != 0)
@@ -343,8 +347,8 @@ static void chsc_process_sei_chp_config(struct chsc_sei_area *sei_area)
 		if (!chp_test_bit(data->map, num))
 			continue;
 		chpid.id = num;
-		printk(KERN_WARNING "cio: processing configure event %d for "
-		       "chpid %x.%02x\n", data->op, chpid.cssid, chpid.id);
+		pr_notice("Processing %s for channel path %x.%02x\n",
+			  events[data->op], chpid.cssid, chpid.id);
 		switch (data->op) {
 		case 0:
 			chp_cfg_schedule(chpid, 1);
@@ -585,6 +589,7 @@ __chsc_do_secm(struct channel_subsystem *css, int enable, void *page)
 	case 0x0102:
 	case 0x0103:
 		ret = -EINVAL;
+		break;
 	default:
 		ret = chsc_error_from_response(secm_area->response.code);
 	}
@@ -816,7 +821,7 @@ int __init chsc_alloc_sei_area(void)
 			      "chsc machine checks!\n");
 		return -ENOMEM;
 	}
-	ret = s390_register_crw_handler(CRW_RSC_CSS, chsc_process_crw);
+	ret = crw_register_handler(CRW_RSC_CSS, chsc_process_crw);
 	if (ret)
 		kfree(sei_page);
 	return ret;
@@ -824,7 +829,7 @@ int __init chsc_alloc_sei_area(void)
 
 void __init chsc_free_sei_area(void)
 {
-	s390_unregister_crw_handler(CRW_RSC_CSS);
+	crw_unregister_handler(CRW_RSC_CSS);
 	kfree(sei_page);
 }
 

@@ -10,6 +10,7 @@
  *
  * Head.S contains the SH exception handlers and startup code.
  */
+#include <linux/init.h>
 #include <linux/linkage.h>
 #include <asm/thread_info.h>
 
@@ -40,7 +41,7 @@ ENTRY(empty_zero_page)
 1:
 	.skip	PAGE_SIZE - empty_zero_page - 1b
 
-	.section	.text.head, "ax"
+	__HEAD
 
 /*
  * Condition at the entry of _stext:
@@ -80,8 +81,14 @@ ENTRY(_stext)
 	mov.l	7f, r0
 	ldc	r0, r7_bank	! ... and initial thread_info
 #endif
-	
-	!			Clear BSS area
+
+#ifndef CONFIG_SH_NO_BSS_INIT
+	/*
+	 * Don't clear BSS if running on slow platforms such as an RTL simulation,
+	 * remote memory via SHdebug link, etc.  For these the memory can be guaranteed
+	 * to be all zero on boot anyway.
+	 */
+				! Clear BSS area
 #ifdef CONFIG_SMP	
 	mov.l	3f, r0
 	cmp/eq	#0, r0		! skip clear if set to zero
@@ -97,6 +104,8 @@ ENTRY(_stext)
 	 mov.l	r0,@-r2
 
 10:		
+#endif
+
 	!			Additional CPU initialization
 	mov.l	6f, r0
 	jsr	@r0

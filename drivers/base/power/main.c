@@ -23,6 +23,7 @@
 #include <linux/pm.h>
 #include <linux/resume-trace.h>
 #include <linux/rwsem.h>
+#include <linux/interrupt.h>
 
 #include "../base.h"
 #include "power.h"
@@ -76,7 +77,7 @@ void device_pm_add(struct device *dev)
 	if (dev->parent) {
 		if (dev->parent->power.status >= DPM_SUSPENDING)
 			dev_warn(dev, "parent %s should not be sleeping\n",
-				dev->parent->bus_id);
+				 dev_name(dev->parent));
 	} else if (transition_started) {
 		/*
 		 * We refuse to register parentless devices while a PM
@@ -107,12 +108,57 @@ void device_pm_remove(struct device *dev)
 }
 
 /**
+ *	device_pm_move_before - move device in dpm_list
+ *	@deva:  Device to move in dpm_list
+ *	@devb:  Device @deva should come before
+ */
+void device_pm_move_before(struct device *deva, struct device *devb)
+{
+	pr_debug("PM: Moving %s:%s before %s:%s\n",
+		 deva->bus ? deva->bus->name : "No Bus",
+		 kobject_name(&deva->kobj),
+		 devb->bus ? devb->bus->name : "No Bus",
+		 kobject_name(&devb->kobj));
+	/* Delete deva from dpm_list and reinsert before devb. */
+	list_move_tail(&deva->power.entry, &devb->power.entry);
+}
+
+/**
+ *	device_pm_move_after - move device in dpm_list
+ *	@deva:  Device to move in dpm_list
+ *	@devb:  Device @deva should come after
+ */
+void device_pm_move_after(struct device *deva, struct device *devb)
+{
+	pr_debug("PM: Moving %s:%s after %s:%s\n",
+		 deva->bus ? deva->bus->name : "No Bus",
+		 kobject_name(&deva->kobj),
+		 devb->bus ? devb->bus->name : "No Bus",
+		 kobject_name(&devb->kobj));
+	/* Delete deva from dpm_list and reinsert after devb. */
+	list_move(&deva->power.entry, &devb->power.entry);
+}
+
+/**
+ * 	device_pm_move_last - move device to end of dpm_list
+ * 	@dev:   Device to move in dpm_list
+ */
+void device_pm_move_last(struct device *dev)
+{
+	pr_debug("PM: Moving %s:%s to end of list\n",
+		 dev->bus ? dev->bus->name : "No Bus",
+		 kobject_name(&dev->kobj));
+	list_move_tail(&dev->power.entry, &dpm_list);
+}
+
+/**
  *	pm_op - execute the PM operation appropiate for given PM event
  *	@dev:	Device.
  *	@ops:	PM operations to choose from.
  *	@state:	PM transition of the system being carried out.
  */
-static int pm_op(struct device *dev, struct pm_ops *ops, pm_message_t state)
+static int pm_op(struct device *dev, struct dev_pm_ops *ops,
+			pm_message_t state)
 {
 	int error = 0;
 
@@ -174,7 +220,7 @@ static int pm_op(struct device *dev, struct pm_ops *ops, pm_message_t state)
  *	The operation is executed with interrupts disabled by the only remaining
  *	functional CPU in the system.
  */
-static int pm_noirq_op(struct device *dev, struct pm_ext_ops *ops,
+static int pm_noirq_op(struct device *dev, struct dev_pm_ops *ops,
 			pm_message_t state)
 {
 	int error = 0;
@@ -304,7 +350,8 @@ static int resume_device_noirq(struct device *dev, pm_message_t state)
  *	Execute the appropriate "noirq resume" callback for all devices marked
  *	as DPM_OFF_IRQ.
  *
- *	Must be called with interrupts disabled and only one CPU running.
+ *	Must be called under dpm_list_mtx.  Device drivers should not receive
+ *	interrupts while it's being executed.
  */
 static void dpm_power_up(pm_message_t state)
 {
@@ -325,15 +372,13 @@ static void dpm_power_up(pm_message_t state)
  *	device_power_up - Turn on all devices that need special attention.
  *	@state: PM transition of the system being carried out.
  *
- *	Power on system devices, then devices that required we shut them down
- *	with interrupts disabled.
- *
- *	Must be called with interrupts disabled.
+ *	Call the "early" resume handlers and enable device drivers to receive
+ *	interrupts.
  */
 void device_power_up(pm_message_t state)
 {
-	sysdev_resume();
 	dpm_power_up(state);
+	resume_device_irqs();
 }
 EXPORT_SYMBOL_GPL(device_power_up);
 
@@ -354,7 +399,7 @@ static int resume_device(struct device *dev, pm_message_t state)
 	if (dev->bus) {
 		if (dev->bus->pm) {
 			pm_dev_dbg(dev, state, "");
-			error = pm_op(dev, &dev->bus->pm->base, state);
+			error = pm_op(dev, dev->bus->pm, state);
 		} else if (dev->bus->resume) {
 			pm_dev_dbg(dev, state, "legacy ");
 			error = dev->bus->resume(dev);
@@ -451,9 +496,9 @@ static void complete_device(struct device *dev, pm_message_t state)
 		dev->type->pm->complete(dev);
 	}
 
-	if (dev->bus && dev->bus->pm && dev->bus->pm->base.complete) {
+	if (dev->bus && dev->bus->pm && dev->bus->pm->complete) {
 		pm_dev_dbg(dev, state, "completing ");
-		dev->bus->pm->base.complete(dev);
+		dev->bus->pm->complete(dev);
 	}
 
 	up(&dev->sem);
@@ -558,16 +603,17 @@ static int suspend_device_noirq(struct device *dev, pm_message_t state)
  *	device_power_down - Shut down special devices.
  *	@state: PM transition of the system being carried out.
  *
- *	Power down devices that require interrupts to be disabled.
- *	Then power down system devices.
+ *	Prevent device drivers from receiving interrupts and call the "late"
+ *	suspend handlers.
  *
- *	Must be called with interrupts disabled and only one CPU running.
+ *	Must be called under dpm_list_mtx.
  */
 int device_power_down(pm_message_t state)
 {
 	struct device *dev;
 	int error = 0;
 
+	suspend_device_irqs();
 	list_for_each_entry_reverse(dev, &dpm_list, power.entry) {
 		error = suspend_device_noirq(dev, state);
 		if (error) {
@@ -576,10 +622,8 @@ int device_power_down(pm_message_t state)
 		}
 		dev->power.status = DPM_OFF_IRQ;
 	}
-	if (!error)
-		error = sysdev_suspend(state);
 	if (error)
-		dpm_power_up(resume_event(state));
+		device_power_up(resume_event(state));
 	return error;
 }
 EXPORT_SYMBOL_GPL(device_power_down);
@@ -624,7 +668,7 @@ static int suspend_device(struct device *dev, pm_message_t state)
 	if (dev->bus) {
 		if (dev->bus->pm) {
 			pm_dev_dbg(dev, state, "");
-			error = pm_op(dev, &dev->bus->pm->base, state);
+			error = pm_op(dev, dev->bus->pm, state);
 		} else if (dev->bus->suspend) {
 			pm_dev_dbg(dev, state, "legacy ");
 			error = dev->bus->suspend(dev, state);
@@ -685,10 +729,10 @@ static int prepare_device(struct device *dev, pm_message_t state)
 
 	down(&dev->sem);
 
-	if (dev->bus && dev->bus->pm && dev->bus->pm->base.prepare) {
+	if (dev->bus && dev->bus->pm && dev->bus->pm->prepare) {
 		pm_dev_dbg(dev, state, "preparing ");
-		error = dev->bus->pm->base.prepare(dev);
-		suspend_report_result(dev->bus->pm->base.prepare, error);
+		error = dev->bus->pm->prepare(dev);
+		suspend_report_result(dev->bus->pm->prepare, error);
 		if (error)
 			goto End;
 	}

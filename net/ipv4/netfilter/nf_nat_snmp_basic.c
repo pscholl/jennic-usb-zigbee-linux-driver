@@ -930,8 +930,8 @@ static inline void mangle_address(unsigned char *begin,
 		}
 
 		if (debug)
-			printk(KERN_DEBUG "bsalg: mapped %u.%u.%u.%u to "
-			       "%u.%u.%u.%u\n", NIPQUAD(old), NIPQUAD(*addr));
+			printk(KERN_DEBUG "bsalg: mapped %pI4 to %pI4\n",
+			       &old, addr);
 	}
 }
 
@@ -1267,9 +1267,8 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 	 */
 	if (ntohs(udph->len) != skb->len - (iph->ihl << 2)) {
 		 if (net_ratelimit())
-			 printk(KERN_WARNING "SNMP: dropping malformed packet "
-				"src=%u.%u.%u.%u dst=%u.%u.%u.%u\n",
-				NIPQUAD(iph->saddr), NIPQUAD(iph->daddr));
+			 printk(KERN_WARNING "SNMP: dropping malformed packet src=%pI4 dst=%pI4\n",
+				&iph->saddr, &iph->daddr);
 		 return NF_DROP;
 	}
 
@@ -1293,7 +1292,7 @@ static struct nf_conntrack_helper snmp_helper __read_mostly = {
 	.expect_policy		= &snmp_exp_policy,
 	.name			= "snmp",
 	.tuple.src.l3num	= AF_INET,
-	.tuple.src.u.udp.port	= __constant_htons(SNMP_PORT),
+	.tuple.src.u.udp.port	= cpu_to_be16(SNMP_PORT),
 	.tuple.dst.protonum	= IPPROTO_UDP,
 };
 
@@ -1303,7 +1302,7 @@ static struct nf_conntrack_helper snmp_trap_helper __read_mostly = {
 	.expect_policy		= &snmp_exp_policy,
 	.name			= "snmp_trap",
 	.tuple.src.l3num	= AF_INET,
-	.tuple.src.u.udp.port	= __constant_htons(SNMP_TRAP_PORT),
+	.tuple.src.u.udp.port	= cpu_to_be16(SNMP_TRAP_PORT),
 	.tuple.dst.protonum	= IPPROTO_UDP,
 };
 

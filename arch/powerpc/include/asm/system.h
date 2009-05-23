@@ -23,15 +23,17 @@
  * read_barrier_depends() prevents data-dependent loads being reordered
  *	across this point (nop on PPC).
  *
- * We have to use the sync instructions for mb(), since lwsync doesn't
- * order loads with respect to previous stores.  Lwsync is fine for
- * rmb(), though. Note that rmb() actually uses a sync on 32-bit
- * architectures.
+ * *mb() variants without smp_ prefix must order all types of memory
+ * operations with one another. sync is the only instruction sufficient
+ * to do this.
  *
- * For wmb(), we use sync since wmb is used in drivers to order
- * stores to system memory with respect to writes to the device.
- * However, smp_wmb() can be a lighter-weight lwsync or eieio barrier
- * on SMP since it is only used to order updates to system memory.
+ * For the smp_ barriers, ordering is for cacheable memory operations
+ * only. We have to use the sync instruction for smp_mb(), since lwsync
+ * doesn't order loads with respect to previous stores.  Lwsync can be
+ * used for smp_rmb() and smp_wmb().
+ *
+ * However, on CPUs that don't support lwsync, lwsync actually maps to a
+ * heavy-weight sync, so smp_wmb() can be a lighter-weight eieio.
  */
 #define mb()   __asm__ __volatile__ ("sync" : : : "memory")
 #define rmb()  __asm__ __volatile__ ("sync" : : : "memory")
@@ -45,14 +47,14 @@
 #ifdef CONFIG_SMP
 
 #ifdef __SUBARCH_HAS_LWSYNC
-#    define SMPWMB      lwsync
+#    define SMPWMB      LWSYNC
 #else
 #    define SMPWMB      eieio
 #endif
 
 #define smp_mb()	mb()
-#define smp_rmb()	rmb()
-#define smp_wmb()	__asm__ __volatile__ (__stringify(SMPWMB) : : :"memory")
+#define smp_rmb()	__asm__ __volatile__ (stringify_in_c(LWSYNC) : : :"memory")
+#define smp_wmb()	__asm__ __volatile__ (stringify_in_c(SMPWMB) : : :"memory")
 #define smp_read_barrier_depends()	read_barrier_depends()
 #else
 #define smp_mb()	barrier()
@@ -210,7 +212,7 @@ extern struct task_struct *_switch(struct thread_struct *prev,
 extern unsigned int rtas_data;
 extern int mem_init_done;	/* set on boot once kmalloc can be called */
 extern int init_bootmem_done;	/* set on !NUMA once bootmem is available */
-extern unsigned long memory_limit;
+extern phys_addr_t memory_limit;
 extern unsigned long klimit;
 
 extern void *alloc_maybe_bootmem(size_t size, gfp_t mask);
@@ -529,7 +531,7 @@ __cmpxchg_local(volatile void *ptr, unsigned long old, unsigned long new,
 #define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 #endif
 
-#define arch_align_stack(x) (x)
+extern unsigned long arch_align_stack(unsigned long sp);
 
 /* Used in very early kernel initialization. */
 extern unsigned long reloc_offset(void);

@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -33,6 +33,7 @@
 #include <linux/leds.h>
 #include <linux/mutex.h>
 #include <linux/etherdevice.h>
+#include <linux/input-polldev.h>
 
 #include <net/mac80211.h>
 
@@ -44,7 +45,7 @@
 /*
  * Module information.
  */
-#define DRV_VERSION	"2.2.1"
+#define DRV_VERSION	"2.3.0"
 #define DRV_PROJECT	"http://rt2x00.serialmonkey.com"
 
 /*
@@ -92,6 +93,16 @@
 	DEBUG_PRINTK(__dev, KERN_DEBUG, "EEPROM recovery", __msg, ##__args)
 
 /*
+ * Duration calculations
+ * The rate variable passed is: 100kbs.
+ * To convert from bytes to bits we multiply size with 8,
+ * then the size is multiplied with 10 to make the
+ * real rate -> rate argument correction.
+ */
+#define GET_DURATION(__size, __rate)	(((__size) * 8 * 10) / (__rate))
+#define GET_DURATION_RES(__size, __rate)(((__size) * 8 * 10) % (__rate))
+
+/*
  * Standard timing and size defines.
  * These values should follow the ieee80211 specifications.
  */
@@ -109,9 +120,9 @@
 #define DIFS			( PIFS + SLOT_TIME )
 #define SHORT_DIFS		( SHORT_PIFS + SHORT_SLOT_TIME )
 #define EIFS			( SIFS + DIFS + \
-				  (8 * (IEEE80211_HEADER + ACK_SIZE)) )
+				  GET_DURATION(IEEE80211_HEADER + ACK_SIZE, 10) )
 #define SHORT_EIFS		( SIFS + SHORT_DIFS + \
-				  (8 * (IEEE80211_HEADER + ACK_SIZE)) )
+				  GET_DURATION(IEEE80211_HEADER + ACK_SIZE, 10) )
 
 /*
  * Chipset identification
@@ -167,52 +178,41 @@ struct antenna_setup {
  */
 struct link_qual {
 	/*
-	 * Statistics required for Link tuning.
-	 * For the average RSSI value we use the "Walking average" approach.
-	 * When adding RSSI to the average value the following calculation
-	 * is needed:
-	 *
-	 *        avg_rssi = ((avg_rssi * 7) + rssi) / 8;
-	 *
-	 * The advantage of this approach is that we only need 1 variable
-	 * to store the average in (No need for a count and a total).
-	 * But more importantly, normal average values will over time
-	 * move less and less towards newly added values this results
-	 * that with link tuning, the device can have a very good RSSI
-	 * for a few minutes but when the device is moved away from the AP
-	 * the average will not decrease fast enough to compensate.
-	 * The walking average compensates this and will move towards
-	 * the new values correctly allowing a effective link tuning.
+	 * Statistics required for Link tuning by driver
+	 * The rssi value is provided by rt2x00lib during the
+	 * link_tuner() callback function.
+	 * The false_cca field is filled during the link_stats()
+	 * callback function and could be used during the
+	 * link_tuner() callback function.
 	 */
-	int avg_rssi;
+	int rssi;
 	int false_cca;
 
 	/*
-	 * Statistics required for Signal quality calculation.
-	 * For calculating the Signal quality we have to determine
-	 * the total number of success and failed RX and TX frames.
-	 * After that we also use the average RSSI value to help
-	 * determining the signal quality.
-	 * For the calculation we will use the following algorithm:
+	 * VGC levels
+	 * Hardware driver will tune the VGC level during each call
+	 * to the link_tuner() callback function. This vgc_level is
+	 * is determined based on the link quality statistics like
+	 * average RSSI and the false CCA count.
 	 *
-	 *         rssi_percentage = (avg_rssi * 100) / rssi_offset
-	 *         rx_percentage = (rx_success * 100) / rx_total
-	 *         tx_percentage = (tx_success * 100) / tx_total
-	 *         avg_signal = ((WEIGHT_RSSI * avg_rssi) +
-	 *                       (WEIGHT_TX * tx_percentage) +
-	 *                       (WEIGHT_RX * rx_percentage)) / 100
-	 *
-	 * This value should then be checked to not be greated then 100.
+	 * In some cases the drivers need to differentiate between
+	 * the currently "desired" VGC level and the level configured
+	 * in the hardware. The latter is important to reduce the
+	 * number of BBP register reads to reduce register access
+	 * overhead. For this reason we store both values here.
 	 */
-	int rx_percentage;
+	u8 vgc_level;
+	u8 vgc_level_reg;
+
+	/*
+	 * Statistics required for Signal quality calculation.
+	 * These fields might be changed during the link_stats()
+	 * callback function.
+	 */
 	int rx_success;
 	int rx_failed;
-	int tx_percentage;
 	int tx_success;
 	int tx_failed;
-#define WEIGHT_RSSI	20
-#define WEIGHT_RX	40
-#define WEIGHT_TX	40
 };
 
 /*
@@ -276,64 +276,22 @@ struct link {
 	struct link_ant ant;
 
 	/*
-	 * Active VGC level
+	 * Currently active average RSSI value
 	 */
-	int vgc_level;
+	int avg_rssi;
+
+	/*
+	 * Currently precalculated percentages of successful
+	 * TX and RX frames.
+	 */
+	int rx_percentage;
+	int tx_percentage;
 
 	/*
 	 * Work structure for scheduling periodic link tuning.
 	 */
 	struct delayed_work work;
 };
-
-/*
- * Small helper macro to work with moving/walking averages.
- */
-#define MOVING_AVERAGE(__avg, __val, __samples) \
-	( (((__avg) * ((__samples) - 1)) + (__val)) / (__samples) )
-
-/*
- * When we lack RSSI information return something less then -80 to
- * tell the driver to tune the device to maximum sensitivity.
- */
-#define DEFAULT_RSSI	( -128 )
-
-/*
- * Link quality access functions.
- */
-static inline int rt2x00_get_link_rssi(struct link *link)
-{
-	if (link->qual.avg_rssi && link->qual.rx_success)
-		return link->qual.avg_rssi;
-	return DEFAULT_RSSI;
-}
-
-static inline int rt2x00_get_link_ant_rssi(struct link *link)
-{
-	if (link->ant.rssi_ant && link->qual.rx_success)
-		return link->ant.rssi_ant;
-	return DEFAULT_RSSI;
-}
-
-static inline void rt2x00_reset_link_ant_rssi(struct link *link)
-{
-	link->ant.rssi_ant = 0;
-}
-
-static inline int rt2x00_get_link_ant_rssi_history(struct link *link,
-						   enum antenna ant)
-{
-	if (link->ant.rssi_history[ant - ANTENNA_A])
-		return link->ant.rssi_history[ant - ANTENNA_A];
-	return DEFAULT_RSSI;
-}
-
-static inline int rt2x00_update_ant_rssi(struct link *link, int rssi)
-{
-	int old_rssi = link->ant.rssi_history[link->ant.active.rx - ANTENNA_A];
-	link->ant.rssi_history[link->ant.active.rx - ANTENNA_A] = rssi;
-	return old_rssi;
-}
 
 /*
  * Interface structure
@@ -346,13 +304,6 @@ struct rt2x00_intf {
 	 * must be protected with a spinlock.
 	 */
 	spinlock_t lock;
-
-	/*
-	 * BSS configuration. Copied from the structure
-	 * passed to us through the bss_info_changed()
-	 * callback funtion.
-	 */
-	struct ieee80211_bss_conf conf;
 
 	/*
 	 * MAC of the device.
@@ -433,18 +384,6 @@ struct rt2x00lib_conf {
 
 	struct rf_channel rf;
 	struct channel_info channel;
-
-	struct antenna_setup ant;
-
-	enum ieee80211_band band;
-
-	u32 basic_rates;
-	u32 slot_time;
-
-	short sifs;
-	short pifs;
-	short difs;
-	short eifs;
 };
 
 /*
@@ -456,6 +395,15 @@ struct rt2x00lib_erp {
 
 	int ack_timeout;
 	int ack_consume_time;
+
+	u32 basic_rates;
+
+	int slot_time;
+
+	short sifs;
+	short pifs;
+	short difs;
+	short eifs;
 };
 
 /*
@@ -520,9 +468,10 @@ struct rt2x00lib_ops {
 	 */
 	int (*probe_hw) (struct rt2x00_dev *rt2x00dev);
 	char *(*get_firmware_name) (struct rt2x00_dev *rt2x00dev);
-	u16 (*get_firmware_crc) (const void *data, const size_t len);
-	int (*load_firmware) (struct rt2x00_dev *rt2x00dev, const void *data,
-			      const size_t len);
+	int (*check_firmware) (struct rt2x00_dev *rt2x00dev,
+			       const u8 *data, const size_t len);
+	int (*load_firmware) (struct rt2x00_dev *rt2x00dev,
+			      const u8 *data, const size_t len);
 
 	/*
 	 * Device initialization/deinitialization handlers.
@@ -533,10 +482,8 @@ struct rt2x00lib_ops {
 	/*
 	 * queue initialization handlers
 	 */
-	void (*init_rxentry) (struct rt2x00_dev *rt2x00dev,
-			      struct queue_entry *entry);
-	void (*init_txentry) (struct rt2x00_dev *rt2x00dev,
-			      struct queue_entry *entry);
+	bool (*get_entry_state) (struct queue_entry *entry);
+	void (*clear_entry) (struct queue_entry *entry);
 
 	/*
 	 * Radio control handlers.
@@ -546,8 +493,10 @@ struct rt2x00lib_ops {
 	int (*rfkill_poll) (struct rt2x00_dev *rt2x00dev);
 	void (*link_stats) (struct rt2x00_dev *rt2x00dev,
 			    struct link_qual *qual);
-	void (*reset_tuner) (struct rt2x00_dev *rt2x00dev);
-	void (*link_tuner) (struct rt2x00_dev *rt2x00dev);
+	void (*reset_tuner) (struct rt2x00_dev *rt2x00dev,
+			     struct link_qual *qual);
+	void (*link_tuner) (struct rt2x00_dev *rt2x00dev,
+			    struct link_qual *qual, const u32 count);
 
 	/*
 	 * TX control handlers
@@ -557,9 +506,10 @@ struct rt2x00lib_ops {
 			       struct txentry_desc *txdesc);
 	int (*write_tx_data) (struct queue_entry *entry);
 	void (*write_beacon) (struct queue_entry *entry);
-	int (*get_tx_data_len) (struct rt2x00_dev *rt2x00dev,
-				struct sk_buff *skb);
+	int (*get_tx_data_len) (struct queue_entry *entry);
 	void (*kick_tx_queue) (struct rt2x00_dev *rt2x00dev,
+			       const enum data_queue_qid queue);
+	void (*kill_tx_queue) (struct rt2x00_dev *rt2x00dev,
 			       const enum data_queue_qid queue);
 
 	/*
@@ -589,16 +539,11 @@ struct rt2x00lib_ops {
 
 	void (*config_erp) (struct rt2x00_dev *rt2x00dev,
 			    struct rt2x00lib_erp *erp);
+	void (*config_ant) (struct rt2x00_dev *rt2x00dev,
+			    struct antenna_setup *ant);
 	void (*config) (struct rt2x00_dev *rt2x00dev,
 			struct rt2x00lib_conf *libconf,
-			const unsigned int flags);
-#define CONFIG_UPDATE_PHYMODE		( 1 << 1 )
-#define CONFIG_UPDATE_CHANNEL		( 1 << 2 )
-#define CONFIG_UPDATE_TXPOWER		( 1 << 3 )
-#define CONFIG_UPDATE_ANTENNA		( 1 << 4 )
-#define CONFIG_UPDATE_SLOT_TIME 	( 1 << 5 )
-#define CONFIG_UPDATE_BEACON_INT	( 1 << 6 )
-#define CONFIG_UPDATE_ALL		0xffff
+			const unsigned int changed_flags);
 };
 
 /*
@@ -633,7 +578,6 @@ enum rt2x00_flags {
 	DEVICE_STATE_REGISTERED_HW,
 	DEVICE_STATE_INITIALIZED,
 	DEVICE_STATE_STARTED,
-	DEVICE_STATE_STARTED_SUSPEND,
 	DEVICE_STATE_ENABLED_RADIO,
 	DEVICE_STATE_DISABLED_RADIO_HW,
 
@@ -645,6 +589,7 @@ enum rt2x00_flags {
 	DRIVER_REQUIRE_ATIM_QUEUE,
 	DRIVER_REQUIRE_SCHEDULED,
 	DRIVER_REQUIRE_DMA,
+	DRIVER_REQUIRE_COPY_IV,
 
 	/*
 	 * Driver features
@@ -696,8 +641,8 @@ struct rt2x00_dev {
 	unsigned long rfkill_state;
 #define RFKILL_STATE_ALLOCATED		1
 #define RFKILL_STATE_REGISTERED		2
-	struct rfkill *rfkill;
-	struct delayed_work rfkill_work;
+#define RFKILL_STATE_BLOCKED		3
+	struct input_polled_dev *rfkill_poll_dev;
 #endif /* CONFIG_RT2X00_LIB_RFKILL */
 
 	/*
@@ -738,8 +683,7 @@ struct rt2x00_dev {
 
 	/*
 	 * This is the default TX/RX antenna setup as indicated
-	 * by the device's EEPROM. When mac80211 sets its
-	 * antenna value to 0 we should be using these values.
+	 * by the device's EEPROM.
 	 */
 	struct antenna_setup default_ant;
 
@@ -754,16 +698,15 @@ struct rt2x00_dev {
 	} csr;
 
 	/*
-	 * Mutex to protect register accesses on USB devices.
-	 * There are 2 reasons this is needed, one is to ensure
-	 * use of the csr_cache (for USB devices) by one thread
-	 * isn't corrupted by another thread trying to access it.
-	 * The other is that access to BBP and RF registers
-	 * require multiple BUS transactions and if another thread
-	 * attempted to access one of those registers at the same
-	 * time one of the writes could silently fail.
+	 * Mutex to protect register accesses.
+	 * For PCI and USB devices it protects against concurrent indirect
+	 * register access (BBP, RF, MCU) since accessing those
+	 * registers require multiple calls to the CSR registers.
+	 * For USB devices it also protects the csr_cache since that
+	 * field is used for normal CSR access and it cannot support
+	 * multiple callers simultaneously.
 	 */
-	struct mutex usb_cache_mutex;
+	struct mutex csr_mutex;
 
 	/*
 	 * Current packet filter configuration for the device.
@@ -808,14 +751,15 @@ struct rt2x00_dev {
 	short lna_gain;
 
 	/*
-	 * USB Max frame size (for rt2500usb & rt73usb).
-	 */
-	u16 usb_maxpacket;
-
-	/*
 	 * Current TX power value.
 	 */
 	u16 tx_power;
+
+	/*
+	 * Current retry values.
+	 */
+	u8 short_retry;
+	u8 long_retry;
 
 	/*
 	 * Rssi <-> Dbm offset
@@ -926,7 +870,7 @@ static inline char rt2x00_rf(const struct rt2x00_chip *chipset, const u16 chip)
 	return (chipset->rf == chip);
 }
 
-static inline u16 rt2x00_rev(const struct rt2x00_chip *chipset)
+static inline u32 rt2x00_rev(const struct rt2x00_chip *chipset)
 {
 	return chipset->rev;
 }
@@ -936,23 +880,6 @@ static inline u16 rt2x00_check_rev(const struct rt2x00_chip *chipset,
 {
 	return (((chipset->rev & 0xffff0) == rev) &&
 		!!(chipset->rev & 0x0000f));
-}
-
-/*
- * Duration calculations
- * The rate variable passed is: 100kbs.
- * To convert from bytes to bits we multiply size with 8,
- * then the size is multiplied with 10 to make the
- * real rate -> rate argument correction.
- */
-static inline u16 get_duration(const unsigned int size, const u8 rate)
-{
-	return ((size * 8 * 10) / rate);
-}
-
-static inline u16 get_duration_res(const unsigned int size, const u8 rate)
-{
-	return ((size * 8 * 10) % rate);
 }
 
 /**
@@ -997,7 +924,7 @@ int rt2x00mac_add_interface(struct ieee80211_hw *hw,
 			    struct ieee80211_if_init_conf *conf);
 void rt2x00mac_remove_interface(struct ieee80211_hw *hw,
 				struct ieee80211_if_init_conf *conf);
-int rt2x00mac_config(struct ieee80211_hw *hw, struct ieee80211_conf *conf);
+int rt2x00mac_config(struct ieee80211_hw *hw, u32 changed);
 int rt2x00mac_config_interface(struct ieee80211_hw *hw,
 			       struct ieee80211_vif *vif,
 			       struct ieee80211_if_conf *conf);
@@ -1007,7 +934,7 @@ void rt2x00mac_configure_filter(struct ieee80211_hw *hw,
 				int mc_count, struct dev_addr_list *mc_list);
 #ifdef CONFIG_RT2X00_LIB_CRYPTO
 int rt2x00mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
-		      const u8 *local_address, const u8 *address,
+		      struct ieee80211_vif *vif, struct ieee80211_sta *sta,
 		      struct ieee80211_key_conf *key);
 #else
 #define rt2x00mac_set_key	NULL

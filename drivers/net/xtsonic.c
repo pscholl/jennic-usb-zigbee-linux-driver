@@ -108,6 +108,18 @@ static int xtsonic_close(struct net_device *dev)
 	return err;
 }
 
+static const struct net_device_ops xtsonic_netdev_ops = {
+	.ndo_open		= xtsonic_open,
+	.ndo_stop		= xtsonic_close,
+	.ndo_start_xmit		= sonic_send_packet,
+	.ndo_get_stats		= sonic_get_stats,
+	.ndo_set_multicast_list	= sonic_multicast_list,
+	.ndo_tx_timeout		= sonic_tx_timeout,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address	= eth_mac_addr,
+};
+
 static int __init sonic_probe1(struct net_device *dev)
 {
 	static unsigned version_printed = 0;
@@ -183,7 +195,7 @@ static int __init sonic_probe1(struct net_device *dev)
 
 	if (lp->descriptors == NULL) {
 		printk(KERN_ERR "%s: couldn't alloc DMA memory for "
-				" descriptors.\n", lp->device->bus_id);
+				" descriptors.\n", dev_name(lp->device));
 		goto out;
 	}
 
@@ -205,12 +217,7 @@ static int __init sonic_probe1(struct net_device *dev)
 	lp->rra_laddr = lp->rda_laddr + (SIZEOF_SONIC_RD * SONIC_NUM_RDS
 					 * SONIC_BUS_SCALE(lp->dma_bitmode));
 
-	dev->open = xtsonic_open;
-	dev->stop = xtsonic_close;
-	dev->hard_start_xmit	= sonic_send_packet;
-	dev->get_stats		= sonic_get_stats;
-	dev->set_multicast_list	= &sonic_multicast_list;
-	dev->tx_timeout		= sonic_tx_timeout;
+	dev->netdev_ops		= &xtsonic_netdev_ops;
 	dev->watchdog_timeo	= TX_TIMEOUT;
 
 	/*
@@ -239,8 +246,6 @@ int __init xtsonic_probe(struct platform_device *pdev)
 	struct resource *resmem, *resirq;
 	int err = 0;
 
-	DECLARE_MAC_BUF(mac);
-
 	if ((resmem = platform_get_resource(pdev, IORESOURCE_MEM, 0)) == NULL)
 		return -ENODEV;
 
@@ -263,8 +268,8 @@ int __init xtsonic_probe(struct platform_device *pdev)
 	if ((err = register_netdev(dev)))
 		goto out1;
 
-	printk("%s: SONIC ethernet @%08lx, MAC %s, IRQ %d\n", dev->name,
-	       dev->base_addr, print_mac(mac, dev->dev_addr), dev->irq);
+	printk("%s: SONIC ethernet @%08lx, MAC %pM, IRQ %d\n", dev->name,
+	       dev->base_addr, dev->dev_addr, dev->irq);
 
 	return 0;
 

@@ -102,7 +102,7 @@ static int sony_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	}
 
 	ret = sony_set_operational(hdev);
-	if (ret)
+	if (ret < 0)
 		goto err_stop;
 
 	return 0;
@@ -148,5 +148,3 @@ static void sony_exit(void)
 module_init(sony_init);
 module_exit(sony_exit);
 MODULE_LICENSE("GPL");
-
-HID_COMPAT_LOAD_DRIVER(sony);

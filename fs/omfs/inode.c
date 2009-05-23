@@ -37,9 +37,8 @@ struct inode *omfs_new_inode(struct inode *dir, int mode)
 
 	inode->i_ino = new_block;
 	inode->i_mode = mode;
-	inode->i_uid = current->fsuid;
-	inode->i_gid = current->fsgid;
-	inode->i_blocks = 0;
+	inode->i_uid = current_fsuid();
+	inode->i_gid = current_fsgid();
 	inode->i_mapping->a_ops = &omfs_aops;
 
 	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
@@ -263,14 +262,19 @@ static int omfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct super_block *s = dentry->d_sb;
 	struct omfs_sb_info *sbi = OMFS_SB(s);
+	u64 id = huge_encode_dev(s->s_bdev->bd_dev);
+
 	buf->f_type = OMFS_MAGIC;
 	buf->f_bsize = sbi->s_blocksize;
 	buf->f_blocks = sbi->s_num_blocks;
 	buf->f_files = sbi->s_num_blocks;
 	buf->f_namelen = OMFS_NAMELEN;
+	buf->f_fsid.val[0] = (u32)id;
+	buf->f_fsid.val[1] = (u32)(id >> 32);
 
 	buf->f_bfree = buf->f_bavail = buf->f_ffree =
 		omfs_count_free(s);
+
 	return 0;
 }
 
@@ -420,9 +424,9 @@ static int omfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	sb->s_fs_info = sbi;
 
-	sbi->s_uid = current->uid;
-	sbi->s_gid = current->gid;
-	sbi->s_dmask = sbi->s_fmask = current->fs->umask;
+	sbi->s_uid = current_uid();
+	sbi->s_gid = current_gid();
+	sbi->s_dmask = sbi->s_fmask = current_umask();
 
 	if (!parse_options((char *) data, sbi))
 		goto end;

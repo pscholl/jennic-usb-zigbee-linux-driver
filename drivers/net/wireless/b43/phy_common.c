@@ -131,12 +131,16 @@ void b43_radio_lock(struct b43_wldev *dev)
 {
 	u32 macctl;
 
+#if B43_DEBUG
+	B43_WARN_ON(dev->phy.radio_locked);
+	dev->phy.radio_locked = 1;
+#endif
+
 	macctl = b43_read32(dev, B43_MMIO_MACCTL);
-	B43_WARN_ON(macctl & B43_MACCTL_RADIOLOCK);
 	macctl |= B43_MACCTL_RADIOLOCK;
 	b43_write32(dev, B43_MMIO_MACCTL, macctl);
-	/* Commit the write and wait for the device
-	 * to exit any radio register access. */
+	/* Commit the write and wait for the firmware
+	 * to finish any radio register access. */
 	b43_read32(dev, B43_MMIO_MACCTL);
 	udelay(10);
 }
@@ -145,11 +149,15 @@ void b43_radio_unlock(struct b43_wldev *dev)
 {
 	u32 macctl;
 
+#if B43_DEBUG
+	B43_WARN_ON(!dev->phy.radio_locked);
+	dev->phy.radio_locked = 0;
+#endif
+
 	/* Commit any write */
 	b43_read16(dev, B43_MMIO_PHY_VER);
 	/* unlock */
 	macctl = b43_read32(dev, B43_MMIO_MACCTL);
-	B43_WARN_ON(!(macctl & B43_MACCTL_RADIOLOCK));
 	macctl &= ~B43_MACCTL_RADIOLOCK;
 	b43_write32(dev, B43_MMIO_MACCTL, macctl);
 }
@@ -178,13 +186,27 @@ void b43_phy_unlock(struct b43_wldev *dev)
 		b43_power_saving_ctl_bits(dev, 0);
 }
 
+static inline void assert_mac_suspended(struct b43_wldev *dev)
+{
+	if (!B43_DEBUG)
+		return;
+	if ((b43_status(dev) >= B43_STAT_INITIALIZED) &&
+	    (dev->mac_suspended <= 0)) {
+		b43dbg(dev->wl, "PHY/RADIO register access with "
+		       "enabled MAC.\n");
+		dump_stack();
+	}
+}
+
 u16 b43_radio_read(struct b43_wldev *dev, u16 reg)
 {
+	assert_mac_suspended(dev);
 	return dev->phy.ops->radio_read(dev, reg);
 }
 
 void b43_radio_write(struct b43_wldev *dev, u16 reg, u16 value)
 {
+	assert_mac_suspended(dev);
 	dev->phy.ops->radio_write(dev, reg, value);
 }
 
@@ -208,11 +230,13 @@ void b43_radio_maskset(struct b43_wldev *dev, u16 offset, u16 mask, u16 set)
 
 u16 b43_phy_read(struct b43_wldev *dev, u16 reg)
 {
+	assert_mac_suspended(dev);
 	return dev->phy.ops->phy_read(dev, reg);
 }
 
 void b43_phy_write(struct b43_wldev *dev, u16 reg, u16 value)
 {
+	assert_mac_suspended(dev);
 	dev->phy.ops->phy_write(dev, reg, value);
 }
 
@@ -280,8 +304,10 @@ void b43_software_rfkill(struct b43_wldev *dev, enum rfkill_state state)
 		state = RFKILL_STATE_SOFT_BLOCKED;
 	}
 
+	b43_mac_suspend(dev);
 	phy->ops->software_rfkill(dev, state);
 	phy->radio_on = (state == RFKILL_STATE_UNBLOCKED);
+	b43_mac_enable(dev);
 }
 
 /**

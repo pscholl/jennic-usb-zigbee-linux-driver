@@ -28,7 +28,9 @@ struct cpu_usage_stat {
 
 struct kernel_stat {
 	struct cpu_usage_stat	cpustat;
-	unsigned int irqs[NR_IRQS];
+#ifndef CONFIG_GENERIC_HARDIRQS
+       unsigned int irqs[NR_IRQS];
+#endif
 };
 
 DECLARE_PER_CPU(struct kernel_stat, kstat);
@@ -38,6 +40,10 @@ DECLARE_PER_CPU(struct kernel_stat, kstat);
 #define kstat_this_cpu	__get_cpu_var(kstat)
 
 extern unsigned long long nr_context_switches(void);
+
+#ifndef CONFIG_GENERIC_HARDIRQS
+#define kstat_irqs_this_cpu(irq) \
+	(kstat_this_cpu.irqs[irq])
 
 struct irq_desc;
 
@@ -51,6 +57,15 @@ static inline unsigned int kstat_irqs_cpu(unsigned int irq, int cpu)
 {
        return kstat_cpu(cpu).irqs[irq];
 }
+#else
+#include <linux/irq.h>
+extern unsigned int kstat_irqs_cpu(unsigned int irq, int cpu);
+#define kstat_irqs_this_cpu(DESC) \
+	((DESC)->kstat_irqs[smp_processor_id()])
+#define kstat_incr_irqs_this_cpu(irqno, DESC) \
+	((DESC)->kstat_irqs[smp_processor_id()]++)
+
+#endif
 
 /*
  * Number of interrupts per specific IRQ source, since bootup
@@ -67,10 +82,13 @@ static inline unsigned int kstat_irqs(unsigned int irq)
 }
 
 extern unsigned long long task_delta_exec(struct task_struct *);
-extern void account_user_time(struct task_struct *, cputime_t);
-extern void account_user_time_scaled(struct task_struct *, cputime_t);
-extern void account_system_time(struct task_struct *, int, cputime_t);
-extern void account_system_time_scaled(struct task_struct *, cputime_t);
-extern void account_steal_time(struct task_struct *, cputime_t);
+extern void account_user_time(struct task_struct *, cputime_t, cputime_t);
+extern void account_system_time(struct task_struct *, int, cputime_t, cputime_t);
+extern void account_steal_time(cputime_t);
+extern void account_idle_time(cputime_t);
+
+extern void account_process_tick(struct task_struct *, int user);
+extern void account_steal_ticks(unsigned long ticks);
+extern void account_idle_ticks(unsigned long ticks);
 
 #endif /* _LINUX_KERNEL_STAT_H */

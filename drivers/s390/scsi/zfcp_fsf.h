@@ -127,10 +127,6 @@
 #define FSF_STATUS_READ_CFDC_UPDATED		0x0000000A
 #define FSF_STATUS_READ_FEATURE_UPDATE_ALERT	0x0000000C
 
-/* status subtypes in status read buffer */
-#define FSF_STATUS_READ_SUB_CLOSE_PHYS_PORT	0x00000001
-#define FSF_STATUS_READ_SUB_ERROR_PORT		0x00000002
-
 /* status subtypes for link down */
 #define FSF_STATUS_READ_SUB_NO_PHYSICAL_LINK	0x00000000
 #define FSF_STATUS_READ_SUB_FDISC_FAILED	0x00000001
@@ -164,6 +160,7 @@
 #define FSF_FEATURE_LUN_SHARING			0x00000004
 #define FSF_FEATURE_NOTIFICATION_LOST		0x00000008
 #define FSF_FEATURE_HBAAPI_MANAGEMENT           0x00000010
+#define FSF_FEATURE_ELS_CT_CHAINED_SBALS	0x00000020
 #define FSF_FEATURE_UPDATE_ALERT		0x00000100
 #define FSF_FEATURE_MEASUREMENT_DATA		0x00000200
 
@@ -322,6 +319,7 @@ struct fsf_nport_serv_param {
 	u8  vendor_version_level[16];
 } __attribute__ ((packed));
 
+#define FSF_PLOGI_MIN_LEN	112
 struct fsf_plogi {
 	u32    code;
 	struct fsf_nport_serv_param serv_param;

@@ -28,10 +28,6 @@
 #define WM8580_CLKSRC_OSC  4
 #define WM8580_CLKSRC_NONE 5
 
-struct wm8580_setup_data {
-	unsigned short i2c_address;
-};
-
 #define WM8580_DAI_PAIFRX 0
 #define WM8580_DAI_PAIFTX 1
 

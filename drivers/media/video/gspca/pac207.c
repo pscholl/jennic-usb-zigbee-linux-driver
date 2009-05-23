@@ -1,7 +1,7 @@
 /*
  * Pixart PAC207BCA library
  *
- * Copyright (C) 2008 Hans de Goede <j.w.r.degoede@hhs.nl>
+ * Copyright (C) 2008 Hans de Goede <hdgoede@redhat.com>
  * Copyright (C) 2005 Thomas Kaiser thomas@kaiser-linux.li
  * Copyleft (C) 2005 Michel Xhaard mxhaard@magic.fr
  *
@@ -27,7 +27,7 @@
 
 #include "gspca.h"
 
-MODULE_AUTHOR("Hans de Goede <j.w.r.degoede@hhs.nl>");
+MODULE_AUTHOR("Hans de Goede <hdgoede@redhat.com>");
 MODULE_DESCRIPTION("Pixart PAC207");
 MODULE_LICENSE("GPL");
 
@@ -149,7 +149,7 @@ static struct ctrl sd_ctrls[] = {
 	},
 };
 
-static struct v4l2_pix_format sif_mode[] = {
+static const struct v4l2_pix_format sif_mode[] = {
 	{176, 144, V4L2_PIX_FMT_PAC207, V4L2_FIELD_NONE,
 		.bytesperline = 176,
 		.sizeimage = (176 + 2) * 144,
@@ -256,7 +256,6 @@ static int sd_config(struct gspca_dev *gspca_dev,
 		" (vid/pid 0x%04X:0x%04X)", id->idVendor, id->idProduct);
 
 	cam = &gspca_dev->cam;
-	cam->epaddr = 0x05;
 	cam->cam_mode = sif_mode;
 	cam->nmodes = ARRAY_SIZE(sif_mode);
 	sd->brightness = PAC207_BRIGHTNESS_DEFAULT;
@@ -529,13 +528,16 @@ static const struct sd_desc sd_desc = {
 static const __devinitdata struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x041e, 0x4028)},
 	{USB_DEVICE(0x093a, 0x2460)},
+	{USB_DEVICE(0x093a, 0x2461)},
 	{USB_DEVICE(0x093a, 0x2463)},
 	{USB_DEVICE(0x093a, 0x2464)},
 	{USB_DEVICE(0x093a, 0x2468)},
 	{USB_DEVICE(0x093a, 0x2470)},
 	{USB_DEVICE(0x093a, 0x2471)},
 	{USB_DEVICE(0x093a, 0x2472)},
+	{USB_DEVICE(0x093a, 0x2474)},
 	{USB_DEVICE(0x093a, 0x2476)},
+	{USB_DEVICE(0x145f, 0x013a)},
 	{USB_DEVICE(0x2001, 0xf115)},
 	{}
 };
@@ -563,8 +565,10 @@ static struct usb_driver sd_driver = {
 /* -- module insert / remove -- */
 static int __init sd_mod_init(void)
 {
-	if (usb_register(&sd_driver) < 0)
-		return -1;
+	int ret;
+	ret = usb_register(&sd_driver);
+	if (ret < 0)
+		return ret;
 	PDEBUG(D_PROBE, "registered");
 	return 0;
 }

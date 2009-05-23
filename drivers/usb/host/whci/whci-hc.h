@@ -185,6 +185,7 @@ struct whc_qhead {
 #define QH_STATUS_FLOW_CTRL      (1 << 15)
 #define QH_STATUS_ICUR(i)        ((i) << 5)
 #define QH_STATUS_TO_ICUR(s)     (((s) >> 5) & 0x7)
+#define QH_STATUS_SEQ_MASK       0x1f
 
 /**
  * usb_pipe_to_qh_type - USB core pipe type to QH transfer type
@@ -410,6 +411,8 @@ struct dn_buf_entry {
 #  define WUSBDNTSCTRL_SLOTS(s)    ((s) << 0)
 
 #define WUSBTIME             0x68
+#  define WUSBTIME_CHANNEL_TIME_MASK 0x00ffffff
+
 #define WUSBBPST             0x6c
 #define WUSBDIBUPDATED       0x70
 

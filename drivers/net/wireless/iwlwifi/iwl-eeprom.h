@@ -5,7 +5,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2008 Intel Corporation. All rights reserved.
+ * Copyright(c) 2008 - 2009 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -25,12 +25,12 @@
  * in the file called LICENSE.GPL.
  *
  * Contact Information:
- * Tomas Winkler <tomas.winkler@intel.com>
+ *  Intel Linux Wireless <ilw@linux.intel.com>
  * Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
  *
  * BSD LICENSE
  *
- * Copyright(c) 2005 - 2008 Intel Corporation. All rights reserved.
+ * Copyright(c) 2005 - 2009 Intel Corporation. All rights reserved.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -68,17 +68,14 @@ struct iwl_priv;
 /*
  * EEPROM access time values:
  *
- * Driver initiates EEPROM read by writing byte address << 1 to CSR_EEPROM_REG,
- *   then clearing (with subsequent read/modify/write) CSR_EEPROM_REG bit
- *   CSR_EEPROM_REG_BIT_CMD (0x2).
+ * Driver initiates EEPROM read by writing byte address << 1 to CSR_EEPROM_REG.
  * Driver then polls CSR_EEPROM_REG for CSR_EEPROM_REG_READ_VALID_MSK (0x1).
  * When polling, wait 10 uSec between polling loops, up to a maximum 5000 uSec.
  * Driver reads 16-bit value from bits 31-16 of CSR_EEPROM_REG.
  */
 #define IWL_EEPROM_ACCESS_TIMEOUT	5000 /* uSec */
-#define IWL_EEPROM_ACCESS_DELAY		10   /* uSec */
 
-#define IWL_EEPROM_SEM_TIMEOUT 		10   /* milliseconds */
+#define IWL_EEPROM_SEM_TIMEOUT 		10   /* microseconds */
 #define IWL_EEPROM_SEM_RETRY_LIMIT	1000 /* number of attempts (not time) */
 
 
@@ -121,6 +118,9 @@ struct iwl_eeprom_channel {
 	s8 max_power_avg;	/* max power (dBm) on this chnl, limit 31 */
 } __attribute__ ((packed));
 
+/* 3945 Specific */
+#define EEPROM_3945_EEPROM_VERSION	(0x2f)
+
 /* 4965 has two radio transmitters (and 3 radio receivers) */
 #define EEPROM_TX_POWER_TX_CHAINS      (2)
 
@@ -147,6 +147,7 @@ struct iwl_eeprom_channel {
 /*5000 calibrations */
 #define EEPROM_5000_CALIB_ALL	(INDIRECT_ADDRESS | INDIRECT_CALIBRATION)
 #define EEPROM_5000_XTAL	((2*0x128) | EEPROM_5000_CALIB_ALL)
+#define EEPROM_5000_TEMPERATURE ((2*0x12A) | EEPROM_5000_CALIB_ALL)
 
 /* 5000 links */
 #define EEPROM_5000_LINK_HOST             (2*0x64)
@@ -174,6 +175,9 @@ struct iwl_eeprom_channel {
 #define EEPROM_5000_REG_BAND_52_FAT_CHANNELS  ((0x92)\
 		| INDIRECT_ADDRESS | INDIRECT_REGULATORY)   /* 22  bytes */
 
+/* 5050 Specific */
+#define EEPROM_5050_TX_POWER_VERSION    (4)
+#define EEPROM_5050_EEPROM_VERSION	(0x21E)
 
 /* 2.4 GHz */
 extern const u8 iwl_eeprom_band_1[14];
@@ -366,12 +370,14 @@ struct iwl_eeprom_calib_info {
  */
 #define EEPROM_4965_REGULATORY_BAND_52_FAT_CHANNELS (2*0xA8)	/* 22 bytes */
 
+#define EEPROM_REGULATORY_BAND_NO_FAT			(0)
+
 struct iwl_eeprom_ops {
 	const u32 regulatory_bands[7];
 	int (*verify_signature) (struct iwl_priv *priv);
 	int (*acquire_semaphore) (struct iwl_priv *priv);
 	void (*release_semaphore) (struct iwl_priv *priv);
-	int (*check_version) (struct iwl_priv *priv);
+	u16 (*calib_version) (struct iwl_priv *priv);
 	const u8* (*query_addr) (const struct iwl_priv *priv, size_t offset);
 };
 

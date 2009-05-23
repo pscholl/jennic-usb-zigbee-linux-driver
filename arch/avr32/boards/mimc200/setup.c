@@ -24,7 +24,7 @@ extern struct atmel_lcdfb_info mimc200_lcdc_data;
 #include <video/atmel_lcdc.h>
 #include <linux/fb.h>
 
-#include <asm/atmel-mci.h>
+#include <linux/atmel-mci.h>
 #include <linux/io.h>
 #include <asm/setup.h>
 
@@ -175,10 +175,10 @@ static void __init set_hw_addr(struct platform_device *pdev)
 
 void __init setup_board(void)
 {
-	at32_map_usart(0, 0);	/* USART 0: /dev/ttyS0 (TTL --> Altera) */
-	at32_map_usart(1, 1);	/* USART 1: /dev/ttyS1 (RS232) */
-	at32_map_usart(2, 2);	/* USART 2: /dev/ttyS2 (RS485) */
-	at32_map_usart(3, 3);	/* USART 3: /dev/ttyS3 (RS422 Multidrop) */
+	at32_map_usart(0, 0, 0);	/* USART 0: /dev/ttyS0 (TTL --> Altera) */
+	at32_map_usart(1, 1, 0);	/* USART 1: /dev/ttyS1 (RS232) */
+	at32_map_usart(2, 2, 0);	/* USART 2: /dev/ttyS2 (RS485) */
+	at32_map_usart(3, 3, 0);	/* USART 3: /dev/ttyS3 (RS422 Multidrop) */
 }
 
 static struct i2c_gpio_platform_data i2c_gpio_data = {
@@ -206,8 +206,6 @@ static int __init mimc200_init(void)
 	 * MIMC200 uses 16-bit SDRAM interface, so we don't need to
 	 * reserve any pins for it.
 	 */
-
-	at32_add_system_devices();
 
 	at32_add_device_usart(0);
 	at32_add_device_usart(1);

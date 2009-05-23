@@ -166,7 +166,7 @@ static void timer_trig_activate(struct led_classdev *led_cdev)
 
 	timer_data->brightness_on = led_get_brightness(led_cdev);
 	if (timer_data->brightness_on == LED_OFF)
-		timer_data->brightness_on = LED_FULL;
+		timer_data->brightness_on = led_cdev->max_brightness;
 	led_cdev->trigger_data = timer_data;
 
 	init_timer(&timer_data->timer);
@@ -199,6 +199,7 @@ err_out:
 static void timer_trig_deactivate(struct led_classdev *led_cdev)
 {
 	struct timer_trig_data *timer_data = led_cdev->trigger_data;
+	unsigned long on = 0, off = 0;
 
 	if (timer_data) {
 		device_remove_file(led_cdev->dev, &dev_attr_delay_on);
@@ -206,6 +207,10 @@ static void timer_trig_deactivate(struct led_classdev *led_cdev)
 		del_timer_sync(&timer_data->timer);
 		kfree(timer_data);
 	}
+
+	/* If there is hardware support for blinking, stop it */
+	if (led_cdev->blink_set)
+		led_cdev->blink_set(led_cdev, &on, &off);
 }
 
 static struct led_trigger timer_led_trigger = {

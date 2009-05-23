@@ -14,16 +14,7 @@
 #ifndef __ASM_ARCH_REGS_GPIO_H
 #define __ASM_ARCH_REGS_GPIO_H
 
-#define S3C2410_GPIONO(bank,offset) ((bank) + (offset))
-
-#define S3C2410_GPIO_BANKA   (32*0)
-#define S3C2410_GPIO_BANKB   (32*1)
-#define S3C2410_GPIO_BANKC   (32*2)
-#define S3C2410_GPIO_BANKD   (32*3)
-#define S3C2410_GPIO_BANKE   (32*4)
-#define S3C2410_GPIO_BANKF   (32*5)
-#define S3C2410_GPIO_BANKG   (32*6)
-#define S3C2410_GPIO_BANKH   (32*7)
+#include <mach/gpio-nrs.h>
 
 #ifdef CONFIG_CPU_S3C2400
 #define S3C24XX_GPIO_BASE(x)  S3C2400_GPIO_BASE(x)
@@ -1052,13 +1043,6 @@
 #define S3C24XX_EXTINT0	   S3C24XX_GPIOREG2(0x88)
 #define S3C24XX_EXTINT1	   S3C24XX_GPIOREG2(0x8C)
 #define S3C24XX_EXTINT2	   S3C24XX_GPIOREG2(0x90)
-
-/* values for S3C2410_EXTINT0/1/2 */
-#define S3C2410_EXTINT_LOWLEV	 (0x00)
-#define S3C2410_EXTINT_HILEV	 (0x01)
-#define S3C2410_EXTINT_FALLEDGE	 (0x02)
-#define S3C2410_EXTINT_RISEEDGE	 (0x04)
-#define S3C2410_EXTINT_BOTHEDGE	 (0x06)
 
 /* interrupt filtering conrrol for EINT16..EINT23 */
 #define S3C2410_EINFLT0	   S3C2410_GPIOREG(0x94)

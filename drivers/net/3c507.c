@@ -352,12 +352,21 @@ out:
 	return ERR_PTR(err);
 }
 
+static const struct net_device_ops netdev_ops = {
+	.ndo_open		= el16_open,
+	.ndo_stop		= el16_close,
+	.ndo_start_xmit 	= el16_send_packet,
+	.ndo_tx_timeout 	= el16_tx_timeout,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 static int __init el16_probe1(struct net_device *dev, int ioaddr)
 {
 	static unsigned char init_ID_done, version_printed;
 	int i, irq, irqval, retval;
 	struct net_local *lp;
-	DECLARE_MAC_BUF(mac);
 
 	if (init_ID_done == 0) {
 		ushort lrs_state = 0xff;
@@ -405,7 +414,7 @@ static int __init el16_probe1(struct net_device *dev, int ioaddr)
 	outb(0x01, ioaddr + MISC_CTRL);
 	for (i = 0; i < 6; i++)
 		dev->dev_addr[i] = inb(ioaddr + i);
-	printk(" %s", print_mac(mac, dev->dev_addr));
+	printk(" %pM", dev->dev_addr);
 
 	if (mem_start)
 		net_debug = mem_start & 7;
@@ -450,10 +459,7 @@ static int __init el16_probe1(struct net_device *dev, int ioaddr)
 		goto out1;
 	}
 
- 	dev->open = el16_open;
- 	dev->stop = el16_close;
-	dev->hard_start_xmit = el16_send_packet;
-	dev->tx_timeout = el16_tx_timeout;
+	dev->netdev_ops = &netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
 	dev->ethtool_ops = &netdev_ethtool_ops;
  	dev->flags &= ~IFF_MULTICAST;	/* Multicast doesn't work */
@@ -866,7 +872,6 @@ static void el16_rx(struct net_device *dev)
 
 			skb->protocol=eth_type_trans(skb,dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += pkt_len;
 		}
@@ -938,14 +943,3 @@ cleanup_module(void)
 }
 #endif /* MODULE */
 MODULE_LICENSE("GPL");
-
-
-/*
- * Local variables:
- *  compile-command: "gcc -D__KERNEL__ -I/usr/src/linux/net/inet -I/usr/src/linux/drivers/net -Wall -Wstrict-prototypes -O6 -m486 -c 3c507.c"
- *  version-control: t
- *  kept-new-versions: 5
- *  tab-width: 4
- *  c-indent-level: 4
- * End:
- */

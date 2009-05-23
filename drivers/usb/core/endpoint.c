@@ -66,7 +66,7 @@ static ssize_t show_ep_type(struct device *dev, struct device_attribute *attr,
 	struct ep_device *ep = to_ep_device(dev);
 	char *type = "unknown";
 
-	switch (ep->desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) {
+	switch (usb_endpoint_type(ep->desc)) {
 	case USB_ENDPOINT_XFER_CONTROL:
 		type = "Control";
 		break;
@@ -94,7 +94,7 @@ static ssize_t show_ep_interval(struct device *dev,
 
 	in = (ep->desc->bEndpointAddress & USB_DIR_IN);
 
-	switch (ep->desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) {
+	switch (usb_endpoint_type(ep->desc)) {
 	case USB_ENDPOINT_XFER_CONTROL:
 		if (ep->udev->speed == USB_SPEED_HIGH) 	/* uframes per NAK */
 			interval = ep->desc->bInterval;
@@ -131,10 +131,9 @@ static ssize_t show_ep_direction(struct device *dev,
 	struct ep_device *ep = to_ep_device(dev);
 	char *direction;
 
-	if ((ep->desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-			USB_ENDPOINT_XFER_CONTROL)
+	if (usb_endpoint_xfer_control(ep->desc))
 		direction = "both";
-	else if (ep->desc->bEndpointAddress & USB_DIR_IN)
+	else if (usb_endpoint_dir_in(ep->desc))
 		direction = "in";
 	else
 		direction = "out";
@@ -276,7 +275,7 @@ static void ep_device_release(struct device *dev)
 	kfree(ep_dev);
 }
 
-int usb_create_ep_files(struct device *parent,
+int usb_create_ep_devs(struct device *parent,
 			struct usb_host_endpoint *endpoint,
 			struct usb_device *udev)
 {
@@ -340,7 +339,7 @@ exit:
 	return retval;
 }
 
-void usb_remove_ep_files(struct usb_host_endpoint *endpoint)
+void usb_remove_ep_devs(struct usb_host_endpoint *endpoint)
 {
 	struct ep_device *ep_dev = endpoint->ep_dev;
 

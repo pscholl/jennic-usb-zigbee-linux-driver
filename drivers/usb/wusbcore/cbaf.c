@@ -88,7 +88,6 @@
  */
 #include <linux/module.h>
 #include <linux/ctype.h>
-#include <linux/version.h>
 #include <linux/usb.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
@@ -639,8 +638,7 @@ static void cbaf_disconnect(struct usb_interface *iface)
 	usb_put_intf(iface);
 	kfree(cbaf->buffer);
 	/* paranoia: clean up crypto keys */
-	memset(cbaf, 0, sizeof(*cbaf));
-	kfree(cbaf);
+	kzfree(cbaf);
 }
 
 static struct usb_device_id cbaf_id_table[] = {

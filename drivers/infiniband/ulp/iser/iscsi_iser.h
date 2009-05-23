@@ -93,7 +93,7 @@
 
 					/* support upto 512KB in one RDMA */
 #define ISCSI_ISER_SG_TABLESIZE         (0x80000 >> SHIFT_4K)
-#define ISCSI_ISER_MAX_LUN		256
+#define ISER_DEF_CMD_PER_LUN		128
 
 /* QP settings */
 /* Maximal bounds on received asynchronous PDUs */
@@ -252,6 +252,9 @@ struct iser_conn {
 	wait_queue_head_t	     wait;          /* waitq for conn/disconn  */
 	atomic_t                     post_recv_buf_count; /* posted rx count   */
 	atomic_t                     post_send_buf_count; /* posted tx count   */
+	atomic_t                     unexpected_pdu_count;/* count of received *
+							   * unexpected pdus   *
+							   * not yet retired   */
 	char 			     name[ISER_OBJECT_NAME_SIZE];
 	struct iser_page_vec         *page_vec;     /* represents SG to fmr maps*
 						     * maps serialized as tx is*/

@@ -97,7 +97,10 @@ sesInfoFree(struct cifsSesInfo *buf_to_free)
 	kfree(buf_to_free->serverOS);
 	kfree(buf_to_free->serverDomain);
 	kfree(buf_to_free->serverNOS);
-	kfree(buf_to_free->password);
+	if (buf_to_free->password) {
+		memset(buf_to_free->password, 0, strlen(buf_to_free->password));
+		kfree(buf_to_free->password);
+	}
 	kfree(buf_to_free->domainName);
 	kfree(buf_to_free);
 }
@@ -129,6 +132,10 @@ tconInfoFree(struct cifsTconInfo *buf_to_free)
 	}
 	atomic_dec(&tconInfoAllocCount);
 	kfree(buf_to_free->nativeFileSystem);
+	if (buf_to_free->password) {
+		memset(buf_to_free->password, 0, strlen(buf_to_free->password));
+		kfree(buf_to_free->password);
+	}
 	kfree(buf_to_free);
 }
 
@@ -338,13 +345,13 @@ header_assemble(struct smb_hdr *buffer, char smb_command /* command */ ,
 		/*  BB Add support for establishing new tCon and SMB Session  */
 		/*      with userid/password pairs found on the smb session   */
 		/*	for other target tcp/ip addresses 		BB    */
-				if (current->fsuid != treeCon->ses->linux_uid) {
+				if (current_fsuid() != treeCon->ses->linux_uid) {
 					cFYI(1, ("Multiuser mode and UID "
 						 "did not match tcon uid"));
 					read_lock(&cifs_tcp_ses_lock);
 					list_for_each(temp_item, &treeCon->ses->server->smb_ses_list) {
 						ses = list_entry(temp_item, struct cifsSesInfo, smb_ses_list);
-						if (ses->linux_uid == current->fsuid) {
+						if (ses->linux_uid == current_fsuid()) {
 							if (ses->server == treeCon->ses->server) {
 								cFYI(1, ("found matching uid substitute right smb_uid"));
 								buffer->Uid = ses->Suid;
@@ -626,77 +633,6 @@ dump_smb(struct smb_hdr *smb_buf, int smb_buf_length)
 	}
 	printk(" | %s\n", debug_line);
 	return;
-}
-
-/* Windows maps these to the user defined 16 bit Unicode range since they are
-   reserved symbols (along with \ and /), otherwise illegal to store
-   in filenames in NTFS */
-#define UNI_ASTERIK     (__u16) ('*' + 0xF000)
-#define UNI_QUESTION    (__u16) ('?' + 0xF000)
-#define UNI_COLON       (__u16) (':' + 0xF000)
-#define UNI_GRTRTHAN    (__u16) ('>' + 0xF000)
-#define UNI_LESSTHAN    (__u16) ('<' + 0xF000)
-#define UNI_PIPE        (__u16) ('|' + 0xF000)
-#define UNI_SLASH       (__u16) ('\\' + 0xF000)
-
-/* Convert 16 bit Unicode pathname from wire format to string in current code
-   page.  Conversion may involve remapping up the seven characters that are
-   only legal in POSIX-like OS (if they are present in the string). Path
-   names are little endian 16 bit Unicode on the wire */
-int
-cifs_convertUCSpath(char *target, const __le16 *source, int maxlen,
-		    const struct nls_table *cp)
-{
-	int i, j, len;
-	__u16 src_char;
-
-	for (i = 0, j = 0; i < maxlen; i++) {
-		src_char = le16_to_cpu(source[i]);
-		switch (src_char) {
-			case 0:
-				goto cUCS_out; /* BB check this BB */
-			case UNI_COLON:
-				target[j] = ':';
-				break;
-			case UNI_ASTERIK:
-				target[j] = '*';
-				break;
-			case UNI_QUESTION:
-				target[j] = '?';
-				break;
-			/* BB We can not handle remapping slash until
-			   all the calls to build_path_from_dentry
-			   are modified, as they use slash as separator BB */
-			/* case UNI_SLASH:
-				target[j] = '\\';
-				break;*/
-			case UNI_PIPE:
-				target[j] = '|';
-				break;
-			case UNI_GRTRTHAN:
-				target[j] = '>';
-				break;
-			case UNI_LESSTHAN:
-				target[j] = '<';
-				break;
-			default:
-				len = cp->uni2char(src_char, &target[j],
-						NLS_MAX_CHARSET_SIZE);
-				if (len > 0) {
-					j += len;
-					continue;
-				} else {
-					target[j] = '?';
-				}
-		}
-		j++;
-		/* make sure we do not overrun callers allocated temp buffer */
-		if (j >= (2 * NAME_MAX))
-			break;
-	}
-cUCS_out:
-	target[j] = 0;
-	return j;
 }
 
 /* Convert 16 bit Unicode pathname to wire format from string in current code

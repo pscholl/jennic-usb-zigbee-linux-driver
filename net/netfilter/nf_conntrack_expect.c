@@ -72,7 +72,8 @@ static unsigned int nf_ct_expect_dst_hash(const struct nf_conntrack_tuple *tuple
 	unsigned int hash;
 
 	if (unlikely(!nf_ct_expect_hash_rnd_initted)) {
-		get_random_bytes(&nf_ct_expect_hash_rnd, 4);
+		get_random_bytes(&nf_ct_expect_hash_rnd,
+				 sizeof(nf_ct_expect_hash_rnd));
 		nf_ct_expect_hash_rnd_initted = 1;
 	}
 
@@ -362,7 +363,7 @@ static inline int refresh_timer(struct nf_conntrack_expect *i)
 	return 1;
 }
 
-int nf_ct_expect_related(struct nf_conntrack_expect *expect)
+static inline int __nf_ct_expect_check(struct nf_conntrack_expect *expect)
 {
 	const struct nf_conntrack_expect_policy *p;
 	struct nf_conntrack_expect *i;
@@ -371,11 +372,8 @@ int nf_ct_expect_related(struct nf_conntrack_expect *expect)
 	struct net *net = nf_ct_exp_net(expect);
 	struct hlist_node *n;
 	unsigned int h;
-	int ret;
+	int ret = 1;
 
-	NF_CT_ASSERT(master_help);
-
-	spin_lock_bh(&nf_conntrack_lock);
 	if (!master_help->helper) {
 		ret = -ESHUTDOWN;
 		goto out;
@@ -409,17 +407,31 @@ int nf_ct_expect_related(struct nf_conntrack_expect *expect)
 			printk(KERN_WARNING
 			       "nf_conntrack: expectation table full\n");
 		ret = -EMFILE;
-		goto out;
 	}
+out:
+	return ret;
+}
 
-	nf_ct_expect_insert(expect);
-	nf_ct_expect_event(IPEXP_NEW, expect);
+int nf_ct_expect_related_report(struct nf_conntrack_expect *expect, 
+				u32 pid, int report)
+{
+	int ret;
+
+	spin_lock_bh(&nf_conntrack_lock);
+	ret = __nf_ct_expect_check(expect);
+	if (ret <= 0)
+		goto out;
+
 	ret = 0;
+	nf_ct_expect_insert(expect);
+	spin_unlock_bh(&nf_conntrack_lock);
+	nf_ct_expect_event_report(IPEXP_NEW, expect, pid, report);
+	return ret;
 out:
 	spin_unlock_bh(&nf_conntrack_lock);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(nf_ct_expect_related);
+EXPORT_SYMBOL_GPL(nf_ct_expect_related_report);
 
 #ifdef CONFIG_PROC_FS
 struct ct_expect_iter_state {
@@ -574,7 +586,7 @@ int nf_conntrack_expect_init(struct net *net)
 
 	net->ct.expect_count = 0;
 	net->ct.expect_hash = nf_ct_alloc_hashtable(&nf_ct_expect_hsize,
-						  &net->ct.expect_vmalloc);
+						  &net->ct.expect_vmalloc, 0);
 	if (net->ct.expect_hash == NULL)
 		goto err1;
 

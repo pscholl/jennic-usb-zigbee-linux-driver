@@ -1,6 +1,6 @@
 /* tracepoint-sample.c
  *
- * Executes a tracepoint when /proc/tracepoint-example is opened.
+ * Executes a tracepoint when /proc/tracepoint-sample is opened.
  *
  * (C) Copyright 2007 Mathieu Desnoyers <mathieu.desnoyers@polymtl.ca>
  *
@@ -13,7 +13,10 @@
 #include <linux/proc_fs.h>
 #include "tp-samples-trace.h"
 
-struct proc_dir_entry *pentry_example;
+DEFINE_TRACE(subsys_event);
+DEFINE_TRACE(subsys_eventb);
+
+struct proc_dir_entry *pentry_sample;
 
 static int my_open(struct inode *inode, struct file *file)
 {
@@ -29,25 +32,25 @@ static struct file_operations mark_ops = {
 	.open = my_open,
 };
 
-static int example_init(void)
+static int __init sample_init(void)
 {
-	printk(KERN_ALERT "example init\n");
-	pentry_example = proc_create("tracepoint-example", 0444, NULL,
+	printk(KERN_ALERT "sample init\n");
+	pentry_sample = proc_create("tracepoint-sample", 0444, NULL,
 		&mark_ops);
-	if (!pentry_example)
+	if (!pentry_sample)
 		return -EPERM;
 	return 0;
 }
 
-static void example_exit(void)
+static void __exit sample_exit(void)
 {
-	printk(KERN_ALERT "example exit\n");
-	remove_proc_entry("tracepoint-example", NULL);
+	printk(KERN_ALERT "sample exit\n");
+	remove_proc_entry("tracepoint-sample", NULL);
 }
 
-module_init(example_init)
-module_exit(example_exit)
+module_init(sample_init)
+module_exit(sample_exit)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mathieu Desnoyers");
-MODULE_DESCRIPTION("Tracepoint example");
+MODULE_DESCRIPTION("Tracepoint sample");

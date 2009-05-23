@@ -169,13 +169,10 @@ static void *mlx4_en_add(struct mlx4_dev *dev)
 	mlx4_foreach_port(i, dev, MLX4_PORT_TYPE_ETH) {
 		mlx4_info(mdev, "Using %d tx rings for port:%d\n",
 			  mdev->profile.prof[i].tx_ring_num, i);
-		if (!mdev->profile.prof[i].rx_ring_num) {
-			mdev->profile.prof[i].rx_ring_num = 1;
-			mlx4_info(mdev, "Defaulting to %d rx rings for port:%d\n",
-				  1, i);
-		} else
-			mlx4_info(mdev, "Using %d rx rings for port:%d\n",
-				  mdev->profile.prof[i].rx_ring_num, i);
+		mdev->profile.prof[i].rx_ring_num =
+			min_t(int, dev->caps.num_comp_vectors, MAX_RX_RINGS);
+		mlx4_info(mdev, "Defaulting to %d rx rings for port:%d\n",
+			  mdev->profile.prof[i].rx_ring_num, i);
 	}
 
 	/* Create our own workqueue for reset/multicast tasks
@@ -184,7 +181,7 @@ static void *mlx4_en_add(struct mlx4_dev *dev)
 	mdev->workqueue = create_singlethread_workqueue("mlx4_en");
 	if (!mdev->workqueue) {
 		err = -ENOMEM;
-		goto err_close_nic;
+		goto err_mr;
 	}
 
 	/* At this stage all non-port specific tasks are complete:
@@ -217,9 +214,8 @@ err_free_netdev:
 	flush_workqueue(mdev->workqueue);
 
 	/* Stop event queue before we drop down to release shared SW state */
-
-err_close_nic:
 	destroy_workqueue(mdev->workqueue);
+
 err_mr:
 	mlx4_mr_free(dev, &mdev->mr);
 err_uar:

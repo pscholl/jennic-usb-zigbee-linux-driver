@@ -23,25 +23,20 @@ static inline struct cfg80211_registered_device *dev_to_rdev(
 	return container_of(dev, struct cfg80211_registered_device, wiphy.dev);
 }
 
-static ssize_t _show_index(struct device *dev, struct device_attribute *attr,
-			   char *buf)
-{
-	return sprintf(buf, "%d\n", dev_to_rdev(dev)->idx);
+#define SHOW_FMT(name, fmt, member)					\
+static ssize_t name ## _show(struct device *dev,			\
+			      struct device_attribute *attr,		\
+			      char *buf)				\
+{									\
+	return sprintf(buf, fmt "\n", dev_to_rdev(dev)->member);	\
 }
 
-static ssize_t _show_permaddr(struct device *dev,
-			      struct device_attribute *attr,
-			      char *buf)
-{
-	unsigned char *addr = dev_to_rdev(dev)->wiphy.perm_addr;
-
-	return sprintf(buf, "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x\n",
-		       addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
-}
+SHOW_FMT(index, "%d", wiphy_idx);
+SHOW_FMT(macaddress, "%pM", wiphy.perm_addr);
 
 static struct device_attribute ieee80211_dev_attrs[] = {
-	__ATTR(index, S_IRUGO, _show_index, NULL),
-	__ATTR(macaddress, S_IRUGO, _show_permaddr, NULL),
+	__ATTR_RO(index),
+	__ATTR_RO(macaddress),
 	{}
 };
 
@@ -60,6 +55,41 @@ static int wiphy_uevent(struct device *dev, struct kobj_uevent_env *env)
 }
 #endif
 
+static int wiphy_suspend(struct device *dev, pm_message_t state)
+{
+	struct cfg80211_registered_device *rdev = dev_to_rdev(dev);
+	int ret = 0;
+
+	rdev->suspend_at = get_seconds();
+
+	if (rdev->ops->suspend) {
+		rtnl_lock();
+		ret = rdev->ops->suspend(&rdev->wiphy);
+		rtnl_unlock();
+	}
+
+	return ret;
+}
+
+static int wiphy_resume(struct device *dev)
+{
+	struct cfg80211_registered_device *rdev = dev_to_rdev(dev);
+	int ret = 0;
+
+	/* Age scan results with time spent in suspend */
+	spin_lock_bh(&rdev->bss_lock);
+	cfg80211_bss_age(rdev, get_seconds() - rdev->suspend_at);
+	spin_unlock_bh(&rdev->bss_lock);
+
+	if (rdev->ops->resume) {
+		rtnl_lock();
+		ret = rdev->ops->resume(&rdev->wiphy);
+		rtnl_unlock();
+	}
+
+	return ret;
+}
+
 struct class ieee80211_class = {
 	.name = "ieee80211",
 	.owner = THIS_MODULE,
@@ -68,6 +98,8 @@ struct class ieee80211_class = {
 #ifdef CONFIG_HOTPLUG
 	.dev_uevent = wiphy_uevent,
 #endif
+	.suspend = wiphy_suspend,
+	.resume = wiphy_resume,
 };
 
 int wiphy_sysfs_init(void)

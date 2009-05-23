@@ -45,6 +45,12 @@
 #include "lpfc_vport.h"
 #include "lpfc_version.h"
 
+char *_dump_buf_data;
+unsigned long _dump_buf_data_order;
+char *_dump_buf_dif;
+unsigned long _dump_buf_dif_order;
+spinlock_t _dump_buf_lock;
+
 static int lpfc_parse_vpd(struct lpfc_hba *, uint8_t *, int);
 static void lpfc_get_hba_model_desc(struct lpfc_hba *, uint8_t *, uint8_t *);
 static int lpfc_post_rcv_buf(struct lpfc_hba *);
@@ -54,7 +60,7 @@ static struct scsi_transport_template *lpfc_vport_transport_template = NULL;
 static DEFINE_IDR(lpfc_hba_index);
 
 /**
- * lpfc_config_port_prep: Perform lpfc initialization prior to config port.
+ * lpfc_config_port_prep - Perform lpfc initialization prior to config port
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine will do LPFC initialization prior to issuing the CONFIG_PORT
@@ -215,7 +221,7 @@ out_free_mbox:
 }
 
 /**
- * lpfc_config_async_cmpl: Completion handler for config async event mbox cmd.
+ * lpfc_config_async_cmpl - Completion handler for config async event mbox cmd
  * @phba: pointer to lpfc hba data structure.
  * @pmboxq: pointer to the driver internal queue element for mailbox command.
  *
@@ -236,7 +242,51 @@ lpfc_config_async_cmpl(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmboxq)
 }
 
 /**
- * lpfc_config_port_post: Perform lpfc initialization after config port.
+ * lpfc_dump_wakeup_param_cmpl - dump memory mailbox command completion handler
+ * @phba: pointer to lpfc hba data structure.
+ * @pmboxq: pointer to the driver internal queue element for mailbox command.
+ *
+ * This is the completion handler for dump mailbox command for getting
+ * wake up parameters. When this command complete, the response contain
+ * Option rom version of the HBA. This function translate the version number
+ * into a human readable string and store it in OptionROMVersion.
+ **/
+static void
+lpfc_dump_wakeup_param_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
+{
+	struct prog_id *prg;
+	uint32_t prog_id_word;
+	char dist = ' ';
+	/* character array used for decoding dist type. */
+	char dist_char[] = "nabx";
+
+	if (pmboxq->mb.mbxStatus != MBX_SUCCESS) {
+		mempool_free(pmboxq, phba->mbox_mem_pool);
+		return;
+	}
+
+	prg = (struct prog_id *) &prog_id_word;
+
+	/* word 7 contain option rom version */
+	prog_id_word = pmboxq->mb.un.varWords[7];
+
+	/* Decode the Option rom version word to a readable string */
+	if (prg->dist < 4)
+		dist = dist_char[prg->dist];
+
+	if ((prg->dist == 3) && (prg->num == 0))
+		sprintf(phba->OptionROMVersion, "%d.%d%d",
+			prg->ver, prg->rev, prg->lev);
+	else
+		sprintf(phba->OptionROMVersion, "%d.%d%d%c%d",
+			prg->ver, prg->rev, prg->lev,
+			dist, prg->num);
+	mempool_free(pmboxq, phba->mbox_mem_pool);
+	return;
+}
+
+/**
+ * lpfc_config_port_post - Perform lpfc initialization after config port
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine will do LPFC initialization after the CONFIG_PORT mailbox
@@ -252,6 +302,7 @@ int
 lpfc_config_port_post(struct lpfc_hba *phba)
 {
 	struct lpfc_vport *vport = phba->pport;
+	struct Scsi_Host *shost = lpfc_shost_from_vport(vport);
 	LPFC_MBOXQ_t *pmb;
 	MAILBOX_t *mb;
 	struct lpfc_dmabuf *mp;
@@ -309,6 +360,11 @@ lpfc_config_port_post(struct lpfc_hba *phba)
 	       sizeof (struct lpfc_name));
 	memcpy(&vport->fc_portname, &vport->fc_sparam.portName,
 	       sizeof (struct lpfc_name));
+
+	/* Update the fc_host data structures with new wwn. */
+	fc_host_node_name(shost) = wwn_to_u64(vport->fc_nodename.u.wwn);
+	fc_host_port_name(shost) = wwn_to_u64(vport->fc_portname.u.wwn);
+
 	/* If no serial number in VPD data, use low 6 bytes of WWNN */
 	/* This should be consolidated into parse_vpd ? - mr */
 	if (phba->SerialNumber[0] == 0) {
@@ -482,11 +538,25 @@ lpfc_config_port_post(struct lpfc_hba *phba)
 				rc);
 		mempool_free(pmb, phba->mbox_mem_pool);
 	}
+
+	/* Get Option rom version */
+	pmb = mempool_alloc(phba->mbox_mem_pool, GFP_KERNEL);
+	lpfc_dump_wakeup_param(phba, pmb);
+	pmb->mbox_cmpl = lpfc_dump_wakeup_param_cmpl;
+	pmb->vport = phba->pport;
+	rc = lpfc_sli_issue_mbox(phba, pmb, MBX_NOWAIT);
+
+	if ((rc != MBX_BUSY) && (rc != MBX_SUCCESS)) {
+		lpfc_printf_log(phba, KERN_ERR, LOG_INIT, "0435 Adapter failed "
+				"to get Option ROM version status x%x\n.", rc);
+		mempool_free(pmb, phba->mbox_mem_pool);
+	}
+
 	return 0;
 }
 
 /**
- * lpfc_hba_down_prep: Perform lpfc uninitialization prior to HBA reset.
+ * lpfc_hba_down_prep - Perform lpfc uninitialization prior to HBA reset
  * @phba: pointer to lpfc HBA data structure.
  *
  * This routine will do LPFC uninitialization before the HBA is reset when
@@ -518,7 +588,7 @@ lpfc_hba_down_prep(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_hba_down_post: Perform lpfc uninitialization after HBA reset.
+ * lpfc_hba_down_post - Perform lpfc uninitialization after HBA reset
  * @phba: pointer to lpfc HBA data structure.
  *
  * This routine will do uninitialization after the HBA is reset when bring
@@ -534,8 +604,6 @@ lpfc_hba_down_post(struct lpfc_hba *phba)
 	struct lpfc_sli *psli = &phba->sli;
 	struct lpfc_sli_ring *pring;
 	struct lpfc_dmabuf *mp, *next_mp;
-	struct lpfc_iocbq *iocb;
-	IOCB_t *cmd = NULL;
 	LIST_HEAD(completions);
 	int i;
 
@@ -563,20 +631,9 @@ lpfc_hba_down_post(struct lpfc_hba *phba)
 		pring->txcmplq_cnt = 0;
 		spin_unlock_irq(&phba->hbalock);
 
-		while (!list_empty(&completions)) {
-			iocb = list_get_first(&completions, struct lpfc_iocbq,
-				list);
-			cmd = &iocb->iocb;
-			list_del_init(&iocb->list);
-
-			if (!iocb->iocb_cmpl)
-				lpfc_sli_release_iocbq(phba, iocb);
-			else {
-				cmd->ulpStatus = IOSTAT_LOCAL_REJECT;
-				cmd->un.ulpWord[4] = IOERR_SLI_ABORTED;
-				(iocb->iocb_cmpl) (phba, iocb, iocb);
-			}
-		}
+		/* Cancel all the IOCBs from the completions list */
+		lpfc_sli_cancel_iocbs(phba, &completions, IOSTAT_LOCAL_REJECT,
+				      IOERR_SLI_ABORTED);
 
 		lpfc_sli_abort_iocb_ring(phba, pring);
 		spin_lock_irq(&phba->hbalock);
@@ -587,7 +644,7 @@ lpfc_hba_down_post(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_hb_timeout: The HBA-timer timeout handler.
+ * lpfc_hb_timeout - The HBA-timer timeout handler
  * @ptr: unsigned long holds the pointer to lpfc hba data structure.
  *
  * This is the HBA-timer timeout handler registered to the lpfc driver. When
@@ -621,7 +678,7 @@ lpfc_hb_timeout(unsigned long ptr)
 }
 
 /**
- * lpfc_hb_mbox_cmpl: The lpfc heart-beat mailbox command callback function.
+ * lpfc_hb_mbox_cmpl - The lpfc heart-beat mailbox command callback function
  * @phba: pointer to lpfc hba data structure.
  * @pmboxq: pointer to the driver internal queue element for mailbox command.
  *
@@ -656,7 +713,7 @@ lpfc_hb_mbox_cmpl(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmboxq)
 }
 
 /**
- * lpfc_hb_timeout_handler: The HBA-timer timeout handler.
+ * lpfc_hb_timeout_handler - The HBA-timer timeout handler
  * @phba: pointer to lpfc hba data structure.
  *
  * This is the actual HBA-timer timeout handler to be invoked by the worker
@@ -686,11 +743,6 @@ lpfc_hb_timeout_handler(struct lpfc_hba *phba)
 		return;
 
 	spin_lock_irq(&phba->pport->work_port_lock);
-	/* If the timer is already canceled do nothing */
-	if (!(phba->pport->work_port_events & WORKER_HB_TMO)) {
-		spin_unlock_irq(&phba->pport->work_port_lock);
-		return;
-	}
 
 	if (time_after(phba->last_completion_time + LPFC_HB_MBOX_INTERVAL * HZ,
 		jiffies)) {
@@ -770,7 +822,7 @@ lpfc_hb_timeout_handler(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_offline_eratt: Bring lpfc offline on hardware error attention.
+ * lpfc_offline_eratt - Bring lpfc offline on hardware error attention
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine is called to bring the HBA offline when HBA hardware error
@@ -797,7 +849,73 @@ lpfc_offline_eratt(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_handle_eratt: The HBA hardware error handler.
+ * lpfc_handle_deferred_eratt - The HBA hardware deferred error handler
+ * @phba: pointer to lpfc hba data structure.
+ *
+ * This routine is invoked to handle the deferred HBA hardware error
+ * conditions. This type of error is indicated by HBA by setting ER1
+ * and another ER bit in the host status register. The driver will
+ * wait until the ER1 bit clears before handling the error condition.
+ **/
+static void
+lpfc_handle_deferred_eratt(struct lpfc_hba *phba)
+{
+	uint32_t old_host_status = phba->work_hs;
+	struct lpfc_sli_ring  *pring;
+	struct lpfc_sli *psli = &phba->sli;
+
+	lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+		"0479 Deferred Adapter Hardware Error "
+		"Data: x%x x%x x%x\n",
+		phba->work_hs,
+		phba->work_status[0], phba->work_status[1]);
+
+	spin_lock_irq(&phba->hbalock);
+	psli->sli_flag &= ~LPFC_SLI2_ACTIVE;
+	spin_unlock_irq(&phba->hbalock);
+
+
+	/*
+	 * Firmware stops when it triggred erratt. That could cause the I/Os
+	 * dropped by the firmware. Error iocb (I/O) on txcmplq and let the
+	 * SCSI layer retry it after re-establishing link.
+	 */
+	pring = &psli->ring[psli->fcp_ring];
+	lpfc_sli_abort_iocb_ring(phba, pring);
+
+	/*
+	 * There was a firmware error. Take the hba offline and then
+	 * attempt to restart it.
+	 */
+	lpfc_offline_prep(phba);
+	lpfc_offline(phba);
+
+	/* Wait for the ER1 bit to clear.*/
+	while (phba->work_hs & HS_FFER1) {
+		msleep(100);
+		phba->work_hs = readl(phba->HSregaddr);
+		/* If driver is unloading let the worker thread continue */
+		if (phba->pport->load_flag & FC_UNLOADING) {
+			phba->work_hs = 0;
+			break;
+		}
+	}
+
+	/*
+	 * This is to ptrotect against a race condition in which
+	 * first write to the host attention register clear the
+	 * host status register.
+	 */
+	if ((!phba->work_hs) && (!(phba->pport->load_flag & FC_UNLOADING)))
+		phba->work_hs = old_host_status & ~HS_FFER1;
+
+	phba->hba_flag &= ~DEFER_ERATT;
+	phba->work_status[0] = readl(phba->MBslimaddr + 0xa8);
+	phba->work_status[1] = readl(phba->MBslimaddr + 0xac);
+}
+
+/**
+ * lpfc_handle_eratt - The HBA hardware error handler
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine is invoked to handle the following HBA hardware error
@@ -833,8 +951,10 @@ lpfc_handle_eratt(struct lpfc_hba *phba)
 	fc_host_post_vendor_event(shost, fc_get_event_number(),
 				  sizeof(board_event),
 				  (char *) &board_event,
-				  SCSI_NL_VID_TYPE_PCI
-				  | PCI_VENDOR_ID_EMULEX);
+				  LPFC_NL_VENDOR_ID);
+
+	if (phba->hba_flag & DEFER_ERATT)
+		lpfc_handle_deferred_eratt(phba);
 
 	if (phba->work_hs & HS_FFER6) {
 		/* Re-establishing Link */
@@ -917,7 +1037,7 @@ lpfc_handle_eratt(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_handle_latt: The HBA link event handler.
+ * lpfc_handle_latt - The HBA link event handler
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine is invoked from the worker thread to handle a HBA host
@@ -1004,7 +1124,7 @@ lpfc_handle_latt_err_exit:
 }
 
 /**
- * lpfc_parse_vpd: Parse VPD (Vital Product Data).
+ * lpfc_parse_vpd - Parse VPD (Vital Product Data)
  * @phba: pointer to lpfc hba data structure.
  * @vpd: pointer to the vital product data.
  * @len: length of the vital product data in bytes.
@@ -1154,7 +1274,7 @@ lpfc_parse_vpd(struct lpfc_hba *phba, uint8_t *vpd, int len)
 }
 
 /**
- * lpfc_get_hba_model_desc: Retrieve HBA device model name and description.
+ * lpfc_get_hba_model_desc - Retrieve HBA device model name and description
  * @phba: pointer to lpfc hba data structure.
  * @mdp: pointer to the data structure to hold the derived model name.
  * @descp: pointer to the data structure to hold the derived description.
@@ -1263,7 +1383,8 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 		m = (typeof(m)){"LPe11000", max_speed, "PCIe"};
 		break;
 	case PCI_DEVICE_ID_ZEPHYR_DCSP:
-		m = (typeof(m)){"LPe11002-SP", max_speed, "PCIe"};
+		m = (typeof(m)){"LP2105", max_speed, "PCIe"};
+		GE = 1;
 		break;
 	case PCI_DEVICE_ID_ZMID:
 		m = (typeof(m)){"LPe1150", max_speed, "PCIe"};
@@ -1333,7 +1454,7 @@ lpfc_get_hba_model_desc(struct lpfc_hba *phba, uint8_t *mdp, uint8_t *descp)
 }
 
 /**
- * lpfc_post_buffer: Post IOCB(s) with DMA buffer descriptor(s) to a IOCB ring.
+ * lpfc_post_buffer - Post IOCB(s) with DMA buffer descriptor(s) to a IOCB ring
  * @phba: pointer to lpfc hba data structure.
  * @pring: pointer to a IOCB ring.
  * @cnt: the number of IOCBs to be posted to the IOCB ring.
@@ -1434,7 +1555,7 @@ lpfc_post_buffer(struct lpfc_hba *phba, struct lpfc_sli_ring *pring, int cnt)
 }
 
 /**
- * lpfc_post_rcv_buf: Post the initial receive IOCB buffers to ELS ring.
+ * lpfc_post_rcv_buf - Post the initial receive IOCB buffers to ELS ring
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine posts initial receive IOCB buffers to the ELS ring. The
@@ -1459,7 +1580,7 @@ lpfc_post_rcv_buf(struct lpfc_hba *phba)
 #define S(N,V) (((V)<<(N))|((V)>>(32-(N))))
 
 /**
- * lpfc_sha_init: Set up initial array of hash table entries.
+ * lpfc_sha_init - Set up initial array of hash table entries
  * @HashResultPointer: pointer to an array as hash table.
  *
  * This routine sets up the initial values to the array of hash table entries
@@ -1476,7 +1597,7 @@ lpfc_sha_init(uint32_t * HashResultPointer)
 }
 
 /**
- * lpfc_sha_iterate: Iterate initial hash table with the working hash table.
+ * lpfc_sha_iterate - Iterate initial hash table with the working hash table
  * @HashResultPointer: pointer to an initial/result hash table.
  * @HashWorkingPointer: pointer to an working hash table.
  *
@@ -1533,7 +1654,7 @@ lpfc_sha_iterate(uint32_t * HashResultPointer, uint32_t * HashWorkingPointer)
 }
 
 /**
- * lpfc_challenge_key: Create challenge key based on WWPN of the HBA.
+ * lpfc_challenge_key - Create challenge key based on WWPN of the HBA
  * @RandomChallenge: pointer to the entry of host challenge random number array.
  * @HashWorking: pointer to the entry of the working hash array.
  *
@@ -1549,7 +1670,7 @@ lpfc_challenge_key(uint32_t * RandomChallenge, uint32_t * HashWorking)
 }
 
 /**
- * lpfc_hba_init: Perform special handling for LC HBA initialization.
+ * lpfc_hba_init - Perform special handling for LC HBA initialization
  * @phba: pointer to lpfc hba data structure.
  * @hbainit: pointer to an array of unsigned 32-bit integers.
  *
@@ -1578,7 +1699,7 @@ lpfc_hba_init(struct lpfc_hba *phba, uint32_t *hbainit)
 }
 
 /**
- * lpfc_cleanup: Performs vport cleanups before deleting a vport.
+ * lpfc_cleanup - Performs vport cleanups before deleting a vport
  * @vport: pointer to a virtual N_Port data structure.
  *
  * This routine performs the necessary cleanups before deleting the @vport.
@@ -1665,7 +1786,7 @@ lpfc_cleanup(struct lpfc_vport *vport)
 }
 
 /**
- * lpfc_stop_vport_timers: Stop all the timers associated with a vport.
+ * lpfc_stop_vport_timers - Stop all the timers associated with a vport
  * @vport: pointer to a virtual N_Port data structure.
  *
  * This routine stops all the timers associated with a @vport. This function
@@ -1682,7 +1803,7 @@ lpfc_stop_vport_timers(struct lpfc_vport *vport)
 }
 
 /**
- * lpfc_stop_phba_timers: Stop all the timers associated with an HBA.
+ * lpfc_stop_phba_timers - Stop all the timers associated with an HBA
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine stops all the timers associated with a HBA. This function is
@@ -1702,7 +1823,7 @@ lpfc_stop_phba_timers(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_block_mgmt_io: Mark a HBA's management interface as blocked.
+ * lpfc_block_mgmt_io - Mark a HBA's management interface as blocked
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine marks a HBA's management interface as blocked. Once the HBA's
@@ -1722,7 +1843,7 @@ lpfc_block_mgmt_io(struct lpfc_hba * phba)
 }
 
 /**
- * lpfc_online: Initialize and bring a HBA online.
+ * lpfc_online - Initialize and bring a HBA online
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine initializes the HBA and brings a HBA online. During this
@@ -1736,12 +1857,13 @@ lpfc_block_mgmt_io(struct lpfc_hba * phba)
 int
 lpfc_online(struct lpfc_hba *phba)
 {
-	struct lpfc_vport *vport = phba->pport;
+	struct lpfc_vport *vport;
 	struct lpfc_vport **vports;
 	int i;
 
 	if (!phba)
 		return 0;
+	vport = phba->pport;
 
 	if (!(vport->fc_flag & FC_OFFLINE_MODE))
 		return 0;
@@ -1779,7 +1901,7 @@ lpfc_online(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_unblock_mgmt_io: Mark a HBA's management interface to be not blocked.
+ * lpfc_unblock_mgmt_io - Mark a HBA's management interface to be not blocked
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine marks a HBA's management interface as not blocked. Once the
@@ -1800,7 +1922,7 @@ lpfc_unblock_mgmt_io(struct lpfc_hba * phba)
 }
 
 /**
- * lpfc_offline_prep: Prepare a HBA to be brought offline.
+ * lpfc_offline_prep - Prepare a HBA to be brought offline
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine is invoked to prepare a HBA to be brought offline. It performs
@@ -1857,7 +1979,7 @@ lpfc_offline_prep(struct lpfc_hba * phba)
 }
 
 /**
- * lpfc_offline: Bring a HBA offline.
+ * lpfc_offline - Bring a HBA offline
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine actually brings a HBA offline. It stops all the timers
@@ -1902,7 +2024,7 @@ lpfc_offline(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_scsi_free: Free all the SCSI buffers and IOCBs from driver lists.
+ * lpfc_scsi_free - Free all the SCSI buffers and IOCBs from driver lists
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine is to free all the SCSI buffers and IOCBs from the driver
@@ -1941,7 +2063,7 @@ lpfc_scsi_free(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_create_port: Create an FC port.
+ * lpfc_create_port - Create an FC port
  * @phba: pointer to lpfc hba data structure.
  * @instance: a unique integer ID to this FC port.
  * @dev: pointer to the device data structure.
@@ -1984,6 +2106,7 @@ lpfc_create_port(struct lpfc_hba *phba, int instance, struct device *dev)
 	shost->max_lun = vport->cfg_max_luns;
 	shost->this_id = -1;
 	shost->max_cmd_len = 16;
+
 	/*
 	 * Set initial can_queue value since 0 is no longer supported and
 	 * scsi_add_host will fail. This will be adjusted later based on the
@@ -2030,7 +2153,7 @@ out:
 }
 
 /**
- * destroy_port: Destroy an FC port.
+ * destroy_port -  destroy an FC port
  * @vport: pointer to an lpfc virtual N_Port data structure.
  *
  * This routine destroys a FC port from the upper layer protocol. All the
@@ -2041,8 +2164,6 @@ destroy_port(struct lpfc_vport *vport)
 {
 	struct Scsi_Host *shost = lpfc_shost_from_vport(vport);
 	struct lpfc_hba  *phba = vport->phba;
-
-	kfree(vport->vname);
 
 	lpfc_debugfs_terminate(vport);
 	fc_remove_host(shost);
@@ -2057,7 +2178,7 @@ destroy_port(struct lpfc_vport *vport)
 }
 
 /**
- * lpfc_get_instance: Get a unique integer ID.
+ * lpfc_get_instance - Get a unique integer ID
  *
  * This routine allocates a unique integer ID from lpfc_hba_index pool. It
  * uses the kernel idr facility to perform the task.
@@ -2080,7 +2201,7 @@ lpfc_get_instance(void)
 }
 
 /**
- * lpfc_scan_finished: method for SCSI layer to detect whether scan is done.
+ * lpfc_scan_finished - method for SCSI layer to detect whether scan is done
  * @shost: pointer to SCSI host data structure.
  * @time: elapsed time of the scan in jiffies.
  *
@@ -2138,7 +2259,7 @@ finished:
 }
 
 /**
- * lpfc_host_attrib_init: Initialize SCSI host attributes on a FC port.
+ * lpfc_host_attrib_init - Initialize SCSI host attributes on a FC port
  * @shost: pointer to SCSI host data structure.
  *
  * This routine initializes a given SCSI host attributes on a FC port. The
@@ -2193,7 +2314,7 @@ void lpfc_host_attrib_init(struct Scsi_Host *shost)
 }
 
 /**
- * lpfc_enable_msix: Enable MSI-X interrupt mode.
+ * lpfc_enable_msix - Enable MSI-X interrupt mode
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine is invoked to enable the MSI-X interrupt vectors. The kernel
@@ -2226,8 +2347,7 @@ lpfc_enable_msix(struct lpfc_hba *phba)
 				ARRAY_SIZE(phba->msix_entries));
 	if (rc) {
 		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-				"0420 Enable MSI-X failed (%d), continuing "
-				"with MSI\n", rc);
+				"0420 PCI enable MSI-X failed (%d)\n", rc);
 		goto msi_fail_out;
 	} else
 		for (i = 0; i < LPFC_MSIX_VECTORS; i++)
@@ -2244,9 +2364,9 @@ lpfc_enable_msix(struct lpfc_hba *phba)
 	rc = request_irq(phba->msix_entries[0].vector, &lpfc_sp_intr_handler,
 			 IRQF_SHARED, LPFC_SP_DRIVER_HANDLER_NAME, phba);
 	if (rc) {
-		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+		lpfc_printf_log(phba, KERN_WARNING, LOG_INIT,
 				"0421 MSI-X slow-path request_irq failed "
-				"(%d), continuing with MSI\n", rc);
+				"(%d)\n", rc);
 		goto msi_fail_out;
 	}
 
@@ -2255,9 +2375,9 @@ lpfc_enable_msix(struct lpfc_hba *phba)
 			 IRQF_SHARED, LPFC_FP_DRIVER_HANDLER_NAME, phba);
 
 	if (rc) {
-		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+		lpfc_printf_log(phba, KERN_WARNING, LOG_INIT,
 				"0429 MSI-X fast-path request_irq failed "
-				"(%d), continuing with MSI\n", rc);
+				"(%d)\n", rc);
 		goto irq_fail_out;
 	}
 
@@ -2278,7 +2398,7 @@ lpfc_enable_msix(struct lpfc_hba *phba)
 		goto mbx_fail_out;
 	rc = lpfc_sli_issue_mbox(phba, pmb, MBX_POLL);
 	if (rc != MBX_SUCCESS) {
-		lpfc_printf_log(phba, KERN_ERR, LOG_MBOX,
+		lpfc_printf_log(phba, KERN_WARNING, LOG_MBOX,
 				"0351 Config MSI mailbox command failed, "
 				"mbxCmd x%x, mbxStatus x%x\n",
 				pmb->mb.mbxCommand, pmb->mb.mbxStatus);
@@ -2308,7 +2428,7 @@ msi_fail_out:
 }
 
 /**
- * lpfc_disable_msix: Disable MSI-X interrupt mode.
+ * lpfc_disable_msix - Disable MSI-X interrupt mode
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine is invoked to release the MSI-X vectors and then disable the
@@ -2327,7 +2447,196 @@ lpfc_disable_msix(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_pci_probe_one: lpfc PCI probe func to register device to PCI subsystem.
+ * lpfc_enable_msi - Enable MSI interrupt mode
+ * @phba: pointer to lpfc hba data structure.
+ *
+ * This routine is invoked to enable the MSI interrupt mode. The kernel
+ * function pci_enable_msi() is called to enable the MSI vector. The
+ * device driver is responsible for calling the request_irq() to register
+ * MSI vector with a interrupt the handler, which is done in this function.
+ *
+ * Return codes
+ * 	0 - sucessful
+ * 	other values - error
+ */
+static int
+lpfc_enable_msi(struct lpfc_hba *phba)
+{
+	int rc;
+
+	rc = pci_enable_msi(phba->pcidev);
+	if (!rc)
+		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+				"0462 PCI enable MSI mode success.\n");
+	else {
+		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+				"0471 PCI enable MSI mode failed (%d)\n", rc);
+		return rc;
+	}
+
+	rc = request_irq(phba->pcidev->irq, lpfc_intr_handler,
+			 IRQF_SHARED, LPFC_DRIVER_NAME, phba);
+	if (rc) {
+		pci_disable_msi(phba->pcidev);
+		lpfc_printf_log(phba, KERN_WARNING, LOG_INIT,
+				"0478 MSI request_irq failed (%d)\n", rc);
+	}
+	return rc;
+}
+
+/**
+ * lpfc_disable_msi - Disable MSI interrupt mode
+ * @phba: pointer to lpfc hba data structure.
+ *
+ * This routine is invoked to disable the MSI interrupt mode. The driver
+ * calls free_irq() on MSI vector it has done request_irq() on before
+ * calling pci_disable_msi(). Failure to do so results in a BUG_ON() and
+ * a device will be left with MSI enabled and leaks its vector.
+ */
+
+static void
+lpfc_disable_msi(struct lpfc_hba *phba)
+{
+	free_irq(phba->pcidev->irq, phba);
+	pci_disable_msi(phba->pcidev);
+	return;
+}
+
+/**
+ * lpfc_log_intr_mode - Log the active interrupt mode
+ * @phba: pointer to lpfc hba data structure.
+ * @intr_mode: active interrupt mode adopted.
+ *
+ * This routine it invoked to log the currently used active interrupt mode
+ * to the device.
+ */
+static void
+lpfc_log_intr_mode(struct lpfc_hba *phba, uint32_t intr_mode)
+{
+	switch (intr_mode) {
+	case 0:
+		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+				"0470 Enable INTx interrupt mode.\n");
+		break;
+	case 1:
+		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+				"0481 Enabled MSI interrupt mode.\n");
+		break;
+	case 2:
+		lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+				"0480 Enabled MSI-X interrupt mode.\n");
+		break;
+	default:
+		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+				"0482 Illegal interrupt mode.\n");
+		break;
+	}
+	return;
+}
+
+static void
+lpfc_stop_port(struct lpfc_hba *phba)
+{
+	/* Clear all interrupt enable conditions */
+	writel(0, phba->HCregaddr);
+	readl(phba->HCregaddr); /* flush */
+	/* Clear all pending interrupts */
+	writel(0xffffffff, phba->HAregaddr);
+	readl(phba->HAregaddr); /* flush */
+
+	/* Reset some HBA SLI setup states */
+	lpfc_stop_phba_timers(phba);
+	phba->pport->work_port_events = 0;
+
+	return;
+}
+
+/**
+ * lpfc_enable_intr - Enable device interrupt
+ * @phba: pointer to lpfc hba data structure.
+ *
+ * This routine is invoked to enable device interrupt and associate driver's
+ * interrupt handler(s) to interrupt vector(s). Depends on the interrupt
+ * mode configured to the driver, the driver will try to fallback from the
+ * configured interrupt mode to an interrupt mode which is supported by the
+ * platform, kernel, and device in the order of: MSI-X -> MSI -> IRQ.
+ *
+ * Return codes
+ *   0 - sucessful
+ *   other values - error
+ **/
+static uint32_t
+lpfc_enable_intr(struct lpfc_hba *phba, uint32_t cfg_mode)
+{
+	uint32_t intr_mode = LPFC_INTR_ERROR;
+	int retval;
+
+	if (cfg_mode == 2) {
+		/* Need to issue conf_port mbox cmd before conf_msi mbox cmd */
+		retval = lpfc_sli_config_port(phba, 3);
+		if (!retval) {
+			/* Now, try to enable MSI-X interrupt mode */
+			retval = lpfc_enable_msix(phba);
+			if (!retval) {
+				/* Indicate initialization to MSI-X mode */
+				phba->intr_type = MSIX;
+				intr_mode = 2;
+			}
+		}
+	}
+
+	/* Fallback to MSI if MSI-X initialization failed */
+	if (cfg_mode >= 1 && phba->intr_type == NONE) {
+		retval = lpfc_enable_msi(phba);
+		if (!retval) {
+			/* Indicate initialization to MSI mode */
+			phba->intr_type = MSI;
+			intr_mode = 1;
+		}
+	}
+
+	/* Fallback to INTx if both MSI-X/MSI initalization failed */
+	if (phba->intr_type == NONE) {
+		retval = request_irq(phba->pcidev->irq, lpfc_intr_handler,
+				     IRQF_SHARED, LPFC_DRIVER_NAME, phba);
+		if (!retval) {
+			/* Indicate initialization to INTx mode */
+			phba->intr_type = INTx;
+			intr_mode = 0;
+		}
+	}
+	return intr_mode;
+}
+
+/**
+ * lpfc_disable_intr - Disable device interrupt
+ * @phba: pointer to lpfc hba data structure.
+ *
+ * This routine is invoked to disable device interrupt and disassociate the
+ * driver's interrupt handler(s) from interrupt vector(s). Depending on the
+ * interrupt mode, the driver will release the interrupt vector(s) for the
+ * message signaled interrupt.
+ **/
+static void
+lpfc_disable_intr(struct lpfc_hba *phba)
+{
+	/* Disable the currently initialized interrupt mode */
+	if (phba->intr_type == MSIX)
+		lpfc_disable_msix(phba);
+	else if (phba->intr_type == MSI)
+		lpfc_disable_msi(phba);
+	else if (phba->intr_type == INTx)
+		free_irq(phba->pcidev->irq, phba);
+
+	/* Reset interrupt management states */
+	phba->intr_type = NONE;
+	phba->sli.slistat.sli_intr = 0;
+
+	return;
+}
+
+/**
+ * lpfc_pci_probe_one - lpfc PCI probe func to register device to PCI subsystem
  * @pdev: pointer to PCI device
  * @pid: pointer to PCI device identifier
  *
@@ -2356,6 +2665,7 @@ lpfc_pci_probe_one(struct pci_dev *pdev, const struct pci_device_id *pid)
 	int error = -ENODEV, retval;
 	int  i, hbq_count;
 	uint16_t iotag;
+	uint32_t cfg_mode, intr_mode;
 	int bars = pci_select_bars(pdev, IORESOURCE_MEM);
 	struct lpfc_adapter_event_header adapter_event;
 
@@ -2409,10 +2719,11 @@ lpfc_pci_probe_one(struct pci_dev *pdev, const struct pci_device_id *pid)
 	phba->eratt_poll.data = (unsigned long) phba;
 
 	pci_set_master(pdev);
+	pci_save_state(pdev);
 	pci_try_set_mwi(pdev);
 
-	if (pci_set_dma_mask(phba->pcidev, DMA_64BIT_MASK) != 0)
-		if (pci_set_dma_mask(phba->pcidev, DMA_32BIT_MASK) != 0)
+	if (pci_set_dma_mask(phba->pcidev, DMA_BIT_MASK(64)) != 0)
+		if (pci_set_dma_mask(phba->pcidev, DMA_BIT_MASK(32)) != 0)
 			goto out_idr_remove;
 
 	/*
@@ -2557,7 +2868,6 @@ lpfc_pci_probe_one(struct pci_dev *pdev, const struct pci_device_id *pid)
 	lpfc_debugfs_initialize(vport);
 
 	pci_set_drvdata(pdev, shost);
-	phba->intr_type = NONE;
 
 	phba->MBslimaddr = phba->slim_memmap_p;
 	phba->HAregaddr = phba->ctrl_regs_memmap_p + HA_REG_OFFSET;
@@ -2565,63 +2875,58 @@ lpfc_pci_probe_one(struct pci_dev *pdev, const struct pci_device_id *pid)
 	phba->HSregaddr = phba->ctrl_regs_memmap_p + HS_REG_OFFSET;
 	phba->HCregaddr = phba->ctrl_regs_memmap_p + HC_REG_OFFSET;
 
-	/* Configure and enable interrupt */
-	if (phba->cfg_use_msi == 2) {
-		/* Need to issue conf_port mbox cmd before conf_msi mbox cmd */
-		error = lpfc_sli_config_port(phba, 3);
-		if (error)
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-				"0427 Firmware not capable of SLI 3 mode.\n");
-		else {
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-				"0426 Firmware capable of SLI 3 mode.\n");
-			/* Now, try to enable MSI-X interrupt mode */
-			error = lpfc_enable_msix(phba);
-			if (!error) {
-				phba->intr_type = MSIX;
-				lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-						"0430 enable MSI-X mode.\n");
-			}
-		}
-	}
-
-	/* Fallback to MSI if MSI-X initialization failed */
-	if (phba->cfg_use_msi >= 1 && phba->intr_type == NONE) {
-		retval = pci_enable_msi(phba->pcidev);
-		if (!retval) {
-			phba->intr_type = MSI;
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-					"0473 enable MSI mode.\n");
-		} else
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-					"0452 enable IRQ mode.\n");
-	}
-
-	/* MSI-X is the only case the doesn't need to call request_irq */
-	if (phba->intr_type != MSIX) {
-		retval = request_irq(phba->pcidev->irq, lpfc_intr_handler,
-				     IRQF_SHARED, LPFC_DRIVER_NAME, phba);
-		if (retval) {
-			lpfc_printf_log(phba, KERN_ERR, LOG_INIT, "0451 Enable "
-					"interrupt handler failed\n");
-			error = retval;
-			goto out_disable_msi;
-		} else if (phba->intr_type != MSI)
-			phba->intr_type = INTx;
-	}
-
+	/* Configure sysfs attributes */
 	if (lpfc_alloc_sysfs_attr(vport)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
 				"1476 Failed to allocate sysfs attr\n");
 		error = -ENOMEM;
-		goto out_free_irq;
+		goto out_destroy_port;
 	}
 
-	if (lpfc_sli_hba_setup(phba)) {
-		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
-				"1477 Failed to set up hba\n");
-		error = -ENODEV;
-		goto out_remove_device;
+	cfg_mode = phba->cfg_use_msi;
+	while (true) {
+		/* Configure and enable interrupt */
+		intr_mode = lpfc_enable_intr(phba, cfg_mode);
+		if (intr_mode == LPFC_INTR_ERROR) {
+			lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+					"0426 Failed to enable interrupt.\n");
+			goto out_free_sysfs_attr;
+		}
+		/* HBA SLI setup */
+		if (lpfc_sli_hba_setup(phba)) {
+			lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+					"1477 Failed to set up hba\n");
+			error = -ENODEV;
+			goto out_remove_device;
+		}
+
+		/* Wait 50ms for the interrupts of previous mailbox commands */
+		msleep(50);
+		/* Check active interrupts received */
+		if (phba->sli.slistat.sli_intr > LPFC_MSIX_VECTORS) {
+			/* Log the current active interrupt mode */
+			phba->intr_mode = intr_mode;
+			lpfc_log_intr_mode(phba, intr_mode);
+			break;
+		} else {
+			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+					"0451 Configure interrupt mode (%d) "
+					"failed active interrupt test.\n",
+					intr_mode);
+			if (intr_mode == 0) {
+				lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+						"0479 Failed to enable "
+						"interrupt.\n");
+				error = -ENODEV;
+				goto out_remove_device;
+			}
+			/* Stop HBA SLI setups */
+			lpfc_stop_port(phba);
+			/* Disable the current interrupt mode */
+			lpfc_disable_intr(phba);
+			/* Try next level of interrupt mode */
+			cfg_mode = --intr_mode;
+		}
 	}
 
 	/*
@@ -2629,6 +2934,75 @@ lpfc_pci_probe_one(struct pci_dev *pdev, const struct pci_device_id *pid)
 	 * the value of can_queue.
 	 */
 	shost->can_queue = phba->cfg_hba_queue_depth - 10;
+	if (phba->sli3_options & LPFC_SLI3_BG_ENABLED) {
+
+		if (lpfc_prot_mask && lpfc_prot_guard) {
+			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+					"1478 Registering BlockGuard with the "
+					"SCSI layer\n");
+
+			scsi_host_set_prot(shost, lpfc_prot_mask);
+			scsi_host_set_guard(shost, lpfc_prot_guard);
+		}
+	}
+
+	if (!_dump_buf_data) {
+		int pagecnt = 10;
+		while (pagecnt) {
+			spin_lock_init(&_dump_buf_lock);
+			_dump_buf_data =
+				(char *) __get_free_pages(GFP_KERNEL, pagecnt);
+			if (_dump_buf_data) {
+				printk(KERN_ERR "BLKGRD allocated %d pages for "
+						"_dump_buf_data at 0x%p\n",
+						(1 << pagecnt), _dump_buf_data);
+				_dump_buf_data_order = pagecnt;
+				memset(_dump_buf_data, 0, ((1 << PAGE_SHIFT)
+							   << pagecnt));
+				break;
+			} else {
+				--pagecnt;
+			}
+
+		}
+
+		if (!_dump_buf_data_order)
+			printk(KERN_ERR "BLKGRD ERROR unable to allocate "
+					"memory for hexdump\n");
+
+	} else {
+		printk(KERN_ERR "BLKGRD already allocated _dump_buf_data=0x%p"
+		       "\n", _dump_buf_data);
+	}
+
+
+	if (!_dump_buf_dif) {
+		int pagecnt = 10;
+		while (pagecnt) {
+			_dump_buf_dif =
+				(char *) __get_free_pages(GFP_KERNEL, pagecnt);
+			if (_dump_buf_dif) {
+				printk(KERN_ERR "BLKGRD allocated %d pages for "
+						"_dump_buf_dif at 0x%p\n",
+						(1 << pagecnt), _dump_buf_dif);
+				_dump_buf_dif_order = pagecnt;
+				memset(_dump_buf_dif, 0, ((1 << PAGE_SHIFT)
+							  << pagecnt));
+				break;
+			} else {
+				--pagecnt;
+			}
+
+		}
+
+		if (!_dump_buf_dif_order)
+			printk(KERN_ERR "BLKGRD ERROR unable to allocate "
+					"memory for hexdump\n");
+
+	} else {
+		printk(KERN_ERR "BLKGRD already allocated _dump_buf_dif=0x%p\n",
+				_dump_buf_dif);
+	}
 
 	lpfc_host_attrib_init(shost);
 
@@ -2646,29 +3020,22 @@ lpfc_pci_probe_one(struct pci_dev *pdev, const struct pci_device_id *pid)
 	fc_host_post_vendor_event(shost, fc_get_event_number(),
 		sizeof(adapter_event),
 		(char *) &adapter_event,
-		SCSI_NL_VID_TYPE_PCI | PCI_VENDOR_ID_EMULEX);
-
-	scsi_scan_host(shost);
+		LPFC_NL_VENDOR_ID);
 
 	return 0;
 
 out_remove_device:
-	lpfc_free_sysfs_attr(vport);
 	spin_lock_irq(shost->host_lock);
 	vport->load_flag |= FC_UNLOADING;
 	spin_unlock_irq(shost->host_lock);
-out_free_irq:
 	lpfc_stop_phba_timers(phba);
 	phba->pport->work_port_events = 0;
-
-	if (phba->intr_type == MSIX)
-		lpfc_disable_msix(phba);
-	else
-		free_irq(phba->pcidev->irq, phba);
-
-out_disable_msi:
-	if (phba->intr_type == MSI)
-		pci_disable_msi(phba->pcidev);
+	lpfc_disable_intr(phba);
+	lpfc_sli_hba_down(phba);
+	lpfc_sli_brdrestart(phba);
+out_free_sysfs_attr:
+	lpfc_free_sysfs_attr(vport);
+out_destroy_port:
 	destroy_port(vport);
 out_kthread_stop:
 	kthread_stop(phba->worker_thread);
@@ -2705,11 +3072,11 @@ out:
 }
 
 /**
- * lpfc_pci_remove_one: lpfc PCI func to unregister device from PCI subsystem.
+ * lpfc_pci_remove_one - lpfc PCI func to unregister device from PCI subsystem
  * @pdev: pointer to PCI device
  *
  * This routine is to be registered to the kernel's PCI subsystem. When an
- * Emulex HBA is removed from PCI bus. It perform all the necessary cleanup
+ * Emulex HBA is removed from PCI bus, it performs all the necessary cleanup
  * for the HBA device to be removed from the PCI subsystem properly.
  **/
 static void __devexit
@@ -2717,18 +3084,25 @@ lpfc_pci_remove_one(struct pci_dev *pdev)
 {
 	struct Scsi_Host  *shost = pci_get_drvdata(pdev);
 	struct lpfc_vport *vport = (struct lpfc_vport *) shost->hostdata;
+	struct lpfc_vport **vports;
 	struct lpfc_hba   *phba = vport->phba;
+	int i;
 	int bars = pci_select_bars(pdev, IORESOURCE_MEM);
 
 	spin_lock_irq(&phba->hbalock);
 	vport->load_flag |= FC_UNLOADING;
 	spin_unlock_irq(&phba->hbalock);
 
-	kfree(vport->vname);
 	lpfc_free_sysfs_attr(vport);
 
-	kthread_stop(phba->worker_thread);
+	/* Release all the vports against this physical port */
+	vports = lpfc_create_vport_work_array(phba);
+	if (vports != NULL)
+		for (i = 1; i <= phba->max_vpi && vports[i] != NULL; i++)
+			fc_vport_terminate(vports[i]->fc_vport);
+	lpfc_destroy_vport_work_array(phba, vports);
 
+	/* Remove FC host and then SCSI host with the physical port */
 	fc_remove_host(shost);
 	scsi_remove_host(shost);
 	lpfc_cleanup(vport);
@@ -2738,7 +3112,12 @@ lpfc_pci_remove_one(struct pci_dev *pdev)
 	 * clears the rings, discards all mailbox commands, and resets
 	 * the HBA.
 	 */
+
+	/* HBA interrupt will be diabled after this call */
 	lpfc_sli_hba_down(phba);
+	/* Stop kthread signal shall trigger work_done one more time */
+	kthread_stop(phba->worker_thread);
+	/* Final cleanup of txcmplq and reset the HBA */
 	lpfc_sli_brdrestart(phba);
 
 	lpfc_stop_phba_timers(phba);
@@ -2748,13 +3127,8 @@ lpfc_pci_remove_one(struct pci_dev *pdev)
 
 	lpfc_debugfs_terminate(vport);
 
-	if (phba->intr_type == MSIX)
-		lpfc_disable_msix(phba);
-	else {
-		free_irq(phba->pcidev->irq, phba);
-		if (phba->intr_type == MSI)
-			pci_disable_msi(phba->pcidev);
-	}
+	/* Disable interrupt */
+	lpfc_disable_intr(phba);
 
 	pci_set_drvdata(pdev, NULL);
 	scsi_host_put(shost);
@@ -2786,7 +3160,116 @@ lpfc_pci_remove_one(struct pci_dev *pdev)
 }
 
 /**
- * lpfc_io_error_detected: Driver method for handling PCI I/O error detected.
+ * lpfc_pci_suspend_one - lpfc PCI func to suspend device for power management
+ * @pdev: pointer to PCI device
+ * @msg: power management message
+ *
+ * This routine is to be registered to the kernel's PCI subsystem to support
+ * system Power Management (PM). When PM invokes this method, it quiesces the
+ * device by stopping the driver's worker thread for the device, turning off
+ * device's interrupt and DMA, and bring the device offline. Note that as the
+ * driver implements the minimum PM requirements to a power-aware driver's PM
+ * support for suspend/resume -- all the possible PM messages (SUSPEND,
+ * HIBERNATE, FREEZE) to the suspend() method call will be treated as SUSPEND
+ * and the driver will fully reinitialize its device during resume() method
+ * call, the driver will set device to PCI_D3hot state in PCI config space
+ * instead of setting it according to the @msg provided by the PM.
+ *
+ * Return code
+ *   0 - driver suspended the device
+ *   Error otherwise
+ **/
+static int
+lpfc_pci_suspend_one(struct pci_dev *pdev, pm_message_t msg)
+{
+	struct Scsi_Host *shost = pci_get_drvdata(pdev);
+	struct lpfc_hba *phba = ((struct lpfc_vport *)shost->hostdata)->phba;
+
+	lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+			"0473 PCI device Power Management suspend.\n");
+
+	/* Bring down the device */
+	lpfc_offline_prep(phba);
+	lpfc_offline(phba);
+	kthread_stop(phba->worker_thread);
+
+	/* Disable interrupt from device */
+	lpfc_disable_intr(phba);
+
+	/* Save device state to PCI config space */
+	pci_save_state(pdev);
+	pci_set_power_state(pdev, PCI_D3hot);
+
+	return 0;
+}
+
+/**
+ * lpfc_pci_resume_one - lpfc PCI func to resume device for power management
+ * @pdev: pointer to PCI device
+ *
+ * This routine is to be registered to the kernel's PCI subsystem to support
+ * system Power Management (PM). When PM invokes this method, it restores
+ * the device's PCI config space state and fully reinitializes the device
+ * and brings it online. Note that as the driver implements the minimum PM
+ * requirements to a power-aware driver's PM for suspend/resume -- all
+ * the possible PM messages (SUSPEND, HIBERNATE, FREEZE) to the suspend()
+ * method call will be treated as SUSPEND and the driver will fully
+ * reinitialize its device during resume() method call, the device will be
+ * set to PCI_D0 directly in PCI config space before restoring the state.
+ *
+ * Return code
+ *   0 - driver suspended the device
+ *   Error otherwise
+ **/
+static int
+lpfc_pci_resume_one(struct pci_dev *pdev)
+{
+	struct Scsi_Host *shost = pci_get_drvdata(pdev);
+	struct lpfc_hba *phba = ((struct lpfc_vport *)shost->hostdata)->phba;
+	uint32_t intr_mode;
+	int error;
+
+	lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
+			"0452 PCI device Power Management resume.\n");
+
+	/* Restore device state from PCI config space */
+	pci_set_power_state(pdev, PCI_D0);
+	pci_restore_state(pdev);
+	if (pdev->is_busmaster)
+		pci_set_master(pdev);
+
+	/* Startup the kernel thread for this host adapter. */
+	phba->worker_thread = kthread_run(lpfc_do_work, phba,
+					"lpfc_worker_%d", phba->brd_no);
+	if (IS_ERR(phba->worker_thread)) {
+		error = PTR_ERR(phba->worker_thread);
+		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+				"0434 PM resume failed to start worker "
+				"thread: error=x%x.\n", error);
+		return error;
+	}
+
+	/* Configure and enable interrupt */
+	intr_mode = lpfc_enable_intr(phba, phba->intr_mode);
+	if (intr_mode == LPFC_INTR_ERROR) {
+		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+				"0430 PM resume Failed to enable interrupt\n");
+		return -EIO;
+	} else
+		phba->intr_mode = intr_mode;
+
+	/* Restart HBA and bring it online */
+	lpfc_sli_brdrestart(phba);
+	lpfc_online(phba);
+
+	/* Log the current active interrupt mode */
+	lpfc_log_intr_mode(phba, phba->intr_mode);
+
+	return 0;
+}
+
+/**
+ * lpfc_io_error_detected - Driver method for handling PCI I/O error detected
  * @pdev: pointer to PCI device.
  * @state: the current PCI connection state.
  *
@@ -2828,20 +3311,15 @@ static pci_ers_result_t lpfc_io_error_detected(struct pci_dev *pdev,
 	pring = &psli->ring[psli->fcp_ring];
 	lpfc_sli_abort_iocb_ring(phba, pring);
 
-	if (phba->intr_type == MSIX)
-		lpfc_disable_msix(phba);
-	else {
-		free_irq(phba->pcidev->irq, phba);
-		if (phba->intr_type == MSI)
-			pci_disable_msi(phba->pcidev);
-	}
+	/* Disable interrupt */
+	lpfc_disable_intr(phba);
 
 	/* Request a slot reset. */
 	return PCI_ERS_RESULT_NEED_RESET;
 }
 
 /**
- * lpfc_io_slot_reset: Restart a PCI device from scratch.
+ * lpfc_io_slot_reset - Restart a PCI device from scratch
  * @pdev: pointer to PCI device.
  *
  * This routine is registered to the PCI subsystem for error handling. This is
@@ -2862,7 +3340,7 @@ static pci_ers_result_t lpfc_io_slot_reset(struct pci_dev *pdev)
 	struct Scsi_Host *shost = pci_get_drvdata(pdev);
 	struct lpfc_hba *phba = ((struct lpfc_vport *)shost->hostdata)->phba;
 	struct lpfc_sli *psli = &phba->sli;
-	int error, retval;
+	uint32_t intr_mode;
 
 	dev_printk(KERN_INFO, &pdev->dev, "recovering from a slot reset.\n");
 	if (pci_enable_device_mem(pdev)) {
@@ -2871,66 +3349,36 @@ static pci_ers_result_t lpfc_io_slot_reset(struct pci_dev *pdev)
 		return PCI_ERS_RESULT_DISCONNECT;
 	}
 
-	pci_set_master(pdev);
+	pci_restore_state(pdev);
+	if (pdev->is_busmaster)
+		pci_set_master(pdev);
 
 	spin_lock_irq(&phba->hbalock);
 	psli->sli_flag &= ~LPFC_SLI2_ACTIVE;
 	spin_unlock_irq(&phba->hbalock);
 
-	/* Enable configured interrupt method */
-	phba->intr_type = NONE;
-	if (phba->cfg_use_msi == 2) {
-		/* Need to issue conf_port mbox cmd before conf_msi mbox cmd */
-		error = lpfc_sli_config_port(phba, 3);
-		if (error)
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-				"0478 Firmware not capable of SLI 3 mode.\n");
-		else {
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-				"0479 Firmware capable of SLI 3 mode.\n");
-			/* Now, try to enable MSI-X interrupt mode */
-			error = lpfc_enable_msix(phba);
-			if (!error) {
-				phba->intr_type = MSIX;
-				lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-						"0480 enable MSI-X mode.\n");
-			}
-		}
-	}
-
-	/* Fallback to MSI if MSI-X initialization failed */
-	if (phba->cfg_use_msi >= 1 && phba->intr_type == NONE) {
-		retval = pci_enable_msi(phba->pcidev);
-		if (!retval) {
-			phba->intr_type = MSI;
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-					"0481 enable MSI mode.\n");
-		} else
-			lpfc_printf_log(phba, KERN_INFO, LOG_INIT,
-					"0470 enable IRQ mode.\n");
-	}
-
-	/* MSI-X is the only case the doesn't need to call request_irq */
-	if (phba->intr_type != MSIX) {
-		retval = request_irq(phba->pcidev->irq, lpfc_intr_handler,
-				     IRQF_SHARED, LPFC_DRIVER_NAME, phba);
-		if (retval) {
-			lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
-					"0471 Enable interrupt handler "
-					"failed\n");
-		} else if (phba->intr_type != MSI)
-			phba->intr_type = INTx;
-	}
+	/* Configure and enable interrupt */
+	intr_mode = lpfc_enable_intr(phba, phba->intr_mode);
+	if (intr_mode == LPFC_INTR_ERROR) {
+		lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+				"0427 Cannot re-enable interrupt after "
+				"slot reset.\n");
+		return PCI_ERS_RESULT_DISCONNECT;
+	} else
+		phba->intr_mode = intr_mode;
 
 	/* Take device offline; this will perform cleanup */
 	lpfc_offline(phba);
 	lpfc_sli_brdrestart(phba);
 
+	/* Log the current active interrupt mode */
+	lpfc_log_intr_mode(phba, phba->intr_mode);
+
 	return PCI_ERS_RESULT_RECOVERED;
 }
 
 /**
- * lpfc_io_resume: Resume PCI I/O operation.
+ * lpfc_io_resume - Resume PCI I/O operation
  * @pdev: pointer to PCI device
  *
  * This routine is registered to the PCI subsystem for error handling. It is
@@ -3037,11 +3485,13 @@ static struct pci_driver lpfc_driver = {
 	.id_table	= lpfc_id_table,
 	.probe		= lpfc_pci_probe_one,
 	.remove		= __devexit_p(lpfc_pci_remove_one),
+	.suspend        = lpfc_pci_suspend_one,
+	.resume         = lpfc_pci_resume_one,
 	.err_handler    = &lpfc_err_handler,
 };
 
 /**
- * lpfc_init: lpfc module initialization routine.
+ * lpfc_init - lpfc module initialization routine
  *
  * This routine is to be invoked when the lpfc module is loaded into the
  * kernel. The special kernel macro module_init() is used to indicate the
@@ -3087,7 +3537,7 @@ lpfc_init(void)
 }
 
 /**
- * lpfc_exit: lpfc module removal routine.
+ * lpfc_exit - lpfc module removal routine
  *
  * This routine is invoked when the lpfc module is removed from the kernel.
  * The special kernel macro module_exit() is used to indicate the role of
@@ -3100,6 +3550,19 @@ lpfc_exit(void)
 	fc_release_transport(lpfc_transport_template);
 	if (lpfc_enable_npiv)
 		fc_release_transport(lpfc_vport_transport_template);
+	if (_dump_buf_data) {
+		printk(KERN_ERR "BLKGRD freeing %lu pages for _dump_buf_data "
+				"at 0x%p\n",
+				(1L << _dump_buf_data_order), _dump_buf_data);
+		free_pages((unsigned long)_dump_buf_data, _dump_buf_data_order);
+	}
+
+	if (_dump_buf_dif) {
+		printk(KERN_ERR "BLKGRD freeing %lu pages for _dump_buf_dif "
+				"at 0x%p\n",
+				(1L << _dump_buf_dif_order), _dump_buf_dif);
+		free_pages((unsigned long)_dump_buf_dif, _dump_buf_dif_order);
+	}
 }
 
 module_init(lpfc_init);

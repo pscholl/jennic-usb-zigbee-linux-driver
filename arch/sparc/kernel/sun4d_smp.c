@@ -60,7 +60,7 @@ extern int __smp4d_processor_id(void);
 #define SMP_PRINTK(x)
 #endif
 
-static inline unsigned long swap(volatile unsigned long *ptr, unsigned long val)
+static inline unsigned long sun4d_swap(volatile unsigned long *ptr, unsigned long val)
 {
 	__asm__ __volatile__("swap [%1], %0\n\t" :
 			     "=&r" (val), "=&r" (ptr) :
@@ -115,7 +115,7 @@ void __cpuinit smp4d_callin(void)
 	local_flush_tlb_all();
 
 	/* Allow master to continue. */
-	swap((unsigned long *)&cpu_callin_map[cpuid], 1);
+	sun4d_swap((unsigned long *)&cpu_callin_map[cpuid], 1);
 	local_flush_cache_all();
 	local_flush_tlb_all();
 	
@@ -150,7 +150,7 @@ void __cpuinit smp4d_callin(void)
 	spin_lock_irqsave(&sun4d_imsk_lock, flags);
 	cc_set_imsk(cc_get_imsk() & ~0x4000); /* Allow PIL 14 as well */
 	spin_unlock_irqrestore(&sun4d_imsk_lock, flags);
-	cpu_set(cpuid, cpu_online_map);
+	set_cpu_online(cpuid, true);
 
 }
 
@@ -228,11 +228,10 @@ void __init smp4d_smp_done(void)
 	/* setup cpu list for irq rotation */
 	first = 0;
 	prev = &first;
-	for (i = 0; i < NR_CPUS; i++)
-		if (cpu_online(i)) {
-			*prev = i;
-			prev = &cpu_data(i).next;
-		}
+	for_each_online_cpu(i) {
+		*prev = i;
+		prev = &cpu_data(i).next;
+	}
 	*prev = first;
 	local_flush_cache_all();
 

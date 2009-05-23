@@ -238,7 +238,7 @@ extern void onchip_unmap(unsigned long vaddr);
 static inline void __iomem *
 __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 {
-#ifdef CONFIG_SUPERH32
+#if defined(CONFIG_SUPERH32) && !defined(CONFIG_PMB_FIXED)
 	unsigned long last_addr = offset + size - 1;
 #endif
 	void __iomem *ret;
@@ -247,7 +247,7 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 	if (ret)
 		return ret;
 
-#ifdef CONFIG_SUPERH32
+#if defined(CONFIG_SUPERH32) && !defined(CONFIG_PMB_FIXED)
 	/*
 	 * For P1 and P2 space this is trivial, as everything is already
 	 * mapped. Uncached access for P1 addresses are done through P2.
@@ -260,6 +260,10 @@ __ioremap_mode(unsigned long offset, unsigned long size, unsigned long flags)
 
 		return (void __iomem *)P2SEGADDR(offset);
 	}
+
+	/* P4 above the store queues are always mapped. */
+	if (unlikely(offset >= P3_ADDR_MAX))
+		return (void __iomem *)P4SEGADDR(offset);
 #endif
 
 	return __ioremap(offset, size, flags);

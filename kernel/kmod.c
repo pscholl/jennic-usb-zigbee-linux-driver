@@ -50,9 +50,10 @@ static struct workqueue_struct *khelper_wq;
 char modprobe_path[KMOD_PATH_LEN] = "/sbin/modprobe";
 
 /**
- * request_module - try to load a kernel module
- * @fmt:     printf style format string for the name of the module
- * @varargs: arguements as specified in the format string
+ * __request_module - try to load a kernel module
+ * @wait: wait (or not) for the operation to complete
+ * @fmt: printf style format string for the name of the module
+ * @...: arguments as specified in the format string
  *
  * Load a module using the user mode module loader. The function returns
  * zero on success or a negative errno code on failure. Note that a
@@ -63,7 +64,7 @@ char modprobe_path[KMOD_PATH_LEN] = "/sbin/modprobe";
  * If module auto-loading support is disabled then this function
  * becomes a no-operation.
  */
-int request_module(const char *fmt, ...)
+int __request_module(bool wait, const char *fmt, ...)
 {
 	va_list args;
 	char module_name[MODULE_NAME_LEN];
@@ -108,20 +109,21 @@ int request_module(const char *fmt, ...)
 		return -ENOMEM;
 	}
 
-	ret = call_usermodehelper(modprobe_path, argv, envp, 1);
+	ret = call_usermodehelper(modprobe_path, argv, envp,
+			wait ? UMH_WAIT_PROC : UMH_WAIT_EXEC);
 	atomic_dec(&kmod_concurrent);
 	return ret;
 }
-EXPORT_SYMBOL(request_module);
+EXPORT_SYMBOL(__request_module);
 #endif /* CONFIG_MODULES */
 
 struct subprocess_info {
 	struct work_struct work;
 	struct completion *complete;
+	struct cred *cred;
 	char *path;
 	char **argv;
 	char **envp;
-	struct key *ring;
 	enum umh_wait wait;
 	int retval;
 	struct file *stdin;
@@ -134,19 +136,20 @@ struct subprocess_info {
 static int ____call_usermodehelper(void *data)
 {
 	struct subprocess_info *sub_info = data;
-	struct key *new_session, *old_session;
 	int retval;
 
-	/* Unblock all signals and set the session keyring. */
-	new_session = key_get(sub_info->ring);
+	BUG_ON(atomic_read(&sub_info->cred->usage) != 1);
+
+	/* Unblock all signals */
 	spin_lock_irq(&current->sighand->siglock);
-	old_session = __install_session_keyring(current, new_session);
 	flush_signal_handlers(current, 1);
 	sigemptyset(&current->blocked);
 	recalc_sigpending();
 	spin_unlock_irq(&current->sighand->siglock);
 
-	key_put(old_session);
+	/* Install the credentials */
+	commit_creds(sub_info->cred);
+	sub_info->cred = NULL;
 
 	/* Install input pipe when needed */
 	if (sub_info->stdin) {
@@ -166,7 +169,7 @@ static int ____call_usermodehelper(void *data)
 	}
 
 	/* We can run anywhere, unlike our parent keventd(). */
-	set_cpus_allowed_ptr(current, CPU_MASK_ALL_PTR);
+	set_cpus_allowed_ptr(current, cpu_all_mask);
 
 	/*
 	 * Our parent is keventd, which runs with elevated scheduling priority.
@@ -185,6 +188,8 @@ void call_usermodehelper_freeinfo(struct subprocess_info *info)
 {
 	if (info->cleanup)
 		(*info->cleanup)(info->argv, info->envp);
+	if (info->cred)
+		put_cred(info->cred);
 	kfree(info);
 }
 EXPORT_SYMBOL(call_usermodehelper_freeinfo);
@@ -239,6 +244,8 @@ static void __call_usermodehelper(struct work_struct *work)
 		container_of(work, struct subprocess_info, work);
 	pid_t pid;
 	enum umh_wait wait = sub_info->wait;
+
+	BUG_ON(atomic_read(&sub_info->cred->usage) != 1);
 
 	/* CLONE_VFORK: wait until the usermode helper has execve'd
 	 * successfully We need the data structures to stay around
@@ -362,6 +369,9 @@ struct subprocess_info *call_usermodehelper_setup(char *path, char **argv,
 	sub_info->path = path;
 	sub_info->argv = argv;
 	sub_info->envp = envp;
+	sub_info->cred = prepare_usermodehelper_creds();
+	if (!sub_info->cred)
+		return NULL;
 
   out:
 	return sub_info;
@@ -376,7 +386,13 @@ EXPORT_SYMBOL(call_usermodehelper_setup);
 void call_usermodehelper_setkeys(struct subprocess_info *info,
 				 struct key *session_keyring)
 {
-	info->ring = session_keyring;
+#ifdef CONFIG_KEYS
+	struct thread_group_cred *tgcred = info->cred->tgcred;
+	key_put(tgcred->session_keyring);
+	tgcred->session_keyring = key_get(session_keyring);
+#else
+	BUG();
+#endif
 }
 EXPORT_SYMBOL(call_usermodehelper_setkeys);
 
@@ -443,6 +459,8 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info,
 {
 	DECLARE_COMPLETION_ONSTACK(done);
 	int retval = 0;
+
+	BUG_ON(atomic_read(&sub_info->cred->usage) != 1);
 
 	helper_lock();
 	if (sub_info->path[0] == '\0')

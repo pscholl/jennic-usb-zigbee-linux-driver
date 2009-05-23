@@ -18,6 +18,7 @@
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 #include <linux/input.h>
+#include <linux/clk.h>
 #include <linux/io.h>
 #include <asm/sh_keysc.h>
 
@@ -39,6 +40,7 @@ static const struct {
 
 struct sh_keysc_priv {
 	void __iomem *iomem_base;
+	struct clk *clk;
 	unsigned long last_keys;
 	struct input_dev *input;
 	struct sh_keysc_info pdata;
@@ -125,6 +127,7 @@ static int __devinit sh_keysc_probe(struct platform_device *pdev)
 	struct sh_keysc_info *pdata;
 	struct resource *res;
 	struct input_dev *input;
+	char clk_name[8];
 	int i, k;
 	int irq, error;
 
@@ -165,11 +168,19 @@ static int __devinit sh_keysc_probe(struct platform_device *pdev)
 		goto err1;
 	}
 
+	snprintf(clk_name, sizeof(clk_name), "keysc%d", pdev->id);
+	priv->clk = clk_get(&pdev->dev, clk_name);
+	if (IS_ERR(priv->clk)) {
+		dev_err(&pdev->dev, "cannot get clock \"%s\"\n", clk_name);
+		error = PTR_ERR(priv->clk);
+		goto err2;
+	}
+
 	priv->input = input_allocate_device();
 	if (!priv->input) {
 		dev_err(&pdev->dev, "failed to allocate input device\n");
 		error = -ENOMEM;
-		goto err2;
+		goto err3;
 	}
 
 	input = priv->input;
@@ -187,7 +198,7 @@ static int __devinit sh_keysc_probe(struct platform_device *pdev)
 	error = request_irq(irq, sh_keysc_isr, 0, pdev->name, pdev);
 	if (error) {
 		dev_err(&pdev->dev, "failed to request IRQ\n");
-		goto err3;
+		goto err4;
 	}
 
 	for (i = 0; i < SH_KEYSC_MAXKEYS; i++) {
@@ -199,18 +210,24 @@ static int __devinit sh_keysc_probe(struct platform_device *pdev)
 	error = input_register_device(input);
 	if (error) {
 		dev_err(&pdev->dev, "failed to register input device\n");
-		goto err4;
+		goto err5;
 	}
+
+	clk_enable(priv->clk);
 
 	iowrite16((sh_keysc_mode[pdata->mode].kymd << 8) |
 		  pdata->scan_timing, priv->iomem_base + KYCR1_OFFS);
 	iowrite16(0, priv->iomem_base + KYOUTDR_OFFS);
 	iowrite16(KYCR2_IRQ_LEVEL, priv->iomem_base + KYCR2_OFFS);
+
+	device_init_wakeup(&pdev->dev, 1);
 	return 0;
- err4:
+ err5:
 	free_irq(irq, pdev);
- err3:
+ err4:
 	input_free_device(input);
+ err3:
+	clk_put(priv->clk);
  err2:
 	iounmap(priv->iomem_base);
  err1:
@@ -230,22 +247,56 @@ static int __devexit sh_keysc_remove(struct platform_device *pdev)
 	free_irq(platform_get_irq(pdev, 0), pdev);
 	iounmap(priv->iomem_base);
 
+	clk_disable(priv->clk);
+	clk_put(priv->clk);
+
 	platform_set_drvdata(pdev, NULL);
 	kfree(priv);
 	return 0;
 }
 
+static int sh_keysc_suspend(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct sh_keysc_priv *priv = platform_get_drvdata(pdev);
+	int irq = platform_get_irq(pdev, 0);
+	unsigned short value;
 
-#define sh_keysc_suspend NULL
-#define sh_keysc_resume NULL
+	value = ioread16(priv->iomem_base + KYCR1_OFFS);
+
+	if (device_may_wakeup(dev)) {
+		value |= 0x80;
+		enable_irq_wake(irq);
+	}
+	else
+		value &= ~0x80;
+
+	iowrite16(value, priv->iomem_base + KYCR1_OFFS);
+	return 0;
+}
+
+static int sh_keysc_resume(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	int irq = platform_get_irq(pdev, 0);
+
+	if (device_may_wakeup(dev))
+		disable_irq_wake(irq);
+
+	return 0;
+}
+
+static struct dev_pm_ops sh_keysc_dev_pm_ops = {
+	.suspend = sh_keysc_suspend,
+	.resume = sh_keysc_resume,
+};
 
 struct platform_driver sh_keysc_device_driver = {
 	.probe		= sh_keysc_probe,
 	.remove		= __devexit_p(sh_keysc_remove),
-	.suspend	= sh_keysc_suspend,
-	.resume		= sh_keysc_resume,
 	.driver		= {
 		.name	= "sh_keysc",
+		.pm	= &sh_keysc_dev_pm_ops,
 	}
 };
 

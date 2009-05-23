@@ -16,7 +16,10 @@
 #include <linux/capability.h>
 #include <linux/spinlock.h>
 #include <linux/security.h>
+#include <linux/in.h>
 #include <net/netlabel.h>
+#include <linux/list.h>
+#include <linux/rculist.h>
 
 /*
  * Why 23? CIPSO is constrained to 30, so a 32 byte buffer is
@@ -57,17 +60,10 @@ struct inode_smack {
  * A label access rule.
  */
 struct smack_rule {
-	char	*smk_subject;
-	char	*smk_object;
-	int	smk_access;
-};
-
-/*
- * An entry in the table of permitted label accesses.
- */
-struct smk_list_entry {
-	struct smk_list_entry	*smk_next;
-	struct smack_rule	smk_rule;
+	struct list_head	list;
+	char			*smk_subject;
+	char			*smk_object;
+	int			smk_access;
 };
 
 /*
@@ -77,6 +73,16 @@ struct smk_list_entry {
 struct smack_cipso {
 	int	smk_level;
 	char	smk_catset[SMK_LABELLEN];
+};
+
+/*
+ * An entry in the table identifying hosts.
+ */
+struct smk_netlbladdr {
+	struct list_head	list;
+	struct sockaddr_in	smk_host;	/* network address */
+	struct in_addr		smk_mask;	/* network mask */
+	char			*smk_label;	/* label */
 };
 
 /*
@@ -101,7 +107,7 @@ struct smack_cipso {
  * the cipso direct mapping in used internally.
  */
 struct smack_known {
-	struct smack_known	*smk_next;
+	struct list_head	list;
 	char			smk_known[SMK_LABELLEN];
 	u32			smk_secid;
 	struct smack_cipso	*smk_cipso;
@@ -126,7 +132,23 @@ struct smack_known {
 #define XATTR_NAME_SMACKIPIN	XATTR_SECURITY_PREFIX XATTR_SMACK_IPIN
 #define XATTR_NAME_SMACKIPOUT	XATTR_SECURITY_PREFIX XATTR_SMACK_IPOUT
 
+#define SMACK_CIPSO_OPTION 	"-CIPSO"
+
 /*
+ * How communications on this socket are treated.
+ * Usually it's determined by the underlying netlabel code
+ * but there are certain cases, including single label hosts
+ * and potentially single label interfaces for which the
+ * treatment can not be known in advance.
+ *
+ * The possibility of additional labeling schemes being
+ * introduced in the future exists as well.
+ */
+#define SMACK_UNLABELED_SOCKET	0
+#define SMACK_CIPSO_SOCKET	1
+
+/*
+ * smackfs magic number
  * smackfs macic number
  */
 #define SMACK_MAGIC	0x43415d53 /* "SMAC" */
@@ -141,6 +163,7 @@ struct smack_known {
  * CIPSO defaults.
  */
 #define SMACK_CIPSO_DOI_DEFAULT		3	/* Historical */
+#define SMACK_CIPSO_DOI_INVALID		-1	/* Not a DOI */
 #define SMACK_CIPSO_DIRECT_DEFAULT	250	/* Arbitrary */
 #define SMACK_CIPSO_MAXCATVAL		63	/* Bigger gets harder */
 #define SMACK_CIPSO_MAXLEVEL            255     /* CIPSO 2.2 standard */
@@ -176,19 +199,21 @@ u32 smack_to_secid(const char *);
  * Shared data.
  */
 extern int smack_cipso_direct;
-extern int smack_net_nltype;
 extern char *smack_net_ambient;
 extern char *smack_onlycap;
+extern const char *smack_cipso_option;
 
-extern struct smack_known *smack_known;
 extern struct smack_known smack_known_floor;
 extern struct smack_known smack_known_hat;
 extern struct smack_known smack_known_huh;
 extern struct smack_known smack_known_invalid;
 extern struct smack_known smack_known_star;
-extern struct smack_known smack_known_unset;
+extern struct smack_known smack_known_web;
 
-extern struct smk_list_entry *smack_list;
+extern struct list_head smack_known_list;
+extern struct list_head smack_rule_list;
+extern struct list_head smk_netlbladdr_list;
+
 extern struct security_operations smack_ops;
 
 /*

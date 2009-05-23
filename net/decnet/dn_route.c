@@ -124,14 +124,13 @@ int decnet_dst_gc_interval = 2;
 
 static struct dst_ops dn_dst_ops = {
 	.family =		PF_DECnet,
-	.protocol =		__constant_htons(ETH_P_DNA_RT),
+	.protocol =		cpu_to_be16(ETH_P_DNA_RT),
 	.gc_thresh =		128,
 	.gc =			dn_dst_gc,
 	.check =		dn_dst_check,
 	.negative_advice =	dn_dst_negative_advice,
 	.link_failure =		dn_dst_link_failure,
 	.update_pmtu =		dn_dst_update_pmtu,
-	.entry_size =		sizeof(struct dn_route),
 	.entries =		ATOMIC_INIT(0),
 };
 
@@ -312,7 +311,7 @@ static int dn_insert_route(struct dn_route *rt, unsigned hash, struct dn_route *
 	return 0;
 }
 
-void dn_run_flush(unsigned long dummy)
+static void dn_run_flush(unsigned long dummy)
 {
 	int i;
 	struct dn_route *rt, *next;
@@ -381,7 +380,6 @@ static int dn_return_short(struct sk_buff *skb)
 	unsigned char *ptr;
 	__le16 *src;
 	__le16 *dst;
-	__le16 tmp;
 
 	/* Add back headers */
 	skb_push(skb, skb->data - skb_network_header(skb));
@@ -400,10 +398,7 @@ static int dn_return_short(struct sk_buff *skb)
 	ptr += 2;
 	*ptr = 0; /* Zero hop count */
 
-	/* Swap source and destination */
-	tmp  = *src;
-	*src = *dst;
-	*dst = tmp;
+	swap(*src, *dst);
 
 	skb->pkt_type = PACKET_OUTGOING;
 	dn_rt_finish_output(skb, NULL, NULL);
@@ -476,7 +471,7 @@ static int dn_route_rx_packet(struct sk_buff *skb)
 		printk(KERN_DEBUG
 			"DECnet: dn_route_rx_packet: rt_flags=0x%02x dev=%s len=%d src=0x%04hx dst=0x%04hx err=%d type=%d\n",
 			(int)cb->rt_flags, devname, skb->len,
-			dn_ntohs(cb->src), dn_ntohs(cb->dst),
+			le16_to_cpu(cb->src), le16_to_cpu(cb->dst),
 			err, skb->pkt_type);
 	}
 
@@ -576,7 +571,7 @@ int dn_route_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type
 {
 	struct dn_skb_cb *cb;
 	unsigned char flags = 0;
-	__u16 len = dn_ntohs(*(__le16 *)skb->data);
+	__u16 len = le16_to_cpu(*(__le16 *)skb->data);
 	struct dn_dev *dn = (struct dn_dev *)dev->dn_ptr;
 	unsigned char padlen = 0;
 
@@ -774,7 +769,7 @@ static int dn_rt_bug(struct sk_buff *skb)
 		struct dn_skb_cb *cb = DN_SKB_CB(skb);
 
 		printk(KERN_DEBUG "dn_rt_bug: skb from:%04x to:%04x\n",
-				dn_ntohs(cb->src), dn_ntohs(cb->dst));
+				le16_to_cpu(cb->src), le16_to_cpu(cb->dst));
 	}
 
 	kfree_skb(skb);
@@ -817,7 +812,7 @@ static int dn_rt_set_next_hop(struct dn_route *rt, struct dn_fib_res *res)
 
 static inline int dn_match_addr(__le16 addr1, __le16 addr2)
 {
-	__u16 tmp = dn_ntohs(addr1) ^ dn_ntohs(addr2);
+	__u16 tmp = le16_to_cpu(addr1) ^ le16_to_cpu(addr2);
 	int match = 16;
 	while(tmp) {
 		tmp >>= 1;
@@ -887,8 +882,8 @@ static int dn_route_output_slow(struct dst_entry **pprt, const struct flowi *old
 	if (decnet_debug_level & 16)
 		printk(KERN_DEBUG
 		       "dn_route_output_slow: dst=%04x src=%04x mark=%d"
-		       " iif=%d oif=%d\n", dn_ntohs(oldflp->fld_dst),
-		       dn_ntohs(oldflp->fld_src),
+		       " iif=%d oif=%d\n", le16_to_cpu(oldflp->fld_dst),
+		       le16_to_cpu(oldflp->fld_src),
 		       oldflp->mark, init_net.loopback_dev->ifindex, oldflp->oif);
 
 	/* If we have an output interface, verify its a DECnet device */
@@ -960,7 +955,7 @@ source_ok:
 		printk(KERN_DEBUG
 		       "dn_route_output_slow: initial checks complete."
 		       " dst=%o4x src=%04x oif=%d try_hard=%d\n",
-		       dn_ntohs(fl.fld_dst), dn_ntohs(fl.fld_src),
+		       le16_to_cpu(fl.fld_dst), le16_to_cpu(fl.fld_src),
 		       fl.oif, try_hard);
 
 	/*
@@ -1185,7 +1180,7 @@ static int dn_route_output_key(struct dst_entry **pprt, struct flowi *flp, int f
 
 	err = __dn_route_output_key(pprt, flp, flags);
 	if (err == 0 && flp->proto) {
-		err = xfrm_lookup(pprt, flp, NULL, 0);
+		err = xfrm_lookup(&init_net, pprt, flp, NULL, 0);
 	}
 	return err;
 }
@@ -1196,8 +1191,8 @@ int dn_route_output_sock(struct dst_entry **pprt, struct flowi *fl, struct sock 
 
 	err = __dn_route_output_key(pprt, fl, flags & MSG_TRYHARD);
 	if (err == 0 && fl->proto) {
-		err = xfrm_lookup(pprt, fl, sk, (flags & MSG_DONTWAIT) ?
-						0 : XFRM_LOOKUP_WAIT);
+		err = xfrm_lookup(&init_net, pprt, fl, sk,
+				 (flags & MSG_DONTWAIT) ? 0 : XFRM_LOOKUP_WAIT);
 	}
 	return err;
 }
@@ -1423,7 +1418,7 @@ e_neighbour:
 	goto done;
 }
 
-int dn_route_input(struct sk_buff *skb)
+static int dn_route_input(struct sk_buff *skb)
 {
 	struct dn_route *rt;
 	struct dn_skb_cb *cb = DN_SKB_CB(skb);
@@ -1712,8 +1707,8 @@ static int dn_rt_cache_seq_show(struct seq_file *seq, void *v)
 
 	seq_printf(seq, "%-8s %-7s %-7s %04d %04d %04d\n",
 			rt->u.dst.dev ? rt->u.dst.dev->name : "*",
-			dn_addr2asc(dn_ntohs(rt->rt_daddr), buf1),
-			dn_addr2asc(dn_ntohs(rt->rt_saddr), buf2),
+			dn_addr2asc(le16_to_cpu(rt->rt_daddr), buf1),
+			dn_addr2asc(le16_to_cpu(rt->rt_saddr), buf2),
 			atomic_read(&rt->u.dst.__refcnt),
 			rt->u.dst.__use,
 			(int) dst_metric(&rt->u.dst, RTAX_RTT));

@@ -4,6 +4,7 @@
  *  Derived from ivtv-fileops.c
  *
  *  Copyright (C) 2007  Hans Verkuil <hverkuil@xs4all.nl>
+ *  Copyright (C) 2008  Andy Walls <awalls@radix.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -66,12 +67,11 @@ static int cx18_claim_stream(struct cx18_open_id *id, int type)
 	}
 	s->id = id->open_id;
 
-	/* CX18_DEC_STREAM_TYPE_MPG needs to claim CX18_DEC_STREAM_TYPE_VBI,
-	   CX18_ENC_STREAM_TYPE_MPG needs to claim CX18_ENC_STREAM_TYPE_VBI
+	/* CX18_ENC_STREAM_TYPE_MPG needs to claim CX18_ENC_STREAM_TYPE_VBI
 	   (provided VBI insertion is on and sliced VBI is selected), for all
 	   other streams we're done */
 	if (type == CX18_ENC_STREAM_TYPE_MPG &&
-		   cx->vbi.insert_mpeg && cx->vbi.sliced_in->service_set) {
+	    cx->vbi.insert_mpeg && !cx18_raw_vbi(cx)) {
 		vbi_type = CX18_ENC_STREAM_TYPE_VBI;
 	} else {
 		return 0;
@@ -128,15 +128,15 @@ static void cx18_release_stream(struct cx18_stream *s)
 static void cx18_dualwatch(struct cx18 *cx)
 {
 	struct v4l2_tuner vt;
-	u16 new_bitmap;
-	u16 new_stereo_mode;
-	const u16 stereo_mask = 0x0300;
-	const u16 dual = 0x0200;
+	u32 new_bitmap;
+	u32 new_stereo_mode;
+	const u32 stereo_mask = 0x0300;
+	const u32 dual = 0x0200;
 	u32 h;
 
 	new_stereo_mode = cx->params.audio_properties & stereo_mask;
 	memset(&vt, 0, sizeof(vt));
-	cx18_call_i2c_clients(cx, VIDIOC_G_TUNER, &vt);
+	cx18_call_all(cx, tuner, g_tuner, &vt);
 	if (vt.audmode == V4L2_TUNER_MODE_LANG1_LANG2 &&
 			(vt.rxsubchans & V4L2_TUNER_SUB_LANG2))
 		new_stereo_mode = dual;
@@ -176,6 +176,8 @@ static struct cx18_buffer *cx18_get_buffer(struct cx18_stream *s, int non_block,
 	*err = 0;
 	while (1) {
 		if (s->type == CX18_ENC_STREAM_TYPE_MPG) {
+			/* Process pending program info updates and pending
+			   VBI data */
 
 			if (time_after(jiffies, cx->dualwatch_jiffies + msecs_to_jiffies(1000))) {
 				cx->dualwatch_jiffies = jiffies;
@@ -185,19 +187,15 @@ static struct cx18_buffer *cx18_get_buffer(struct cx18_stream *s, int non_block,
 			    !test_bit(CX18_F_S_APPL_IO, &s_vbi->s_flags)) {
 				while ((buf = cx18_dequeue(s_vbi, &s_vbi->q_full))) {
 					/* byteswap and process VBI data */
-/*					cx18_process_vbi_data(cx, buf, s_vbi->dma_pts, s_vbi->type); */
-					cx18_enqueue(s_vbi, buf, &s_vbi->q_free);
+					cx18_process_vbi_data(cx, buf,
+							      s_vbi->type);
+					cx18_stream_put_buf_fw(s_vbi, buf);
 				}
 			}
 			buf = &cx->vbi.sliced_mpeg_buf;
 			if (buf->readpos != buf->bytesused)
 				return buf;
 		}
-
-		/* do we have leftover data? */
-		buf = cx18_dequeue(s, &s->q_io);
-		if (buf)
-			return buf;
 
 		/* do we have new data? */
 		buf = cx18_dequeue(s, &s->q_full);
@@ -210,8 +208,7 @@ static struct cx18_buffer *cx18_get_buffer(struct cx18_stream *s, int non_block,
 				cx18_buf_swap(buf);
 			else {
 				/* byteswap and process VBI data */
-				cx18_process_vbi_data(cx, buf,
-						s->dma_pts, s->type);
+				cx18_process_vbi_data(cx, buf, s->type);
 			}
 			return buf;
 		}
@@ -262,7 +259,21 @@ static size_t cx18_copy_buf_to_user(struct cx18_stream *s,
 	if (len > ucount)
 		len = ucount;
 	if (cx->vbi.insert_mpeg && s->type == CX18_ENC_STREAM_TYPE_MPG &&
-	    cx->vbi.sliced_in->service_set && buf != &cx->vbi.sliced_mpeg_buf) {
+	    !cx18_raw_vbi(cx) && buf != &cx->vbi.sliced_mpeg_buf) {
+		/*
+		 * Try to find a good splice point in the PS, just before
+		 * an MPEG-2 Program Pack start code, and provide only
+		 * up to that point to the user, so it's easy to insert VBI data
+		 * the next time around.
+		 */
+		/* FIXME - This only works for an MPEG-2 PS, not a TS */
+		/*
+		 * An MPEG-2 Program Stream (PS) is a series of
+		 * MPEG-2 Program Packs terminated by an
+		 * MPEG Program End Code after the last Program Pack.
+		 * A Program Pack may hold a PS System Header packet and any
+		 * number of Program Elementary Stream (PES) Packets
+		 */
 		const char *start = buf->buf + buf->readpos;
 		const char *p = start + 1;
 		const u8 *q;
@@ -270,38 +281,54 @@ static size_t cx18_copy_buf_to_user(struct cx18_stream *s,
 		int stuffing, i;
 
 		while (start + len > p) {
+			/* Scan for a 0 to find a potential MPEG-2 start code */
 			q = memchr(p, 0, start + len - p);
 			if (q == NULL)
 				break;
 			p = q + 1;
+			/*
+			 * Keep looking if not a
+			 * MPEG-2 Pack header start code:  0x00 0x00 0x01 0xba
+			 * or MPEG-2 video PES start code: 0x00 0x00 0x01 0xe0
+			 */
 			if ((char *)q + 15 >= buf->buf + buf->bytesused ||
 			    q[1] != 0 || q[2] != 1 || q[3] != ch)
 				continue;
+
+			/* If expecting the primary video PES */
 			if (!cx->search_pack_header) {
+				/* Continue if it couldn't be a PES packet */
 				if ((q[6] & 0xc0) != 0x80)
 					continue;
-				if (((q[7] & 0xc0) == 0x80 &&
-				     (q[9] & 0xf0) == 0x20) ||
-				    ((q[7] & 0xc0) == 0xc0 &&
-				     (q[9] & 0xf0) == 0x30)) {
-					ch = 0xba;
+				/* Check if a PTS or PTS & DTS follow */
+				if (((q[7] & 0xc0) == 0x80 &&  /* PTS only */
+				     (q[9] & 0xf0) == 0x20) || /* PTS only */
+				    ((q[7] & 0xc0) == 0xc0 &&  /* PTS & DTS */
+				     (q[9] & 0xf0) == 0x30)) { /* DTS follows */
+					/* Assume we found the video PES hdr */
+					ch = 0xba; /* next want a Program Pack*/
 					cx->search_pack_header = 1;
-					p = q + 9;
+					p = q + 9; /* Skip this video PES hdr */
 				}
 				continue;
 			}
+
+			/* We may have found a Program Pack start code */
+
+			/* Get the count of stuffing bytes & verify them */
 			stuffing = q[13] & 7;
 			/* all stuffing bytes must be 0xff */
 			for (i = 0; i < stuffing; i++)
 				if (q[14 + i] != 0xff)
 					break;
-			if (i == stuffing &&
-			    (q[4] & 0xc4) == 0x44 &&
-			    (q[12] & 3) == 3 &&
-			    q[14 + stuffing] == 0 &&
+			if (i == stuffing && /* right number of stuffing bytes*/
+			    (q[4] & 0xc4) == 0x44 && /* marker check */
+			    (q[12] & 3) == 3 &&  /* marker check */
+			    q[14 + stuffing] == 0 && /* PES Pack or Sys Hdr */
 			    q[15 + stuffing] == 0 &&
 			    q[16 + stuffing] == 1) {
-				cx->search_pack_header = 0;
+				/* We declare we actually found a Program Pack*/
+				cx->search_pack_header = 0; /* expect vid PES */
 				len = (char *)q - start;
 				cx18_setup_sliced_vbi_buf(cx);
 				break;
@@ -337,8 +364,7 @@ static ssize_t cx18_read(struct cx18_stream *s, char __user *ubuf,
 	/* Each VBI buffer is one frame, the v4l2 API says that for VBI the
 	   frames should arrive one-by-one, so make sure we never output more
 	   than one VBI frame at a time */
-	if (s->type == CX18_ENC_STREAM_TYPE_VBI &&
-	    cx->vbi.sliced_in->service_set)
+	if (s->type == CX18_ENC_STREAM_TYPE_VBI && !cx18_raw_vbi(cx))
 		single_frame = 1;
 
 	for (;;) {
@@ -365,16 +391,10 @@ static ssize_t cx18_read(struct cx18_stream *s, char __user *ubuf,
 				tot_count - tot_written);
 
 		if (buf != &cx->vbi.sliced_mpeg_buf) {
-			if (buf->readpos == buf->bytesused) {
-				cx18_buf_sync_for_device(s, buf);
-				cx18_enqueue(s, buf, &s->q_free);
-				cx18_vapi(cx, CX18_CPU_DE_SET_MDL, 5,
-					s->handle,
-					(void __iomem *)&cx->scb->cpu_mdl[buf->id] -
-					  cx->enc_mem,
-					1, buf->id, s->buf_size);
-			} else
-				cx18_enqueue(s, buf, &s->q_io);
+			if (buf->readpos == buf->bytesused)
+				cx18_stream_put_buf_fw(s, buf);
+			else
+				cx18_push(s, buf, &s->q_full);
 		} else if (buf->readpos == buf->bytesused) {
 			int idx = cx->vbi.inserted_frame % CX18_VBI_FRAMES;
 
@@ -518,7 +538,7 @@ unsigned int cx18_v4l2_enc_poll(struct file *filp, poll_table *wait)
 	CX18_DEBUG_HI_FILE("Encoder poll\n");
 	poll_wait(filp, &s->waitq, wait);
 
-	if (atomic_read(&s->q_full.buffers) || atomic_read(&s->q_io.buffers))
+	if (atomic_read(&s->q_full.buffers))
 		return POLLIN | POLLRDNORM;
 	if (eof)
 		return POLLHUP;
@@ -562,7 +582,7 @@ void cx18_stop_capture(struct cx18_open_id *id, int gop_end)
 	}
 }
 
-int cx18_v4l2_close(struct inode *inode, struct file *filp)
+int cx18_v4l2_close(struct file *filp)
 {
 	struct cx18_open_id *id = filp->private_data;
 	struct cx18 *cx = id->cx;
@@ -588,7 +608,7 @@ int cx18_v4l2_close(struct inode *inode, struct file *filp)
 		/* Mark that the radio is no longer in use */
 		clear_bit(CX18_F_I_RADIO_USER, &cx->i_flags);
 		/* Switch tuner to TV */
-		cx18_call_i2c_clients(cx, VIDIOC_S_STD, &cx->std);
+		cx18_call_all(cx, core, s_std, cx->std);
 		/* Select correct audio input (i.e. TV tuner or Line in) */
 		cx18_audio_set_io(cx);
 		if (atomic_read(&cx->ana_capturing) > 0) {
@@ -651,7 +671,7 @@ static int cx18_serialized_open(struct cx18_stream *s, struct file *filp)
 		/* We have the radio */
 		cx18_mute(cx);
 		/* Switch tuner to radio */
-		cx18_call_i2c_clients(cx, AUDC_SET_RADIO, NULL);
+		cx18_call_all(cx, tuner, s_radio);
 		/* Select the correct audio input (i.e. radio tuner) */
 		cx18_audio_set_io(cx);
 		/* Done! Unmute and continue. */
@@ -660,40 +680,17 @@ static int cx18_serialized_open(struct cx18_stream *s, struct file *filp)
 	return 0;
 }
 
-int cx18_v4l2_open(struct inode *inode, struct file *filp)
+int cx18_v4l2_open(struct file *filp)
 {
-	int res, x, y = 0;
-	struct cx18 *cx = NULL;
-	struct cx18_stream *s = NULL;
-	int minor = iminor(inode);
-
-	/* Find which card this open was on */
-	spin_lock(&cx18_cards_lock);
-	for (x = 0; cx == NULL && x < cx18_cards_active; x++) {
-		/* find out which stream this open was on */
-		for (y = 0; y < CX18_MAX_STREAMS; y++) {
-			if (cx18_cards[x] == NULL)
-				continue;
-			s = &cx18_cards[x]->streams[y];
-			if (s->v4l2dev && s->v4l2dev->minor == minor) {
-				cx = cx18_cards[x];
-				break;
-			}
-		}
-	}
-	spin_unlock(&cx18_cards_lock);
-
-	if (cx == NULL) {
-		/* Couldn't find a device registered
-		   on that minor, shouldn't happen! */
-		printk(KERN_WARNING "No cx18 device found on minor %d\n",
-				minor);
-		return -ENXIO;
-	}
+	int res;
+	struct video_device *video_dev = video_devdata(filp);
+	struct cx18_stream *s = video_get_drvdata(video_dev);
+	struct cx18 *cx = s->cx;;
 
 	mutex_lock(&cx->serialize_lock);
 	if (cx18_init_on_first_open(cx)) {
-		CX18_ERR("Failed to initialize on minor %d\n", minor);
+		CX18_ERR("Failed to initialize on minor %d\n",
+			 video_dev->minor);
 		mutex_unlock(&cx->serialize_lock);
 		return -ENXIO;
 	}

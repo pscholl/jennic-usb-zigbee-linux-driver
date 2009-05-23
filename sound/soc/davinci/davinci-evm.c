@@ -20,14 +20,19 @@
 #include <sound/soc-dapm.h>
 
 #include <asm/dma.h>
-#include <mach/hardware.h>
+#include <asm/mach-types.h>
+
+#include <mach/asp.h>
+#include <mach/edma.h>
+#include <mach/mux.h>
 
 #include "../codecs/tlv320aic3x.h"
 #include "davinci-pcm.h"
 #include "davinci-i2s.h"
 
-#define EVM_CODEC_CLOCK 22579200
 
+#define AUDIO_FORMAT (SND_SOC_DAIFMT_DSP_B | \
+		SND_SOC_DAIFMT_CBM_CFM | SND_SOC_DAIFMT_IB_NF)
 static int evm_hw_params(struct snd_pcm_substream *substream,
 			 struct snd_pcm_hw_params *params)
 {
@@ -35,22 +40,34 @@ static int evm_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->dai->codec_dai;
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
 	int ret = 0;
+	unsigned sysclk;
+
+	/* ASP1 on DM355 EVM is clocked by an external oscillator */
+	if (machine_is_davinci_dm355_evm())
+		sysclk = 27000000;
+
+	/* ASP0 in DM6446 EVM is clocked by U55, as configured by
+	 * board-dm644x-evm.c using GPIOs from U18.  There are six
+	 * options; here we "know" we use a 48 KHz sample rate.
+	 */
+	else if (machine_is_davinci_evm())
+		sysclk = 12288000;
+
+	else
+		return -EINVAL;
 
 	/* set codec DAI configuration */
-	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
-					 SND_SOC_DAIFMT_CBM_CFM);
+	ret = snd_soc_dai_set_fmt(codec_dai, AUDIO_FORMAT);
 	if (ret < 0)
 		return ret;
 
 	/* set cpu DAI configuration */
-	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBM_CFM |
-				       SND_SOC_DAIFMT_IB_NF);
+	ret = snd_soc_dai_set_fmt(cpu_dai, AUDIO_FORMAT);
 	if (ret < 0)
 		return ret;
 
 	/* set the codec system clock */
-	ret = snd_soc_dai_set_sysclk(codec_dai, 0, EVM_CODEC_CLOCK,
-					    SND_SOC_CLOCK_OUT);
+	ret = snd_soc_dai_set_sysclk(codec_dai, 0, sysclk, SND_SOC_CLOCK_OUT);
 	if (ret < 0)
 		return ret;
 
@@ -128,55 +145,93 @@ static struct snd_soc_dai_link evm_dai = {
 };
 
 /* davinci-evm audio machine driver */
-static struct snd_soc_machine snd_soc_machine_evm = {
+static struct snd_soc_card snd_soc_card_evm = {
 	.name = "DaVinci EVM",
+	.platform = &davinci_soc_platform,
 	.dai_link = &evm_dai,
 	.num_links = 1,
 };
 
 /* evm audio private data */
 static struct aic3x_setup_data evm_aic3x_setup = {
-	.i2c_bus = 0,
+	.i2c_bus = 1,
 	.i2c_address = 0x1b,
 };
 
 /* evm audio subsystem */
 static struct snd_soc_device evm_snd_devdata = {
-	.machine = &snd_soc_machine_evm,
-	.platform = &davinci_soc_platform,
+	.card = &snd_soc_card_evm,
 	.codec_dev = &soc_codec_dev_aic3x,
 	.codec_data = &evm_aic3x_setup,
 };
 
+/* DM6446 EVM uses ASP0; line-out is a pair of RCA jacks */
 static struct resource evm_snd_resources[] = {
 	{
-		.start = DAVINCI_MCBSP_BASE,
-		.end = DAVINCI_MCBSP_BASE + SZ_8K - 1,
+		.start = DAVINCI_ASP0_BASE,
+		.end = DAVINCI_ASP0_BASE + SZ_8K - 1,
 		.flags = IORESOURCE_MEM,
 	},
 };
 
 static struct evm_snd_platform_data evm_snd_data = {
-	.tx_dma_ch	= DM644X_DMACH_MCBSP_TX,
-	.rx_dma_ch	= DM644X_DMACH_MCBSP_RX,
+	.tx_dma_ch	= DAVINCI_DMA_ASP0_TX,
+	.rx_dma_ch	= DAVINCI_DMA_ASP0_RX,
+};
+
+/* DM335 EVM uses ASP1; line-out is a stereo mini-jack */
+static struct resource dm335evm_snd_resources[] = {
+	{
+		.start = DAVINCI_ASP1_BASE,
+		.end = DAVINCI_ASP1_BASE + SZ_8K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+static struct evm_snd_platform_data dm335evm_snd_data = {
+	.tx_dma_ch	= DAVINCI_DMA_ASP1_TX,
+	.rx_dma_ch	= DAVINCI_DMA_ASP1_RX,
 };
 
 static struct platform_device *evm_snd_device;
 
 static int __init evm_init(void)
 {
+	struct resource *resources;
+	unsigned num_resources;
+	struct evm_snd_platform_data *data;
+	int index;
 	int ret;
 
-	evm_snd_device = platform_device_alloc("soc-audio", 0);
+	if (machine_is_davinci_evm()) {
+		davinci_cfg_reg(DM644X_MCBSP);
+
+		resources = evm_snd_resources;
+		num_resources = ARRAY_SIZE(evm_snd_resources);
+		data = &evm_snd_data;
+		index = 0;
+	} else if (machine_is_davinci_dm355_evm()) {
+		/* we don't use ASP1 IRQs, or we'd need to mux them ... */
+		davinci_cfg_reg(DM355_EVT8_ASP1_TX);
+		davinci_cfg_reg(DM355_EVT9_ASP1_RX);
+
+		resources = dm335evm_snd_resources;
+		num_resources = ARRAY_SIZE(dm335evm_snd_resources);
+		data = &dm335evm_snd_data;
+		index = 1;
+	} else
+		return -EINVAL;
+
+	evm_snd_device = platform_device_alloc("soc-audio", index);
 	if (!evm_snd_device)
 		return -ENOMEM;
 
 	platform_set_drvdata(evm_snd_device, &evm_snd_devdata);
 	evm_snd_devdata.dev = &evm_snd_device->dev;
-	evm_snd_device->dev.platform_data = &evm_snd_data;
+	platform_device_add_data(evm_snd_device, data, sizeof(*data));
 
-	ret = platform_device_add_resources(evm_snd_device, evm_snd_resources,
-					    ARRAY_SIZE(evm_snd_resources));
+	ret = platform_device_add_resources(evm_snd_device, resources,
+			num_resources);
 	if (ret) {
 		platform_device_put(evm_snd_device);
 		return ret;

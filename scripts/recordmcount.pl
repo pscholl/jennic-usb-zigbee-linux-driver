@@ -100,18 +100,26 @@ $P =~ s@.*/@@g;
 
 my $V = '0.1';
 
-if ($#ARGV < 6) {
-	print "usage: $P arch objdump objcopy cc ld nm rm mv inputfile\n";
+if ($#ARGV < 7) {
+	print "usage: $P arch bits objdump objcopy cc ld nm rm mv is_module inputfile\n";
 	print "version: $V\n";
 	exit(1);
 }
 
 my ($arch, $bits, $objdump, $objcopy, $cc,
-    $ld, $nm, $rm, $mv, $inputfile) = @ARGV;
+    $ld, $nm, $rm, $mv, $is_module, $inputfile) = @ARGV;
+
+# This file refers to mcount and shouldn't be ftraced, so lets' ignore it
+if ($inputfile eq "kernel/trace/ftrace.o") {
+    exit(0);
+}
 
 # Acceptable sections to record.
 my %text_sections = (
      ".text" => 1,
+     ".sched.text" => 1,
+     ".spinlock.text" => 1,
+     ".irqentry.text" => 1,
 );
 
 $objdump = "objdump" if ((length $objdump) == 0);
@@ -130,10 +138,13 @@ my %weak;		# List of weak functions
 my %convert;		# List of local functions used that needs conversion
 
 my $type;
+my $nm_regex;		# Find the local functions (return function)
 my $section_regex;	# Find the start of a section
 my $function_regex;	# Find the name of a function
 			#    (return offset and func name)
 my $mcount_regex;	# Find the call site to mcount (return offset)
+my $alignment;		# The .align value to use for $mcount_section
+my $section_type;	# Section header plus possible alignment command
 
 if ($arch eq "x86") {
     if ($bits == 64) {
@@ -143,11 +154,21 @@ if ($arch eq "x86") {
     }
 }
 
+#
+# We base the defaults off of i386, the other archs may
+# feel free to change them in the below if statements.
+#
+$nm_regex = "^[0-9a-fA-F]+\\s+t\\s+(\\S+)";
+$section_regex = "Disassembly of section\\s+(\\S+):";
+$function_regex = "^([0-9a-fA-F]+)\\s+<(.*?)>:";
+$mcount_regex = "^\\s*([0-9a-fA-F]+):.*\\smcount\$";
+$section_type = '@progbits';
+$type = ".long";
+
 if ($arch eq "x86_64") {
-    $section_regex = "Disassembly of section\\s+(\\S+):";
-    $function_regex = "^([0-9a-fA-F]+)\\s+<(.*?)>:";
     $mcount_regex = "^\\s*([0-9a-fA-F]+):.*\\smcount([+-]0x[0-9a-zA-Z]+)?\$";
     $type = ".quad";
+    $alignment = 8;
 
     # force flags for this arch
     $ld .= " -m elf_x86_64";
@@ -156,10 +177,7 @@ if ($arch eq "x86_64") {
     $cc .= " -m64";
 
 } elsif ($arch eq "i386") {
-    $section_regex = "Disassembly of section\\s+(\\S+):";
-    $function_regex = "^([0-9a-fA-F]+)\\s+<(.*?)>:";
-    $mcount_regex = "^\\s*([0-9a-fA-F]+):.*\\smcount\$";
-    $type = ".long";
+    $alignment = 4;
 
     # force flags for this arch
     $ld .= " -m elf_i386";
@@ -167,6 +185,34 @@ if ($arch eq "x86_64") {
     $objcopy .= " -O elf32-i386";
     $cc .= " -m32";
 
+} elsif ($arch eq "sh") {
+    $alignment = 2;
+
+    # force flags for this arch
+    $ld .= " -m shlelf_linux";
+    $objcopy .= " -O elf32-sh-linux";
+    $cc .= " -m32";
+
+} elsif ($arch eq "powerpc") {
+    $nm_regex = "^[0-9a-fA-F]+\\s+t\\s+(\\.?\\S+)";
+    $function_regex = "^([0-9a-fA-F]+)\\s+<(\\.?.*?)>:";
+    $mcount_regex = "^\\s*([0-9a-fA-F]+):.*\\s\\.?_mcount\$";
+
+    if ($bits == 64) {
+	$type = ".quad";
+    }
+
+} elsif ($arch eq "arm") {
+    $alignment = 2;
+    $section_type = '%progbits';
+
+} elsif ($arch eq "ia64") {
+    $mcount_regex = "^\\s*([0-9a-fA-F]+):.*\\s_mcount\$";
+    $type = "data8";
+
+    if ($is_module eq "0") {
+        $cc .= " -mconstant-gp";
+    }
 } else {
     die "Arch $arch is not supported with CONFIG_FTRACE_MCOUNT_RECORD";
 }
@@ -229,14 +275,13 @@ if (!$found_version) {
 	"\tDisabling local function references.\n";
 }
 
-
 #
 # Step 1: find all the local (static functions) and weak symbols.
 #        't' is local, 'w/W' is weak (we never use a weak function)
 #
 open (IN, "$nm $inputfile|") || die "error running $nm";
 while (<IN>) {
-    if (/^[0-9a-fA-F]+\s+t\s+(\S+)/) {
+    if (/$nm_regex/) {
 	$locals{$1} = 1;
     } elsif (/^[0-9a-fA-F]+\s+([wW])\s+(\S+)/) {
 	$weak{$2} = $1;
@@ -287,7 +332,8 @@ sub update_funcs
 	if (!$opened) {
 	    open(FILE, ">$mcount_s") || die "can't create $mcount_s\n";
 	    $opened = 1;
-	    print FILE "\t.section $mcount_section,\"a\",\@progbits\n";
+	    print FILE "\t.section $mcount_section,\"a\",$section_type\n";
+	    print FILE "\t.align $alignment\n" if (defined($alignment));
 	}
 	printf FILE "\t%s %s + %d\n", $type, $ref_func, $offsets[$i] - $offset;
     }
@@ -296,13 +342,16 @@ sub update_funcs
 #
 # Step 2: find the sections and mcount call sites
 #
-open(IN, "$objdump -dr $inputfile|") || die "error running $objdump";
+open(IN, "$objdump -hdr $inputfile|") || die "error running $objdump";
 
 my $text;
+
+my $read_headers = 1;
 
 while (<IN>) {
     # is it a section?
     if (/$section_regex/) {
+	$read_headers = 0;
 
 	# Only record text sections that we know are safe
 	if (defined($text_sections{$1})) {
@@ -336,6 +385,19 @@ while (<IN>) {
 		$ref_func = $text;
 	    }
 	}
+    } elsif ($read_headers && /$mcount_section/) {
+	#
+	# Somehow the make process can execute this script on an
+	# object twice. If it does, we would duplicate the mcount
+	# section and it will cause the function tracer self test
+	# to fail. Check if the mcount section exists, and if it does,
+	# warn and exit.
+	#
+	print STDERR "ERROR: $mcount_section already in $inputfile\n" .
+	    "\tThis may be an indication that your build is corrupted.\n" .
+	    "\tDelete $inputfile and try again. If the same object file\n" .
+	    "\tstill causes an issue, then disable CONFIG_DYNAMIC_FTRACE.\n";
+	exit(-1);
     }
 
     # is this a call site to mcount? If so, record it to print later

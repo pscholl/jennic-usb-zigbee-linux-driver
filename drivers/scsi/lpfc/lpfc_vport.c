@@ -206,7 +206,7 @@ lpfc_unique_wwpn(struct lpfc_hba *phba, struct lpfc_vport *new_vport)
 }
 
 /**
- * lpfc_discovery_wait: Wait for driver discovery to quiesce.
+ * lpfc_discovery_wait - Wait for driver discovery to quiesce
  * @vport: The virtual port for which this call is being executed.
  *
  * This driver calls this routine specifically from lpfc_vport_delete
@@ -288,10 +288,8 @@ lpfc_vport_create(struct fc_vport *fc_vport, bool disable)
 	int vpi;
 	int rc = VPORT_ERROR;
 	int status;
-	int size;
 
-	if ((phba->sli_rev < 3) ||
-		!(phba->sli3_options & LPFC_SLI3_NPIV_ENABLED)) {
+	if ((phba->sli_rev < 3) || !(phba->cfg_enable_npiv)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_VPORT,
 				"1808 Create VPORT failed: "
 				"NPIV is not enabled: SLImode:%d\n",
@@ -351,20 +349,6 @@ lpfc_vport_create(struct fc_vport *fc_vport, bool disable)
 
 	memcpy(vport->fc_portname.u.wwn, vport->fc_sparam.portName.u.wwn, 8);
 	memcpy(vport->fc_nodename.u.wwn, vport->fc_sparam.nodeName.u.wwn, 8);
-	size = strnlen(fc_vport->symbolic_name, LPFC_VNAME_LEN);
-	if (size) {
-		vport->vname = kzalloc(size+1, GFP_KERNEL);
-		if (!vport->vname) {
-			lpfc_printf_vlog(vport, KERN_ERR, LOG_VPORT,
-					 "1814 Create VPORT failed. "
-					 "vname allocation failed.\n");
-			rc = VPORT_ERROR;
-			lpfc_free_vpi(phba, vpi);
-			destroy_port(vport);
-			goto error_out;
-		}
-		memcpy(vport->vname, fc_vport->symbolic_name, size+1);
-	}
 	if (fc_vport->node_name != 0)
 		u64_to_wwn(fc_vport->node_name, vport->fc_nodename.u.wwn);
 	if (fc_vport->port_name != 0)
@@ -394,6 +378,9 @@ lpfc_vport_create(struct fc_vport *fc_vport, bool disable)
 		goto error_out;
 	}
 
+	/* Create binary sysfs attribute for vport */
+	lpfc_alloc_sysfs_attr(vport);
+
 	*(struct lpfc_vport **)fc_vport->dd_data = vport;
 	vport->fc_vport = fc_vport;
 
@@ -405,6 +392,7 @@ lpfc_vport_create(struct fc_vport *fc_vport, bool disable)
 	}
 
 	if (disable) {
+		lpfc_vport_set_state(vport, FC_VPORT_DISABLED);
 		rc = VPORT_OK;
 		goto out;
 	}
@@ -587,8 +575,12 @@ lpfc_vport_delete(struct fc_vport *fc_vport)
 	spin_lock_irq(&phba->hbalock);
 	vport->load_flag |= FC_UNLOADING;
 	spin_unlock_irq(&phba->hbalock);
-	kfree(vport->vname);
+
+	lpfc_free_sysfs_attr(vport);
+
 	lpfc_debugfs_terminate(vport);
+
+	/* Remove FC host and then SCSI host with the vport */
 	fc_remove_host(lpfc_shost_from_vport(vport));
 	scsi_remove_host(lpfc_shost_from_vport(vport));
 
@@ -749,7 +741,7 @@ lpfc_destroy_vport_work_array(struct lpfc_hba *phba, struct lpfc_vport **vports)
 
 
 /**
- * lpfc_vport_reset_stat_data: Reset the statistical data for the vport.
+ * lpfc_vport_reset_stat_data - Reset the statistical data for the vport
  * @vport: Pointer to vport object.
  *
  * This function resets the statistical data for the vport. This function
@@ -771,8 +763,7 @@ lpfc_vport_reset_stat_data(struct lpfc_vport *vport)
 
 
 /**
- * lpfc_alloc_bucket: Allocate data buffer required for collecting
- *  statistical data.
+ * lpfc_alloc_bucket - Allocate data buffer required for statistical data
  * @vport: Pointer to vport object.
  *
  * This function allocates data buffer required for all the FC
@@ -805,8 +796,7 @@ lpfc_alloc_bucket(struct lpfc_vport *vport)
 }
 
 /**
- * lpfc_free_bucket: Free data buffer required for collecting
- *  statistical data.
+ * lpfc_free_bucket - Free data buffer required for statistical data
  * @vport: Pointer to vport object.
  *
  * Th function frees statistical data buffer of all the FC

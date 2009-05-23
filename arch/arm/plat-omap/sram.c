@@ -24,6 +24,7 @@
 
 #include <mach/sram.h>
 #include <mach/board.h>
+#include <mach/cpu.h>
 
 #include <mach/control.h>
 
@@ -87,7 +88,7 @@ static int is_sram_locked(void)
 	int type = 0;
 
 	if (cpu_is_omap242x())
-		type = system_rev & OMAP2_DEVICETYPE_MASK;
+		type = omap_rev() & OMAP2_DEVICETYPE_MASK;
 
 	if (type == GP_DEVICE) {
 		/* RAMFW: R/W access to all initiators for all qualifier sets */
@@ -147,7 +148,7 @@ void __init omap_detect_sram(void)
 		omap_sram_base = OMAP1_SRAM_VA;
 		omap_sram_start = OMAP1_SRAM_PA;
 
-		if (cpu_is_omap730())
+		if (cpu_is_omap7xx())
 			omap_sram_size = 0x32000;	/* 200K */
 		else if (cpu_is_omap15xx())
 			omap_sram_size = 0x30000;	/* 192K */

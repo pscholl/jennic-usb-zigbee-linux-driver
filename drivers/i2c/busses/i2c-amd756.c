@@ -126,7 +126,7 @@ static int amd756_transaction(struct i2c_adapter *adap)
 		} while ((temp & (GS_HST_STS | GS_SMB_STS)) &&
 		         (timeout++ < MAX_TIMEOUT));
 		/* If the SMBus is still busy, we give up */
-		if (timeout >= MAX_TIMEOUT) {
+		if (timeout > MAX_TIMEOUT) {
 			dev_dbg(&adap->dev, "Busy wait timeout (%04x)\n", temp);
 			goto abort;
 		}
@@ -143,7 +143,7 @@ static int amd756_transaction(struct i2c_adapter *adap)
 	} while ((temp & GS_HST_STS) && (timeout++ < MAX_TIMEOUT));
 
 	/* If the SMBus is still busy, we give up */
-	if (timeout >= MAX_TIMEOUT) {
+	if (timeout > MAX_TIMEOUT) {
 		dev_dbg(&adap->dev, "Completion timeout!\n");
 		goto abort;
 	}
@@ -298,7 +298,6 @@ static const struct i2c_algorithm smbus_algorithm = {
 
 struct i2c_adapter amd756_smbus = {
 	.owner		= THIS_MODULE,
-	.id		= I2C_HW_SMBUS_AMD756,
 	.class          = I2C_CLASS_HWMON | I2C_CLASS_SPD,
 	.algo		= &smbus_algorithm,
 };
@@ -380,8 +379,9 @@ static int __devinit amd756_probe(struct pci_dev *pdev,
 	/* set up the sysfs linkage to our parent device */
 	amd756_smbus.dev.parent = &pdev->dev;
 
-	sprintf(amd756_smbus.name, "SMBus %s adapter at %04x",
-		chipname[id->driver_data], amd756_ioport);
+	snprintf(amd756_smbus.name, sizeof(amd756_smbus.name),
+		 "SMBus %s adapter at %04x", chipname[id->driver_data],
+		 amd756_ioport);
 
 	error = i2c_add_adapter(&amd756_smbus);
 	if (error) {

@@ -7,22 +7,21 @@
  * by the Free Software Foundation, incorporated herein by reference.
  */
 /*
- * Driver for XFP optical PHYs (plus some support specific to the Quake 2032)
- * See www.amcc.com for details (search for qt2032)
+ * Driver for SFP+ and XFP optical PHYs plus some support specific to the
+ * AMCC QT20xx adapters; see www.amcc.com for details
  */
 
 #include <linux/timer.h>
 #include <linux/delay.h>
 #include "efx.h"
-#include "gmii.h"
 #include "mdio_10g.h"
 #include "xenpack.h"
 #include "phy.h"
-#include "mac.h"
+#include "falcon.h"
 
-#define XFP_REQUIRED_DEVS (MDIO_MMDREG_DEVS0_PCS |	\
-			   MDIO_MMDREG_DEVS0_PMAPMD |	\
-			   MDIO_MMDREG_DEVS0_PHYXS)
+#define XFP_REQUIRED_DEVS (MDIO_MMDREG_DEVS_PCS |	\
+			   MDIO_MMDREG_DEVS_PMAPMD |	\
+			   MDIO_MMDREG_DEVS_PHYXS)
 
 #define XFP_LOOPBACKS ((1 << LOOPBACK_PCS) |		\
 		       (1 << LOOPBACK_PMAPMD) |		\
@@ -31,6 +30,21 @@
 /****************************************************************************/
 /* Quake-specific MDIO registers */
 #define MDIO_QUAKE_LED0_REG	(0xD006)
+
+/* QT2025C only */
+#define PCS_FW_HEARTBEAT_REG	0xd7ee
+#define PCS_FW_HEARTB_LBN	0
+#define PCS_FW_HEARTB_WIDTH	8
+#define PCS_UC8051_STATUS_REG	0xd7fd
+#define PCS_UC_STATUS_LBN	0
+#define PCS_UC_STATUS_WIDTH	8
+#define PCS_UC_STATUS_FW_SAVE	0x20
+#define PMA_PMD_FTX_CTRL2_REG	0xc309
+#define PMA_PMD_FTX_STATIC_LBN	13
+#define PMA_PMD_VEND1_REG	0xc001
+#define PMA_PMD_VEND1_LBTXD_LBN	15
+#define PCS_VEND1_REG	   	0xc000
+#define PCS_VEND1_LBTXD_LBN	5
 
 void xfp_set_led(struct efx_nic *p, int led, int mode)
 {
@@ -46,7 +60,49 @@ struct xfp_phy_data {
 #define XFP_MAX_RESET_TIME 500
 #define XFP_RESET_WAIT 10
 
-/* Reset the PHYXS MMD. This is documented (for the Quake PHY) as doing
+static int qt2025c_wait_reset(struct efx_nic *efx)
+{
+	unsigned long timeout = jiffies + 10 * HZ;
+	int phy_id = efx->mii.phy_id;
+	int reg, old_counter = 0;
+
+	/* Wait for firmware heartbeat to start */
+	for (;;) {
+		int counter;
+		reg = mdio_clause45_read(efx, phy_id, MDIO_MMD_PCS,
+					 PCS_FW_HEARTBEAT_REG);
+		if (reg < 0)
+			return reg;
+		counter = ((reg >> PCS_FW_HEARTB_LBN) &
+			    ((1 << PCS_FW_HEARTB_WIDTH) - 1));
+		if (old_counter == 0)
+			old_counter = counter;
+		else if (counter != old_counter)
+			break;
+		if (time_after(jiffies, timeout))
+			return -ETIMEDOUT;
+		msleep(10);
+	}
+
+	/* Wait for firmware status to look good */
+	for (;;) {
+		reg = mdio_clause45_read(efx, phy_id, MDIO_MMD_PCS,
+					 PCS_UC8051_STATUS_REG);
+		if (reg < 0)
+			return reg;
+		if ((reg &
+		     ((1 << PCS_UC_STATUS_WIDTH) - 1) << PCS_UC_STATUS_LBN) >=
+		    PCS_UC_STATUS_FW_SAVE)
+			break;
+		if (time_after(jiffies, timeout))
+			return -ETIMEDOUT;
+		msleep(100);
+	}
+
+	return 0;
+}
+
+/* Reset the PHYXS MMD. This is documented (for the Quake PHYs) as doing
  * a complete soft reset.
  */
 static int xfp_reset_phy(struct efx_nic *efx)
@@ -59,13 +115,19 @@ static int xfp_reset_phy(struct efx_nic *efx)
 	if (rc < 0)
 		goto fail;
 
+	if (efx->phy_type == PHY_TYPE_QT2025C) {
+		rc = qt2025c_wait_reset(efx);
+		if (rc < 0)
+			goto fail;
+	}
+
 	/* Wait 250ms for the PHY to complete bootup */
 	msleep(250);
 
 	/* Check that all the MMDs we expect are present and responding. We
 	 * expect faults on some if the link is down, but not on the PHY XS */
 	rc = mdio_clause45_check_mmds(efx, XFP_REQUIRED_DEVS,
-				      MDIO_MMDREG_DEVS0_PHYXS);
+				      MDIO_MMDREG_DEVS_PHYXS);
 	if (rc < 0)
 		goto fail;
 
@@ -74,7 +136,7 @@ static int xfp_reset_phy(struct efx_nic *efx)
 	return rc;
 
  fail:
-	EFX_ERR(efx, "XFP: reset timed out!\n");
+	EFX_ERR(efx, "PHY reset timed out\n");
 	return rc;
 }
 
@@ -89,15 +151,15 @@ static int xfp_phy_init(struct efx_nic *efx)
 		return -ENOMEM;
 	efx->phy_data = phy_data;
 
-	EFX_INFO(efx, "XFP: PHY ID reg %x (OUI %x model %x revision"
-		 " %x)\n", devid, MDIO_ID_OUI(devid), MDIO_ID_MODEL(devid),
-		 MDIO_ID_REV(devid));
+	EFX_INFO(efx, "PHY ID reg %x (OUI %06x model %02x revision %x)\n",
+		 devid, mdio_id_oui(devid), mdio_id_model(devid),
+		 mdio_id_rev(devid));
 
 	phy_data->phy_mode = efx->phy_mode;
 
 	rc = xfp_reset_phy(efx);
 
-	EFX_INFO(efx, "XFP: PHY init %s.\n",
+	EFX_INFO(efx, "PHY init %s.\n",
 		 rc ? "failed" : "successful");
 	if (rc < 0)
 		goto fail;
@@ -120,32 +182,47 @@ static int xfp_link_ok(struct efx_nic *efx)
 	return mdio_clause45_links_ok(efx, XFP_REQUIRED_DEVS);
 }
 
-static int xfp_phy_check_hw(struct efx_nic *efx)
+static void xfp_phy_poll(struct efx_nic *efx)
 {
-	int rc = 0;
 	int link_up = xfp_link_ok(efx);
 	/* Simulate a PHY event if link state has changed */
 	if (link_up != efx->link_up)
-		falcon_xmac_sim_phy_event(efx);
-
-	return rc;
+		falcon_sim_phy_event(efx);
 }
 
 static void xfp_phy_reconfigure(struct efx_nic *efx)
 {
 	struct xfp_phy_data *phy_data = efx->phy_data;
 
-	/* Reset the PHY when moving from tx off to tx on */
-	if (!(efx->phy_mode & PHY_MODE_TX_DISABLED) &&
-	    (phy_data->phy_mode & PHY_MODE_TX_DISABLED))
-		xfp_reset_phy(efx);
+	if (efx->phy_type == PHY_TYPE_QT2025C) {
+		/* There are several different register bits which can
+		 * disable TX (and save power) on direct-attach cables
+		 * or optical transceivers, varying somewhat between
+		 * firmware versions.  Only 'static mode' appears to
+		 * cover everything. */
+		mdio_clause45_set_flag(
+			efx, efx->mii.phy_id, MDIO_MMD_PMAPMD,
+			PMA_PMD_FTX_CTRL2_REG, PMA_PMD_FTX_STATIC_LBN,
+			efx->phy_mode & PHY_MODE_TX_DISABLED ||
+			efx->phy_mode & PHY_MODE_LOW_POWER ||
+			efx->loopback_mode == LOOPBACK_PCS ||
+			efx->loopback_mode == LOOPBACK_PMAPMD);
+	} else {
+		/* Reset the PHY when moving from tx off to tx on */
+		if (!(efx->phy_mode & PHY_MODE_TX_DISABLED) &&
+		    (phy_data->phy_mode & PHY_MODE_TX_DISABLED))
+			xfp_reset_phy(efx);
 
-	mdio_clause45_transmit_disable(efx);
+		mdio_clause45_transmit_disable(efx);
+	}
+
 	mdio_clause45_phy_reconfigure(efx);
 
 	phy_data->phy_mode = efx->phy_mode;
 	efx->link_up = xfp_link_ok(efx);
-	efx->link_options = GM_LPA_10000FULL;
+	efx->link_speed = 10000;
+	efx->link_fd = true;
+	efx->link_fc = efx->wanted_fc;
 }
 
 
@@ -160,11 +237,14 @@ static void xfp_phy_fini(struct efx_nic *efx)
 }
 
 struct efx_phy_operations falcon_xfp_phy_ops = {
+	.macs		 = EFX_XMAC,
 	.init            = xfp_phy_init,
 	.reconfigure     = xfp_phy_reconfigure,
-	.check_hw        = xfp_phy_check_hw,
+	.poll            = xfp_phy_poll,
 	.fini            = xfp_phy_fini,
 	.clear_interrupt = xfp_phy_clear_interrupt,
+	.get_settings    = mdio_clause45_get_settings,
+	.set_settings	 = mdio_clause45_set_settings,
 	.mmds            = XFP_REQUIRED_DEVS,
 	.loopbacks       = XFP_LOOPBACKS,
 };

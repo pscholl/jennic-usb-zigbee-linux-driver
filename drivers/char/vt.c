@@ -778,6 +778,7 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
 	    }
 	    vc->vc_kmalloced = 1;
 	    vc_init(vc, vc->vc_rows, vc->vc_cols, 1);
+	    vcs_make_sysfs(currcons);
 	    atomic_notifier_call_chain(&vt_notifier_list, VT_ALLOCATE, &param);
 	}
 	return 0;
@@ -819,8 +820,8 @@ static inline int resize_screen(struct vc_data *vc, int width, int height,
  *	ctrl_lock of the tty IFF a tty is passed.
  */
 
-static int vc_do_resize(struct tty_struct *tty, struct tty_struct *real_tty,
-		struct vc_data *vc, unsigned int cols, unsigned int lines)
+static int vc_do_resize(struct tty_struct *tty, struct vc_data *vc,
+				unsigned int cols, unsigned int lines)
 {
 	unsigned long old_origin, new_origin, new_scr_end, rlth, rrem, err = 0;
 	unsigned int old_cols, old_rows, old_row_size, old_screen_size;
@@ -932,7 +933,7 @@ static int vc_do_resize(struct tty_struct *tty, struct tty_struct *real_tty,
 		ws.ws_row = vc->vc_rows;
 		ws.ws_col = vc->vc_cols;
 		ws.ws_ypixel = vc->vc_scan_lines;
-		tty_do_resize(tty, real_tty, &ws);
+		tty_do_resize(tty, &ws);
 	}
 
 	if (CON_IS_VISIBLE(vc))
@@ -954,13 +955,12 @@ static int vc_do_resize(struct tty_struct *tty, struct tty_struct *real_tty,
 
 int vc_resize(struct vc_data *vc, unsigned int cols, unsigned int rows)
 {
-	return vc_do_resize(vc->vc_tty, vc->vc_tty, vc, cols, rows);
+	return vc_do_resize(vc->vc_tty, vc, cols, rows);
 }
 
 /**
  *	vt_resize		-	resize a VT
  *	@tty: tty to resize
- *	@real_tty: tty if a pty/tty pair
  *	@ws: winsize attributes
  *
  *	Resize a virtual terminal. This is called by the tty layer as we
@@ -970,15 +970,13 @@ int vc_resize(struct vc_data *vc, unsigned int cols, unsigned int rows)
  *	Takes the console sem and the called methods then take the tty
  *	termios_mutex and the tty ctrl_lock in that order.
  */
-
-int vt_resize(struct tty_struct *tty, struct tty_struct *real_tty,
-	struct winsize *ws)
+static int vt_resize(struct tty_struct *tty, struct winsize *ws)
 {
 	struct vc_data *vc = tty->driver_data;
 	int ret;
 
 	acquire_console_sem();
-	ret = vc_do_resize(tty, real_tty, vc, ws->ws_col, ws->ws_row);
+	ret = vc_do_resize(tty, vc, ws->ws_col, ws->ws_row);
 	release_console_sem();
 	return ret;
 }
@@ -990,7 +988,9 @@ void vc_deallocate(unsigned int currcons)
 	if (vc_cons_allocated(currcons)) {
 		struct vc_data *vc = vc_cons[currcons].d;
 		struct vt_notifier_param param = { .vc = vc };
+
 		atomic_notifier_call_chain(&vt_notifier_list, VT_DEALLOCATE, &param);
+		vcs_remove_sysfs(currcons);
 		vc->vc_sw->con_deinit(vc);
 		put_pid(vc->vt_pid);
 		module_put(vc->vc_sw->owner);
@@ -2274,7 +2274,7 @@ rescan_last_byte:
 				    continue; /* nothing to display */
 				}
 				/* Glyph not found */
-				if ((!(vc->vc_utf && !vc->vc_disp_ctrl) && c < 128) && !(c & ~charmask)) {
+				if ((!(vc->vc_utf && !vc->vc_disp_ctrl) || c < 128) && !(c & ~charmask)) {
 				    /* In legacy mode use the glyph we get by a 1:1 mapping.
 				       This would make absolutely no sense with Unicode in mind,
 				       but do this for ASCII characters since a font may lack
@@ -2679,7 +2679,7 @@ static int con_write_room(struct tty_struct *tty)
 {
 	if (tty->stopped)
 		return 0;
-	return 4096;		/* No limit, really; we're not buffering */
+	return 32768;		/* No limit, really; we're not buffering */
 }
 
 static int con_chars_in_buffer(struct tty_struct *tty)
@@ -2778,7 +2778,6 @@ static int con_open(struct tty_struct *tty, struct file *filp)
 				tty->termios->c_iflag |= IUTF8;
 			else
 				tty->termios->c_iflag &= ~IUTF8;
-			vcs_make_sysfs(tty);
 			release_console_sem();
 			return ret;
 		}
@@ -2798,7 +2797,6 @@ static void con_shutdown(struct tty_struct *tty)
 	BUG_ON(vc == NULL);
 	acquire_console_sem();
 	vc->vc_tty = NULL;
-	vcs_remove_sysfs(tty);
 	release_console_sem();
 	tty_shutdown(tty);
 }

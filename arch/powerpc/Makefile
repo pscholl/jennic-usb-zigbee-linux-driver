@@ -107,7 +107,6 @@ KBUILD_CFLAGS += $(call cc-option,-mno-altivec)
 # (We use all available options to help semi-broken compilers)
 KBUILD_CFLAGS += $(call cc-option,-mno-spe)
 KBUILD_CFLAGS += $(call cc-option,-mspe=no)
-KBUILD_CFLAGS += $(call cc-option,-mabi=no-spe)
 
 # Enable unit-at-a-time mode when possible. It shrinks the
 # kernel considerably.
@@ -148,8 +147,8 @@ core-y				+= arch/powerpc/kernel/ \
 				   arch/powerpc/mm/ \
 				   arch/powerpc/lib/ \
 				   arch/powerpc/sysdev/ \
-				   arch/powerpc/platforms/
-core-$(CONFIG_MATH_EMULATION)	+= arch/powerpc/math-emu/
+				   arch/powerpc/platforms/ \
+				   arch/powerpc/math-emu/
 core-$(CONFIG_XMON)		+= arch/powerpc/xmon/
 core-$(CONFIG_KVM) 		+= arch/powerpc/kvm/
 

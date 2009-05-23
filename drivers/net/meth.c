@@ -94,10 +94,9 @@ char o2meth_eaddr[8]={0,0,0,0,0,0,0,0};
 static inline void load_eaddr(struct net_device *dev)
 {
 	int i;
-	DECLARE_MAC_BUF(mac);
 	u64 macaddr;
 
-	DPRINTK("Loading MAC Address: %s\n", print_mac(mac, dev->dev_addr));
+	DPRINTK("Loading MAC Address: %pM\n", dev->dev_addr);
 	macaddr = 0;
 	for (i = 0; i < 6; i++)
 		macaddr |= (u64)dev->dev_addr[i] << ((5 - i) * 8);
@@ -399,7 +398,7 @@ static void meth_rx(struct net_device* dev, unsigned long int_status)
 			int len = (status & 0xffff) - 4; /* omit CRC */
 			/* length sanity check */
 			if (len < 60 || len > 1518) {
-				printk(KERN_DEBUG "%s: bogus packet size: %ld, status=%#2lx.\n",
+				printk(KERN_DEBUG "%s: bogus packet size: %ld, status=%#2Lx.\n",
 				       dev->name, priv->rx_write,
 				       priv->rx_ring[priv->rx_write]->status.raw);
 				dev->stats.rx_errors++;
@@ -421,7 +420,6 @@ static void meth_rx(struct net_device* dev, unsigned long int_status)
 					skb_put(skb_c, len);
 					priv->rx_skbs[priv->rx_write] = skb;
 					skb_c->protocol = eth_type_trans(skb_c, dev);
-					dev->last_rx = jiffies;
 					dev->stats.rx_packets++;
 					dev->stats.rx_bytes += len;
 					netif_rx(skb_c);

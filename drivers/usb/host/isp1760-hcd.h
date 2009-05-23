@@ -2,9 +2,10 @@
 #define _ISP1760_HCD_H_
 
 /* exports for if */
-struct usb_hcd *isp1760_register(u64 res_start, u64 res_len, int irq,
-		u64 irqflags, struct device *dev, const char *busname,
-		unsigned int devflags);
+struct usb_hcd *isp1760_register(phys_addr_t res_start, resource_size_t res_len,
+				 int irq, unsigned long irqflags,
+				 struct device *dev, const char *busname,
+				 unsigned int devflags);
 int init_kmem_once(void);
 void deinit_kmem_cache(void);
 
@@ -135,7 +136,6 @@ typedef void (packet_enqueue)(struct usb_hcd *hcd, struct isp1760_qh *qh,
  * indicate the most "atypical" case, so that a devflags of 0 is
  * a sane default configuration.
  */
-#define ISP1760_FLAG_PORT1_DIS		0x00000001 /* Port 1 disabled */
 #define ISP1760_FLAG_BUS_WIDTH_16	0x00000002 /* 16-bit data bus width */
 #define ISP1760_FLAG_OTG_EN		0x00000004 /* Port 1 supports OTG */
 #define ISP1760_FLAG_ANALOG_OC		0x00000008 /* Analog overcurrent */

@@ -90,7 +90,7 @@ static int timing[3];
 module_param_array(timing, int, &numtimings, 0644);
 
 #ifdef CONFIG_MTD_PARTITIONS
-static const char *part_probes[] = { "RedBoot", NULL };
+static const char *part_probes[] = { "cmdlinepart", "RedBoot", NULL };
 #endif
 
 /* Hrm. Why isn't this already conditional on something in the struct device? */
@@ -332,7 +332,7 @@ static void cafe_select_chip(struct mtd_info *mtd, int chipnr)
 		cafe->ctl1 &= ~CTRL1_CHIPSELECT;
 }
 
-static int cafe_nand_interrupt(int irq, void *id)
+static irqreturn_t cafe_nand_interrupt(int irq, void *id)
 {
 	struct mtd_info *mtd = id;
 	struct cafe_priv *cafe = mtd->priv;
@@ -654,6 +654,7 @@ static int __devinit cafe_nand_probe(struct pci_dev *pdev,
 	}
 	cafe = (void *)(&mtd[1]);
 
+	mtd->dev.parent = &pdev->dev;
 	mtd->priv = cafe;
 	mtd->owner = THIS_MODULE;
 
@@ -805,10 +806,13 @@ static int __devinit cafe_nand_probe(struct pci_dev *pdev,
 	add_mtd_device(mtd);
 
 #ifdef CONFIG_MTD_PARTITIONS
+#ifdef CONFIG_MTD_CMDLINE_PARTS
+	mtd->name = "cafe_nand";
+#endif
 	nr_parts = parse_mtd_partitions(mtd, part_probes, &parts, 0);
 	if (nr_parts > 0) {
 		cafe->parts = parts;
-		dev_info(&cafe->pdev->dev, "%d RedBoot partitions found\n", nr_parts);
+		dev_info(&cafe->pdev->dev, "%d partitions found\n", nr_parts);
 		add_mtd_partitions(mtd, parts, nr_parts);
 	}
 #endif

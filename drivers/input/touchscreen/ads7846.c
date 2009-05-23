@@ -127,6 +127,8 @@ struct ads7846 {
 	void			(*filter_cleanup)(void *data);
 	int			(*get_pendown_state)(void);
 	int			gpio_pendown;
+
+	void			(*wait_for_sync)(void);
 };
 
 /* leave chip selected when we're done, for quicker re-select? */
@@ -295,7 +297,7 @@ name ## _show(struct device *dev, struct device_attribute *attr, char *buf) \
 static DEVICE_ATTR(name, S_IRUGO, name ## _show, NULL);
 
 
-/* Sysfs conventions report temperatures in millidegrees Celcius.
+/* Sysfs conventions report temperatures in millidegrees Celsius.
  * ADS7846 could use the low-accuracy two-sample scheme, but can't do the high
  * accuracy scheme without calibration data.  For now we won't try either;
  * userspace sees raw sensor values, and must scale/calibrate appropriately.
@@ -472,7 +474,7 @@ static ssize_t ads7846_disable_store(struct device *dev,
 				     const char *buf, size_t count)
 {
 	struct ads7846 *ts = dev_get_drvdata(dev);
-	long i;
+	unsigned long i;
 
 	if (strict_strtoul(buf, 10, &i))
 		return -EINVAL;
@@ -509,6 +511,10 @@ static int get_pendown_state(struct ads7846 *ts)
 		return ts->get_pendown_state();
 
 	return !gpio_get_value(ts->gpio_pendown);
+}
+
+static void null_wait_for_sync(void)
+{
 }
 
 /*
@@ -559,7 +565,7 @@ static void ads7846_rx(void *ads)
 	if (packet->tc.ignore || Rt > ts->pressure_max) {
 #ifdef VERBOSE
 		pr_debug("%s: ignored %d pressure %d\n",
-			ts->spi->dev.bus_id, packet->tc.ignore, Rt);
+			dev_name(&ts->spi->dev), packet->tc.ignore, Rt);
 #endif
 		hrtimer_start(&ts->timer, ktime_set(0, TS_POLL_PERIOD),
 			      HRTIMER_MODE_REL);
@@ -686,6 +692,7 @@ static void ads7846_rx_val(void *ads)
 	default:
 		BUG();
 	}
+	ts->wait_for_sync();
 	status = spi_async(ts->spi, m);
 	if (status)
 		dev_err(&ts->spi->dev, "spi_async --> %d\n",
@@ -697,7 +704,7 @@ static enum hrtimer_restart ads7846_timer(struct hrtimer *handle)
 	struct ads7846	*ts = container_of(handle, struct ads7846, timer);
 	int		status = 0;
 
-	spin_lock_irq(&ts->lock);
+	spin_lock(&ts->lock);
 
 	if (unlikely(!get_pendown_state(ts) ||
 		     device_suspended(&ts->spi->dev))) {
@@ -723,12 +730,13 @@ static enum hrtimer_restart ads7846_timer(struct hrtimer *handle)
 	} else {
 		/* pen is still down, continue with the measurement */
 		ts->msg_idx = 0;
+		ts->wait_for_sync();
 		status = spi_async(ts->spi, &ts->msg[0]);
 		if (status)
 			dev_err(&ts->spi->dev, "spi_async --> %d\n", status);
 	}
 
-	spin_unlock_irq(&ts->lock);
+	spin_unlock(&ts->lock);
 	return HRTIMER_NORESTART;
 }
 
@@ -746,7 +754,7 @@ static irqreturn_t ads7846_irq(int irq, void *handle)
 			 * that here.  (The "generic irq" framework may help...)
 			 */
 			ts->irq_disabled = 1;
-			disable_irq(ts->spi->irq);
+			disable_irq_nosync(ts->spi->irq);
 			ts->pending = 1;
 			hrtimer_start(&ts->timer, ktime_set(0, TS_POLL_DELAY),
 					HRTIMER_MODE_REL);
@@ -947,7 +955,9 @@ static int __devinit ads7846_probe(struct spi_device *spi)
 		ts->penirq_recheck_delay_usecs =
 				pdata->penirq_recheck_delay_usecs;
 
-	snprintf(ts->phys, sizeof(ts->phys), "%s/input0", spi->dev.bus_id);
+	ts->wait_for_sync = pdata->wait_for_sync ? : null_wait_for_sync;
+
+	snprintf(ts->phys, sizeof(ts->phys), "%s/input0", dev_name(&spi->dev));
 
 	input_dev->name = "ADS784x Touchscreen";
 	input_dev->phys = ts->phys;

@@ -409,7 +409,7 @@ static int lnksts = 0;		/* CFG_LNKSTS bit polarity */
 struct rx_info {
 	spinlock_t	lock;
 	int		up;
-	long		idle;
+	unsigned long	idle;
 
 	struct sk_buff	*skbs[NR_RX_DESC];
 
@@ -822,8 +822,7 @@ static void ns83820_cleanup_rx(struct ns83820 *dev)
 		struct sk_buff *skb = dev->rx_info.skbs[i];
 		dev->rx_info.skbs[i] = NULL;
 		clear_rx_desc(dev, i);
-		if (skb)
-			kfree_skb(skb);
+		kfree_skb(skb);
 	}
 }
 
@@ -1948,20 +1947,35 @@ static void ns83820_probe_phy(struct net_device *ndev)
 }
 #endif
 
-static int __devinit ns83820_init_one(struct pci_dev *pci_dev, const struct pci_device_id *id)
+static const struct net_device_ops netdev_ops = {
+	.ndo_open		= ns83820_open,
+	.ndo_stop		= ns83820_stop,
+	.ndo_start_xmit		= ns83820_hard_start_xmit,
+	.ndo_get_stats		= ns83820_get_stats,
+	.ndo_change_mtu		= ns83820_change_mtu,
+	.ndo_set_multicast_list = ns83820_set_multicast,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_tx_timeout		= ns83820_tx_timeout,
+#ifdef NS83820_VLAN_ACCEL_SUPPORT
+	.ndo_vlan_rx_register	= ns83820_vlan_rx_register,
+#endif
+};
+
+static int __devinit ns83820_init_one(struct pci_dev *pci_dev,
+				      const struct pci_device_id *id)
 {
 	struct net_device *ndev;
 	struct ns83820 *dev;
 	long addr;
 	int err;
 	int using_dac = 0;
-	DECLARE_MAC_BUF(mac);
 
 	/* See if we can set the dma mask early on; failure is fatal. */
 	if (sizeof(dma_addr_t) == 8 &&
-	 	!pci_set_dma_mask(pci_dev, DMA_64BIT_MASK)) {
+		!pci_set_dma_mask(pci_dev, DMA_BIT_MASK(64))) {
 		using_dac = 1;
-	} else if (!pci_set_dma_mask(pci_dev, DMA_32BIT_MASK)) {
+	} else if (!pci_set_dma_mask(pci_dev, DMA_BIT_MASK(32))) {
 		using_dac = 0;
 	} else {
 		dev_warn(&pci_dev->dev, "pci_set_dma_mask failed!\n");
@@ -2041,14 +2055,8 @@ static int __devinit ns83820_init_one(struct pci_dev *pci_dev, const struct pci_
 		ndev->name, le32_to_cpu(readl(dev->base + 0x22c)),
 		pci_dev->subsystem_vendor, pci_dev->subsystem_device);
 
-	ndev->open = ns83820_open;
-	ndev->stop = ns83820_stop;
-	ndev->hard_start_xmit = ns83820_hard_start_xmit;
-	ndev->get_stats = ns83820_get_stats;
-	ndev->change_mtu = ns83820_change_mtu;
-	ndev->set_multicast_list = ns83820_set_multicast;
+	ndev->netdev_ops = &netdev_ops;
 	SET_ETHTOOL_OPS(ndev, &ops);
-	ndev->tx_timeout = ns83820_tx_timeout;
 	ndev->watchdog_timeo = 5 * HZ;
 	pci_set_drvdata(pci_dev, ndev);
 
@@ -2211,7 +2219,6 @@ static int __devinit ns83820_init_one(struct pci_dev *pci_dev, const struct pci_
 #ifdef NS83820_VLAN_ACCEL_SUPPORT
 	/* We also support hardware vlan acceleration */
 	ndev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
-	ndev->vlan_rx_register = ns83820_vlan_rx_register;
 #endif
 
 	if (using_dac) {
@@ -2220,12 +2227,11 @@ static int __devinit ns83820_init_one(struct pci_dev *pci_dev, const struct pci_
 		ndev->features |= NETIF_F_HIGHDMA;
 	}
 
-	printk(KERN_INFO "%s: ns83820 v" VERSION ": DP83820 v%u.%u: %s io=0x%08lx irq=%d f=%s\n",
+	printk(KERN_INFO "%s: ns83820 v" VERSION ": DP83820 v%u.%u: %pM io=0x%08lx irq=%d f=%s\n",
 		ndev->name,
 		(unsigned)readl(dev->base + SRR) >> 8,
 		(unsigned)readl(dev->base + SRR) & 0xff,
-		print_mac(mac, ndev->dev_addr),
-		addr, pci_dev->irq,
+		ndev->dev_addr, addr, pci_dev->irq,
 		(ndev->features & NETIF_F_HIGHDMA) ? "h,sg" : "sg"
 		);
 

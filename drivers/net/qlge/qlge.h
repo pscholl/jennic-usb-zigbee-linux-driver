@@ -28,11 +28,11 @@
        } while (0)
 
 #define QLGE_VENDOR_ID    0x1077
-#define QLGE_DEVICE_ID1    0x8012
-#define QLGE_DEVICE_ID   0x8000
-
-#define MAX_RX_RINGS 128
-#define MAX_TX_RINGS 128
+#define QLGE_DEVICE_ID_8012	0x8012
+#define QLGE_DEVICE_ID_8000	0x8000
+#define MAX_CPUS 8
+#define MAX_TX_RINGS MAX_CPUS
+#define MAX_RX_RINGS ((MAX_CPUS * 2) + 1)
 
 #define NUM_TX_RING_ENTRIES	256
 #define NUM_RX_RING_ENTRIES	256
@@ -45,6 +45,7 @@
 #define MAX_SPLIT_SIZE 1023
 #define QLGE_SB_PAD 32
 
+#define MAX_CQ 128
 #define DFLT_COALESCE_WAIT 100	/* 100 usec wait for coalescing */
 #define MAX_INTER_FRAME_WAIT 10	/* 10 usec max interframe-wait for coalescing */
 #define DFLT_INTER_FRAME_WAIT (MAX_INTER_FRAME_WAIT/2)
@@ -163,7 +164,7 @@ enum {
 	CSR_RP = (1 << 10),
 	CSR_CMD_PARM_SHIFT = 22,
 	CSR_CMD_NOP = 0x00000000,
-	CSR_CMD_SET_RST = 0x1000000,
+	CSR_CMD_SET_RST = 0x10000000,
 	CSR_CMD_CLR_RST = 0x20000000,
 	CSR_CMD_SET_PAUSE = 0x30000000,
 	CSR_CMD_CLR_PAUSE = 0x40000000,
@@ -423,7 +424,7 @@ enum {
 	RX_SYMBOL_ERR = 0x00000370,
 	RX_MAC_ERR = 0x00000378,
 	RX_CTL_PKTS = 0x00000380,
-	RX_PAUSE_PKTS = 0x00000384,
+	RX_PAUSE_PKTS = 0x00000388,
 	RX_64_PKTS = 0x00000390,
 	RX_65_TO_127_PKTS = 0x00000398,
 	RX_128_255_PKTS = 0x000003a0,
@@ -732,6 +733,11 @@ enum {
 	AEN_LINK_DOWN = 0x00008012,
 	AEN_IDC_CMPLT = 0x00008100,
 	AEN_IDC_REQ = 0x00008101,
+	AEN_IDC_EXT = 0x00008102,
+	AEN_DCBX_CHG = 0x00008110,
+	AEN_AEN_LOST = 0x00008120,
+	AEN_AEN_SFP_IN = 0x00008130,
+	AEN_AEN_SFP_OUT = 0x00008131,
 	AEN_FW_INIT_DONE = 0x00008400,
 	AEN_FW_INIT_FAIL = 0x00008401,
 
@@ -741,40 +747,48 @@ enum {
 	MB_CMD_MB_TEST = 0x00000006,
 	MB_CMD_CSUM_TEST = 0x00000007,	/* Verify Checksum */
 	MB_CMD_ABOUT_FW = 0x00000008,
+	MB_CMD_COPY_RISC_RAM = 0x0000000a,
 	MB_CMD_LOAD_RISC_RAM = 0x0000000b,
 	MB_CMD_DUMP_RISC_RAM = 0x0000000c,
 	MB_CMD_WRITE_RAM = 0x0000000d,
+	MB_CMD_INIT_RISC_RAM = 0x0000000e,
 	MB_CMD_READ_RAM = 0x0000000f,
 	MB_CMD_STOP_FW = 0x00000014,
 	MB_CMD_MAKE_SYS_ERR = 0x0000002a,
+	MB_CMD_WRITE_SFP = 0x00000030,
+	MB_CMD_READ_SFP = 0x00000031,
 	MB_CMD_INIT_FW = 0x00000060,
-	MB_CMD_GET_INIT_CB = 0x00000061,
+	MB_CMD_GET_IFCB = 0x00000061,
 	MB_CMD_GET_FW_STATE = 0x00000069,
 	MB_CMD_IDC_REQ = 0x00000100,	/* Inter-Driver Communication */
 	MB_CMD_IDC_ACK = 0x00000101,	/* Inter-Driver Communication */
 	MB_CMD_SET_WOL_MODE = 0x00000110,	/* Wake On Lan */
-	MB_WOL_DISABLE = 0x00000000,
-	MB_WOL_MAGIC_PKT = 0x00000001,
-	MB_WOL_FLTR = 0x00000002,
-	MB_WOL_UCAST = 0x00000004,
-	MB_WOL_MCAST = 0x00000008,
-	MB_WOL_BCAST = 0x00000010,
-	MB_WOL_LINK_UP = 0x00000020,
-	MB_WOL_LINK_DOWN = 0x00000040,
+	MB_WOL_DISABLE = 0,
+	MB_WOL_MAGIC_PKT = (1 << 1),
+	MB_WOL_FLTR = (1 << 2),
+	MB_WOL_UCAST = (1 << 3),
+	MB_WOL_MCAST = (1 << 4),
+	MB_WOL_BCAST = (1 << 5),
+	MB_WOL_LINK_UP = (1 << 6),
+	MB_WOL_LINK_DOWN = (1 << 7),
 	MB_CMD_SET_WOL_FLTR = 0x00000111,	/* Wake On Lan Filter */
-	MB_CMD_CLEAR_WOL_FLTR = 0x00000112,	/* Wake On Lan Filter */
+	MB_CMD_CLEAR_WOL_FLTR = 0x00000112, /* Wake On Lan Filter */
 	MB_CMD_SET_WOL_MAGIC = 0x00000113,	/* Wake On Lan Magic Packet */
-	MB_CMD_CLEAR_WOL_MAGIC = 0x00000114,	/* Wake On Lan Magic Packet */
+	MB_CMD_CLEAR_WOL_MAGIC = 0x00000114,/* Wake On Lan Magic Packet */
+	MB_CMD_SET_WOL_IMMED = 0x00000115,
 	MB_CMD_PORT_RESET = 0x00000120,
 	MB_CMD_SET_PORT_CFG = 0x00000122,
 	MB_CMD_GET_PORT_CFG = 0x00000123,
-	MB_CMD_SET_ASIC_VOLTS = 0x00000130,
-	MB_CMD_GET_SNS_DATA = 0x00000131,	/* Temp and Volt Sense data. */
+	MB_CMD_GET_LINK_STS = 0x00000124,
 
 	/* Mailbox Command Status. */
 	MB_CMD_STS_GOOD = 0x00004000,	/* Success. */
 	MB_CMD_STS_INTRMDT = 0x00001000,	/* Intermediate Complete. */
-	MB_CMD_STS_ERR = 0x00004005,	/* Error. */
+	MB_CMD_STS_INVLD_CMD = 0x00004001,	/* Invalid. */
+	MB_CMD_STS_XFC_ERR = 0x00004002,	/* Interface Error. */
+	MB_CMD_STS_CSUM_ERR = 0x00004003,	/* Csum Error. */
+	MB_CMD_STS_ERR = 0x00004005,	/* System Error. */
+	MB_CMD_STS_PARAM_ERR = 0x00004006,	/* Parameter Error. */
 };
 
 struct mbox_params {
@@ -784,16 +798,53 @@ struct mbox_params {
 	int out_count;
 };
 
-struct flash_params {
+struct flash_params_8012 {
 	u8 dev_id_str[4];
-	u16 size;
-	u16 csum;
-	u16 ver;
-	u16 sub_dev_id;
+	__le16 size;
+	__le16 csum;
+	__le16 ver;
+	__le16 sub_dev_id;
 	u8 mac_addr[6];
-	u16 res;
+	__le16 res;
 };
 
+/* 8000 device's flash is a different structure
+ * at a different offset in flash.
+ */
+#define FUNC0_FLASH_OFFSET 0x140200
+#define FUNC1_FLASH_OFFSET 0x140600
+
+/* Flash related data structures. */
+struct flash_params_8000 {
+	u8 dev_id_str[4];	/* "8000" */
+	__le16 ver;
+	__le16 size;
+	__le16 csum;
+	__le16 reserved0;
+	__le16 total_size;
+	__le16 entry_count;
+	u8 data_type0;
+	u8 data_size0;
+	u8 mac_addr[6];
+	u8 data_type1;
+	u8 data_size1;
+	u8 mac_addr1[6];
+	u8 data_type2;
+	u8 data_size2;
+	__le16 vlan_id;
+	u8 data_type3;
+	u8 data_size3;
+	__le16 last;
+	u8 reserved1[464];
+	__le16	subsys_ven_id;
+	__le16	subsys_dev_id;
+	u8 reserved2[4];
+};
+
+union flash_params {
+	struct flash_params_8012 flash_params_8012;
+	struct flash_params_8000 flash_params_8000;
+};
 
 /*
  * doorbell space for the rx ring context
@@ -818,15 +869,6 @@ struct tx_doorbell_context {
 };
 
 /* DATA STRUCTURES SHARED WITH HARDWARE. */
-
-struct bq_element {
-	u32 addr_lo;
-#define BQ_END	0x00000001
-#define BQ_CONT	0x00000002
-#define BQ_MASK	0x00000003
-	u32 addr_hi;
-} __attribute((packed));
-
 struct tx_buf_desc {
 	__le64 addr;
 	__le32 len;
@@ -860,8 +902,8 @@ struct ob_mac_iocb_req {
 	__le16 frame_len;
 #define OB_MAC_IOCB_LEN_MASK 0x3ffff
 	__le16 reserved2;
-	__le32 tid;
-	__le32 txq_idx;
+	u32 tid;
+	u32 txq_idx;
 	__le32 reserved3;
 	__le16 vlan_tci;
 	__le16 reserved4;
@@ -880,8 +922,8 @@ struct ob_mac_iocb_rsp {
 	u8 flags2;		/* */
 	u8 flags3;		/* */
 #define OB_MAC_IOCB_RSP_B	0x80	/* */
-	__le32 tid;
-	__le32 txq_idx;
+	u32 tid;
+	u32 txq_idx;
 	__le32 reserved[13];
 } __attribute((packed));
 
@@ -903,8 +945,8 @@ struct ob_mac_tso_iocb_req {
 #define OB_MAC_TSO_IOCB_V	0x04
 	__le32 reserved1[2];
 	__le32 frame_len;
-	__le32 tid;
-	__le32 txq_idx;
+	u32 tid;
+	u32 txq_idx;
 	__le16 total_hdrs_len;
 	__le16 net_trans_offset;
 #define OB_MAC_TRANSPORT_HDR_SHIFT 6
@@ -925,8 +967,8 @@ struct ob_mac_tso_iocb_rsp {
 	u8 flags2;		/* */
 	u8 flags3;		/* */
 #define OB_MAC_TSO_IOCB_RSP_B	0x8000
-	__le32 tid;
-	__le32 txq_idx;
+	u32 tid;
+	u32 txq_idx;
 	__le32 reserved2[13];
 } __attribute((packed));
 
@@ -935,6 +977,7 @@ struct ib_mac_iocb_rsp {
 	u8 flags1;
 #define IB_MAC_IOCB_RSP_OI	0x01	/* Overide intr delay */
 #define IB_MAC_IOCB_RSP_I	0x02	/* Disble Intr Generation */
+#define IB_MAC_CSUM_ERR_MASK 0x1c	/* A mask to use for csum errs */
 #define IB_MAC_IOCB_RSP_TE	0x04	/* Checksum error */
 #define IB_MAC_IOCB_RSP_NU	0x08	/* No checksum rcvd */
 #define IB_MAC_IOCB_RSP_IE	0x10	/* IPv4 checksum error */
@@ -970,22 +1013,22 @@ struct ib_mac_iocb_rsp {
 #define IB_MAC_IOCB_RSP_DS	0x40	/* data is in small buffer */
 #define IB_MAC_IOCB_RSP_DL	0x80	/* data is in large buffer */
 	__le32 data_len;	/* */
-	__le32 data_addr_lo;	/* */
-	__le32 data_addr_hi;	/* */
+	__le64 data_addr;	/* */
 	__le32 rss;		/* */
 	__le16 vlan_id;		/* 12 bits */
 #define IB_MAC_IOCB_RSP_C	0x1000	/* VLAN CFI bit */
 #define IB_MAC_IOCB_RSP_COS_SHIFT	12	/* class of service value */
+#define IB_MAC_IOCB_RSP_VLAN_MASK	0x0ffff
 
 	__le16 reserved1;
 	__le32 reserved2[6];
-	__le32 flags4;
-#define IB_MAC_IOCB_RSP_HV	0x20000000	/* */
-#define IB_MAC_IOCB_RSP_HS	0x40000000	/* */
-#define IB_MAC_IOCB_RSP_HL	0x80000000	/* */
+	u8 reserved3[3];
+	u8 flags4;
+#define IB_MAC_IOCB_RSP_HV	0x20
+#define IB_MAC_IOCB_RSP_HS	0x40
+#define IB_MAC_IOCB_RSP_HL	0x80
 	__le32 hdr_len;		/* */
-	__le32 hdr_addr_lo;	/* */
-	__le32 hdr_addr_hi;	/* */
+	__le64 hdr_addr;	/* */
 } __attribute((packed));
 
 struct ib_ae_iocb_rsp {
@@ -1041,6 +1084,7 @@ struct wqicb {
 #define Q_LEN_CPP_16	0x0001
 #define Q_LEN_CPP_32	0x0002
 #define Q_LEN_CPP_64	0x0003
+#define Q_LEN_CPP_512	0x0006
 	__le16 flags;
 #define Q_PRI_SHIFT	1
 #define Q_FLAGS_LC	0x1000
@@ -1050,10 +1094,8 @@ struct wqicb {
 	__le16 cq_id_rss;
 #define Q_CQ_ID_RSS_RV 0x8000
 	__le16 rid;
-	__le32 addr_lo;
-	__le32 addr_hi;
-	__le32 cnsmr_idx_addr_lo;
-	__le32 cnsmr_idx_addr_hi;
+	__le64 addr;
+	__le64 cnsmr_idx_addr;
 } __attribute((packed));
 
 /*
@@ -1078,18 +1120,14 @@ struct cqicb {
 #define LEN_CPP_64	0x0002
 #define LEN_CPP_128	0x0003
 	__le16 rid;
-	__le32 addr_lo;
-	__le32 addr_hi;
-	__le32 prod_idx_addr_lo;
-	__le32 prod_idx_addr_hi;
+	__le64 addr;
+	__le64 prod_idx_addr;
 	__le16 pkt_delay;
 	__le16 irq_delay;
-	__le32 lbq_addr_lo;
-	__le32 lbq_addr_hi;
+	__le64 lbq_addr;
 	__le16 lbq_buf_size;
 	__le16 lbq_len;		/* entry count */
-	__le32 sbq_addr_lo;
-	__le32 sbq_addr_hi;
+	__le64 sbq_addr;
 	__le16 sbq_buf_size;
 	__le16 sbq_len;		/* entry count */
 } __attribute((packed));
@@ -1126,7 +1164,7 @@ struct map_list {
 struct tx_ring_desc {
 	struct sk_buff *skb;
 	struct ob_mac_iocb_req *queue_entry;
-	int index;
+	u32 index;
 	struct oal oal;
 	struct map_list map[MAX_SKB_FRAGS + 1];
 	int map_cnt;
@@ -1138,8 +1176,8 @@ struct bq_desc {
 		struct page *lbq_page;
 		struct sk_buff *skb;
 	} p;
-	struct bq_element *bq;
-	int index;
+	__le64 *addr;
+	u32 index;
 	 DECLARE_PCI_UNMAP_ADDR(mapaddr);
 	 DECLARE_PCI_UNMAP_LEN(maplen);
 };
@@ -1153,7 +1191,7 @@ struct tx_ring {
 	struct wqicb wqicb;	/* structure used to inform chip of new queue */
 	void *wq_base;		/* pci_alloc:virtual addr for tx */
 	dma_addr_t wq_base_dma;	/* pci_alloc:dma addr for tx */
-	u32 *cnsmr_idx_sh_reg;	/* shadow copy of consumer idx */
+	__le32 *cnsmr_idx_sh_reg;	/* shadow copy of consumer idx */
 	dma_addr_t cnsmr_idx_sh_reg_dma;	/* dma-shadow copy of consumer */
 	u32 wq_size;		/* size in bytes of queue area */
 	u32 wq_len;		/* number of entries in queue */
@@ -1189,7 +1227,7 @@ struct rx_ring {
 	u32 cq_size;
 	u32 cq_len;
 	u16 cq_id;
-	u32 *prod_idx_sh_reg;	/* Shadowed producer register. */
+	__le32 *prod_idx_sh_reg;	/* Shadowed producer register. */
 	dma_addr_t prod_idx_sh_reg_dma;
 	void __iomem *cnsmr_idx_db_reg;	/* PCI doorbell mem area + 0 */
 	u32 cnsmr_idx;		/* current sw idx */
@@ -1328,27 +1366,49 @@ enum {
 	QL_DMA64 = (1 << 5),
 	QL_PROMISCUOUS = (1 << 6),
 	QL_ALLMULTI = (1 << 7),
+	QL_PORT_CFG = (1 << 8),
+	QL_CAM_RT_SET = (1 << 9),
 };
 
 /* link_status bit definitions */
 enum {
-	LOOPBACK_MASK = 0x00000700,
-	LOOPBACK_PCS = 0x00000100,
-	LOOPBACK_HSS = 0x00000200,
-	LOOPBACK_EXT = 0x00000300,
-	PAUSE_MASK = 0x000000c0,
-	PAUSE_STD = 0x00000040,
-	PAUSE_PRI = 0x00000080,
-	SPEED_MASK = 0x00000038,
-	SPEED_100Mb = 0x00000000,
-	SPEED_1Gb = 0x00000008,
-	SPEED_10Gb = 0x00000010,
-	LINK_TYPE_MASK = 0x00000007,
-	LINK_TYPE_XFI = 0x00000001,
-	LINK_TYPE_XAUI = 0x00000002,
-	LINK_TYPE_XFI_BP = 0x00000003,
-	LINK_TYPE_XAUI_BP = 0x00000004,
-	LINK_TYPE_10GBASET = 0x00000005,
+	STS_LOOPBACK_MASK = 0x00000700,
+	STS_LOOPBACK_PCS = 0x00000100,
+	STS_LOOPBACK_HSS = 0x00000200,
+	STS_LOOPBACK_EXT = 0x00000300,
+	STS_PAUSE_MASK = 0x000000c0,
+	STS_PAUSE_STD = 0x00000040,
+	STS_PAUSE_PRI = 0x00000080,
+	STS_SPEED_MASK = 0x00000038,
+	STS_SPEED_100Mb = 0x00000000,
+	STS_SPEED_1Gb = 0x00000008,
+	STS_SPEED_10Gb = 0x00000010,
+	STS_LINK_TYPE_MASK = 0x00000007,
+	STS_LINK_TYPE_XFI = 0x00000001,
+	STS_LINK_TYPE_XAUI = 0x00000002,
+	STS_LINK_TYPE_XFI_BP = 0x00000003,
+	STS_LINK_TYPE_XAUI_BP = 0x00000004,
+	STS_LINK_TYPE_10GBASET = 0x00000005,
+};
+
+/* link_config bit definitions */
+enum {
+	CFG_JUMBO_FRAME_SIZE = 0x00010000,
+	CFG_PAUSE_MASK = 0x00000060,
+	CFG_PAUSE_STD = 0x00000020,
+	CFG_PAUSE_PRI = 0x00000040,
+	CFG_DCBX = 0x00000010,
+	CFG_LOOPBACK_MASK = 0x00000007,
+	CFG_LOOPBACK_PCS = 0x00000002,
+	CFG_LOOPBACK_HSS = 0x00000004,
+	CFG_LOOPBACK_EXT = 0x00000006,
+	CFG_DEFAULT_MAX_FRAME_SIZE = 0x00002580,
+};
+
+struct nic_operations {
+
+	int (*get_flash) (struct ql_adapter *);
+	int (*port_initialize) (struct ql_adapter *);
 };
 
 /*
@@ -1391,6 +1451,8 @@ struct ql_adapter {
 
 	u32 mailbox_in;
 	u32 mailbox_out;
+	struct mbox_params idc_mbc;
+	struct mutex	mpi_mutex;
 
 	int tx_ring_size;
 	int rx_ring_size;
@@ -1410,9 +1472,11 @@ struct ql_adapter {
 	int rx_ring_count;
 	int ring_mem_size;
 	void *ring_mem;
-	struct rx_ring *rx_ring;
+
+	struct rx_ring rx_ring[MAX_RX_RINGS];
+	struct tx_ring tx_ring[MAX_TX_RINGS];
+
 	int rx_csum;
-	struct tx_ring *tx_ring;
 	u32 default_rx_queue;
 
 	u16 rx_coalesce_usecs;	/* cqicb->int_delay */
@@ -1424,8 +1488,10 @@ struct ql_adapter {
 	u32 port_link_up;
 	u32 port_init;
 	u32 link_status;
+	u32 link_config;
+	u32 max_frame_size;
 
-	struct flash_params flash;
+	union flash_params flash;
 
 	struct net_device_stats stats;
 	struct workqueue_struct *q_workqueue;
@@ -1433,6 +1499,11 @@ struct ql_adapter {
 	struct delayed_work asic_reset_work;
 	struct delayed_work mpi_reset_work;
 	struct delayed_work mpi_work;
+	struct delayed_work mpi_port_cfg_work;
+	struct delayed_work mpi_idc_work;
+	struct completion ide_completion;
+	struct nic_operations *nic_ops;
+	u16 device_id;
 };
 
 /*
@@ -1477,9 +1548,12 @@ static inline void ql_write_db_reg(u32 val, void __iomem *addr)
  * update the relevant index register and then copy the value to the
  * shadow register in host memory.
  */
-static inline unsigned int ql_read_sh_reg(const volatile void  *addr)
+static inline u32 ql_read_sh_reg(__le32  *addr)
 {
-	return *(volatile unsigned int __force *)addr;
+	u32 reg;
+	reg =  le32_to_cpu(*addr);
+	rmb();
+	return reg;
 }
 
 extern char qlge_driver_name[];
@@ -1502,6 +1576,10 @@ void ql_queue_asic_error(struct ql_adapter *qdev);
 u32 ql_enable_completion_interrupt(struct ql_adapter *qdev, u32 intr);
 void ql_set_ethtool_ops(struct net_device *ndev);
 int ql_read_xgmac_reg64(struct ql_adapter *qdev, u32 reg, u64 *data);
+void ql_mpi_idc_work(struct work_struct *work);
+void ql_mpi_port_cfg_work(struct work_struct *work);
+int ql_mb_get_fw_state(struct ql_adapter *qdev);
+int ql_cam_route_initialize(struct ql_adapter *qdev);
 
 #if 1
 #define QL_ALL_DUMP

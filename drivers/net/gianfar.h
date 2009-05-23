@@ -45,8 +45,6 @@
 #include <linux/crc32.h>
 #include <linux/workqueue.h>
 #include <linux/ethtool.h>
-#include <linux/fsl_devices.h>
-#include "gianfar_mii.h"
 
 /* The maximum number of packets to be handled in one call of gfar_poll */
 #define GFAR_DEV_WEIGHT 64
@@ -126,9 +124,12 @@ extern const char gfar_driver_version[];
 #define DEFAULT_RX_COALESCE 0
 #define DEFAULT_RXCOUNT	0
 
-#define MIIMCFG_INIT_VALUE	0x00000007
-#define MIIMCFG_RESET           0x80000000
-#define MIIMIND_BUSY            0x00000001
+#define GFAR_SUPPORTED (SUPPORTED_10baseT_Half \
+		| SUPPORTED_10baseT_Full \
+		| SUPPORTED_100baseT_Half \
+		| SUPPORTED_100baseT_Full \
+		| SUPPORTED_Autoneg \
+		| SUPPORTED_MII)
 
 /* TBI register addresses */
 #define MII_TBICON		0x11
@@ -189,6 +190,18 @@ extern const char gfar_driver_version[];
 #define mk_ic_value(count, time) (IC_ICEN | \
 				mk_ic_icft(count) | \
 				mk_ic_ictt(time))
+#define get_icft_value(ic)	(((unsigned long)ic & IC_ICFT_MASK) >> \
+				 IC_ICFT_SHIFT)
+#define get_ictt_value(ic)	((unsigned long)ic & IC_ICTT_MASK)
+
+#define DEFAULT_TXIC mk_ic_value(DEFAULT_TXCOUNT, DEFAULT_TXTIME)
+#define DEFAULT_RXIC mk_ic_value(DEFAULT_RXCOUNT, DEFAULT_RXTIME)
+
+#define skip_bd(bdp, stride, base, ring_size) ({ \
+	typeof(bdp) new_bd = (bdp) + (stride); \
+	(new_bd >= (base) + (ring_size)) ? (new_bd - (ring_size)) : new_bd; })
+
+#define next_bd(bdp, base, ring_size) skip_bd(bdp, 1, base, ring_size)
 
 #define RCTRL_PAL_MASK		0x001f0000
 #define RCTRL_VLEX		0x00002000
@@ -200,8 +213,10 @@ extern const char gfar_driver_version[];
 #define RCTRL_PRSDEP_INIT	0x000000c0
 #define RCTRL_PROM		0x00000008
 #define RCTRL_EMEN		0x00000002
-#define RCTRL_CHECKSUMMING	(RCTRL_IPCSEN \
-		| RCTRL_TUCSEN | RCTRL_PRSDEP_INIT)
+#define RCTRL_REQ_PARSER	(RCTRL_VLEX | RCTRL_IPCSEN | \
+				 RCTRL_TUCSEN)
+#define RCTRL_CHECKSUMMING	(RCTRL_IPCSEN | RCTRL_TUCSEN | \
+				RCTRL_PRSDEP_INIT)
 #define RCTRL_EXTHASH		(RCTRL_GHTX)
 #define RCTRL_VLAN		(RCTRL_PRSDEP_INIT)
 #define RCTRL_PADDING(x)	((x << 16) & RCTRL_PAL_MASK)
@@ -237,7 +252,7 @@ extern const char gfar_driver_version[];
 #define IEVENT_FIQ		0x00000004
 #define IEVENT_DPE		0x00000002
 #define IEVENT_PERR		0x00000001
-#define IEVENT_RX_MASK          (IEVENT_RXB0 | IEVENT_RXF0)
+#define IEVENT_RX_MASK          (IEVENT_RXB0 | IEVENT_RXF0 | IEVENT_BSY)
 #define IEVENT_TX_MASK          (IEVENT_TXB | IEVENT_TXF)
 #define IEVENT_RTX_MASK         (IEVENT_RX_MASK | IEVENT_TX_MASK)
 #define IEVENT_ERR_MASK         \
@@ -297,6 +312,8 @@ extern const char gfar_driver_version[];
 #define ATTRELI_EI_MASK		0x00003fff
 #define ATTRELI_EI(x) (x)
 
+#define BD_LFLAG(flags) ((flags) << 16)
+#define BD_LENGTH_MASK		0x0000ffff
 
 /* TxBD status field bits */
 #define TXBD_READY		0x8000
@@ -358,10 +375,17 @@ extern const char gfar_driver_version[];
 #define RXFCB_PERR_MASK		0x000c
 #define RXFCB_PERR_BADL3	0x0008
 
+#define GFAR_INT_NAME_MAX	IFNAMSIZ + 4
+
 struct txbd8
 {
-	u16	status;	/* Status Fields */
-	u16	length;	/* Buffer length */
+	union {
+		struct {
+			u16	status;	/* Status Fields */
+			u16	length;	/* Buffer length */
+		};
+		u32 lstatus;
+	};
 	u32	bufPtr;	/* Buffer Pointer */
 };
 
@@ -376,8 +400,13 @@ struct txfcb {
 
 struct rxbd8
 {
-	u16	status;	/* Status Fields */
-	u16	length;	/* Buffer Length */
+	union {
+		struct {
+			u16	status;	/* Status Fields */
+			u16	length;	/* Buffer Length */
+		};
+		u32 lstatus;
+	};
 	u32	bufPtr;	/* Buffer Pointer */
 };
 
@@ -657,6 +686,19 @@ struct gfar {
 
 };
 
+/* Flags related to gianfar device features */
+#define FSL_GIANFAR_DEV_HAS_GIGABIT		0x00000001
+#define FSL_GIANFAR_DEV_HAS_COALESCE		0x00000002
+#define FSL_GIANFAR_DEV_HAS_RMON		0x00000004
+#define FSL_GIANFAR_DEV_HAS_MULTI_INTR		0x00000008
+#define FSL_GIANFAR_DEV_HAS_CSUM		0x00000010
+#define FSL_GIANFAR_DEV_HAS_VLAN		0x00000020
+#define FSL_GIANFAR_DEV_HAS_EXTENDED_HASH	0x00000040
+#define FSL_GIANFAR_DEV_HAS_PADDING		0x00000080
+#define FSL_GIANFAR_DEV_HAS_MAGIC_PACKET	0x00000100
+#define FSL_GIANFAR_DEV_HAS_BD_STASHING		0x00000200
+#define FSL_GIANFAR_DEV_HAS_BUF_STASHING	0x00000400
+
 /* Struct stolen almost completely (and shamelessly) from the FCC enet source
  * (Ok, that's not so true anymore, but there is a family resemblence)
  * The GFAR buffer descriptors track the ring buffers.  The rx_bd_base
@@ -681,8 +723,7 @@ struct gfar_private {
 
 	/* Configuration info for the coalescing features */
 	unsigned char txcoalescing;
-	unsigned short txcount;
-	unsigned short txtime;
+	unsigned long txic;
 
 	/* Buffer descriptor pointers */
 	struct txbd8 *tx_bd_base;	/* First tx buffer descriptor */
@@ -690,11 +731,14 @@ struct gfar_private {
 	struct txbd8 *dirty_tx;		/* First buffer in line
 					   to be transmitted */
 	unsigned int tx_ring_size;
+	unsigned int num_txbdfree;	/* number of TxBDs free */
 
 	/* RX Locked fields */
 	spinlock_t rxlock;
 
-	struct net_device *dev;
+	struct device_node *node;
+	struct net_device *ndev;
+	struct of_device *ofdev;
 	struct napi_struct napi;
 
 	/* skb array and index */
@@ -703,8 +747,7 @@ struct gfar_private {
 
 	/* RX Coalescing values */
 	unsigned char rxcoalescing;
-	unsigned short rxcount;
-	unsigned short rxtime;
+	unsigned long rxic;
 
 	struct rxbd8 *rx_bd_base;	/* First Rx buffers */
 	struct rxbd8 *cur_rx;           /* Next free rx ring entry */
@@ -714,6 +757,8 @@ struct gfar_private {
 	unsigned int rx_buffer_size;
 	unsigned int rx_stash_size;
 	unsigned int rx_stash_index;
+
+	struct sk_buff_head rx_recycle;
 
 	struct vlan_group *vlgrp;
 
@@ -733,8 +778,10 @@ struct gfar_private {
 	/* Bitfield update lock */
 	spinlock_t bflock;
 
-	unsigned char vlan_enable:1,
-		rx_csum_enable:1,
+	phy_interface_t interface;
+	char	phy_bus_id[BUS_ID_SIZE];
+	u32 device_flags;
+	unsigned char rx_csum_enable:1,
 		extended_hash:1,
 		bd_stash_en:1,
 		wol_en:1; /* Wake-on-LAN enabled */
@@ -744,11 +791,9 @@ struct gfar_private {
 	unsigned int interruptReceive;
 	unsigned int interruptError;
 
-	/* info structure initialized by platform code */
-	struct gianfar_platform_data *einfo;
-
 	/* PHY stuff */
 	struct phy_device *phydev;
+	struct phy_device *tbiphy;
 	struct mii_bus *mii_bus;
 	int oldspeed;
 	int oldduplex;
@@ -757,6 +802,11 @@ struct gfar_private {
 	uint32_t msg_enable;
 
 	struct work_struct reset_task;
+
+	char int_name_tx[GFAR_INT_NAME_MAX];
+	char int_name_rx[GFAR_INT_NAME_MAX];
+	char int_name_er[GFAR_INT_NAME_MAX];
+
 	/* Network Statistics */
 	struct gfar_extra_stats extra_stats;
 };
@@ -780,8 +830,7 @@ extern void gfar_halt(struct net_device *dev);
 extern void gfar_phy_test(struct mii_bus *bus, struct phy_device *phydev,
 		int enable, u32 regnum, u32 read);
 void gfar_init_sysfs(struct net_device *dev);
-int gfar_local_mdio_write(struct gfar_mii __iomem *regs, int mii_id,
-			  int regnum, u16 value);
-int gfar_local_mdio_read(struct gfar_mii __iomem *regs, int mii_id, int regnum);
+
+extern const struct ethtool_ops gfar_ethtool_ops;
 
 #endif /* __GIANFAR_H */

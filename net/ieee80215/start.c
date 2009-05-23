@@ -36,11 +36,11 @@ int ieee80215_mlme_start_req(struct net_device *dev, u16 panid, u8 channel,
 			     u8 coord_realign, u8 sec)
 {
 	ieee80215_set_pan_id(dev, panid);
-	if (pan_coord) {
+	if (pan_coord)
 		dev->priv_flags |= IFF_IEEE80215_COORD;
-	} else {
+	else
 		dev->priv_flags &= ~IFF_IEEE80215_COORD;
-	}
+
 	return 0;
 }
 

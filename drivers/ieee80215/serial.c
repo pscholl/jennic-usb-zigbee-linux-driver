@@ -762,7 +762,7 @@ static struct ieee80215_ops serial_ops = {
 static int dev_minor_match(struct device *dev, void *data)
 {
 	int *minor = data;
-	return (MINOR(dev->devt) == *minor);
+	return MINOR(dev->devt) == *minor;
 }
 
 /*

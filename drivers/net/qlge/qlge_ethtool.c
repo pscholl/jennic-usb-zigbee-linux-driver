@@ -33,7 +33,6 @@
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 
-#include <linux/version.h>
 
 #include "qlge.h"
 
@@ -56,9 +55,9 @@ static int ql_update_ring_coalescing(struct ql_adapter *qdev)
 		for (i = 1; i < qdev->rss_ring_first_cq_id; i++, rx_ring++) {
 			rx_ring = &qdev->rx_ring[i];
 			cqicb = (struct cqicb *)rx_ring;
-			cqicb->irq_delay = le16_to_cpu(qdev->tx_coalesce_usecs);
+			cqicb->irq_delay = cpu_to_le16(qdev->tx_coalesce_usecs);
 			cqicb->pkt_delay =
-			    le16_to_cpu(qdev->tx_max_coalesced_frames);
+			    cpu_to_le16(qdev->tx_max_coalesced_frames);
 			cqicb->flags = FLAGS_LI;
 			status = ql_write_cfg(qdev, cqicb, sizeof(cqicb),
 						CFG_LCQ, rx_ring->cq_id);
@@ -79,9 +78,9 @@ static int ql_update_ring_coalescing(struct ql_adapter *qdev)
 		     i++) {
 			rx_ring = &qdev->rx_ring[i];
 			cqicb = (struct cqicb *)rx_ring;
-			cqicb->irq_delay = le16_to_cpu(qdev->rx_coalesce_usecs);
+			cqicb->irq_delay = cpu_to_le16(qdev->rx_coalesce_usecs);
 			cqicb->pkt_delay =
-			    le16_to_cpu(qdev->rx_max_coalesced_frames);
+			    cpu_to_le16(qdev->rx_max_coalesced_frames);
 			cqicb->flags = FLAGS_LI;
 			status = ql_write_cfg(qdev, cqicb, sizeof(cqicb),
 						CFG_LCQ, rx_ring->cq_id);
@@ -97,7 +96,7 @@ exit:
 	return status;
 }
 
-void ql_update_stats(struct ql_adapter *qdev)
+static void ql_update_stats(struct ql_adapter *qdev)
 {
 	u32 i;
 	u64 data;
@@ -271,7 +270,8 @@ static int ql_get_settings(struct net_device *ndev,
 	ecmd->advertising = ADVERTISED_10000baseT_Full;
 	ecmd->autoneg = AUTONEG_ENABLE;
 	ecmd->transceiver = XCVR_EXTERNAL;
-	if ((qdev->link_status & LINK_TYPE_MASK) == LINK_TYPE_10GBASET) {
+	if ((qdev->link_status & STS_LINK_TYPE_MASK) ==
+				STS_LINK_TYPE_10GBASET) {
 		ecmd->supported |= (SUPPORTED_TP | SUPPORTED_Autoneg);
 		ecmd->advertising |= (ADVERTISED_TP | ADVERTISED_Autoneg);
 		ecmd->port = PORT_TP;

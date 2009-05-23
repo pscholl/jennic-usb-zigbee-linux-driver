@@ -9,6 +9,7 @@
  *
  *  This is the "shell" of the ARMv7 processor support.
  */
+#include <linux/init.h>
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/asm-offsets.h>
@@ -20,8 +21,16 @@
 
 #define TTB_C		(1 << 0)
 #define TTB_S		(1 << 1)
+#define TTB_RGN_NC	(0 << 3)
+#define TTB_RGN_OC_WBWA	(1 << 3)
 #define TTB_RGN_OC_WT	(2 << 3)
 #define TTB_RGN_OC_WB	(3 << 3)
+
+#ifndef CONFIG_SMP
+#define TTB_FLAGS	TTB_C|TTB_RGN_OC_WB		@ mark PTWs cacheable, outer WB
+#else
+#define TTB_FLAGS	TTB_C|TTB_S|TTB_RGN_OC_WBWA	@ mark PTWs cacheable and shared, outer WBWA
+#endif
 
 ENTRY(cpu_v7_proc_init)
 	mov	pc, lr
@@ -55,6 +64,7 @@ ENDPROC(cpu_v7_reset)
  *	IRQs are already disabled.
  */
 ENTRY(cpu_v7_do_idle)
+	dsb					@ WFI may enter a low-power mode
 	wfi
 	mov	pc, lr
 ENDPROC(cpu_v7_do_idle)
@@ -85,7 +95,10 @@ ENTRY(cpu_v7_switch_mm)
 #ifdef CONFIG_MMU
 	mov	r2, #0
 	ldr	r1, [r1, #MM_CONTEXT_ID]	@ get mm->context.id
-	orr	r0, r0, #TTB_RGN_OC_WB		@ mark PTWs outer cacheable, WB
+	orr	r0, r0, #TTB_FLAGS
+#ifdef CONFIG_ARM_ERRATA_430973
+	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
+#endif
 	mcr	p15, 0, r2, c13, c0, 1		@ set reserved context ID
 	isb
 1:	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
@@ -144,7 +157,7 @@ cpu_v7_name:
 	.ascii	"ARMv7 Processor"
 	.align
 
-	.section ".text.init", #alloc, #execinstr
+	__INIT
 
 /*
  *	__v7_setup
@@ -162,10 +175,31 @@ cpu_v7_name:
  *	- cache type register is implemented
  */
 __v7_setup:
+#ifdef CONFIG_SMP
+	mrc	p15, 0, r0, c1, c0, 1		@ Enable SMP/nAMP mode
+	orr	r0, r0, #(0x1 << 6)
+	mcr	p15, 0, r0, c1, c0, 1
+#endif
 	adr	r12, __v7_setup_stack		@ the local stack
 	stmia	r12, {r0-r5, r7, r9, r11, lr}
 	bl	v7_flush_dcache_all
 	ldmia	r12, {r0-r5, r7, r9, r11, lr}
+#ifdef CONFIG_ARM_ERRATA_430973
+	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
+	orr	r10, r10, #(1 << 6)		@ set IBE to 1
+	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
+#endif
+#ifdef CONFIG_ARM_ERRATA_458693
+	mrc	p15, 0, r10, c1, c0, 1		@ read aux control register
+	orr	r10, r10, #(1 << 5)		@ set L1NEON to 1
+	orr	r10, r10, #(1 << 9)		@ set PLDNOP to 1
+	mcr	p15, 0, r10, c1, c0, 1		@ write aux control register
+#endif
+#ifdef CONFIG_ARM_ERRATA_460075
+	mrc	p15, 1, r10, c9, c0, 2		@ read L2 cache aux ctrl register
+	orr	r10, r10, #(1 << 22)		@ set the Write Allocate disable bit
+	mcr	p15, 1, r10, c9, c0, 2		@ write the L2 cache aux ctrl register
+#endif
 	mov	r10, #0
 #ifdef HARVARD_CACHE
 	mcr	p15, 0, r10, c7, c5, 0		@ I+BTB cache invalidate
@@ -174,8 +208,7 @@ __v7_setup:
 #ifdef CONFIG_MMU
 	mcr	p15, 0, r10, c8, c7, 0		@ invalidate I + D TLBs
 	mcr	p15, 0, r10, c2, c0, 2		@ TTB control register
-	orr	r4, r4, #TTB_RGN_OC_WB		@ mark PTWs outer cacheable, WB
-	mcr	p15, 0, r4, c2, c0, 0		@ load TTB0
+	orr	r4, r4, #TTB_FLAGS
 	mcr	p15, 0, r4, c2, c0, 1		@ load TTB1
 	mov	r10, #0x1f			@ domains 0, 1 = manager
 	mcr	p15, 0, r10, c3, c0, 0		@ load domain access register

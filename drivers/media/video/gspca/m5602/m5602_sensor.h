@@ -21,11 +21,6 @@
 
 #include "m5602_bridge.h"
 
-#define M5602_DEFAULT_FRAME_WIDTH  640
-#define M5602_DEFAULT_FRAME_HEIGHT 480
-
-#define M5602_MAX_CTRLS		(V4L2_CID_LASTP1 - V4L2_CID_BASE + 10)
-
 /* Enumerates all supported sensors */
 enum sensors {
 	OV9650_SENSOR	= 1,
@@ -49,28 +44,26 @@ struct m5602_sensor {
 	/* What i2c address the sensor is connected to */
 	u8 i2c_slave_id;
 
+	/* Width of each i2c register (in bytes) */
+	u8 i2c_regW;
+
 	/* Probes if the sensor is connected */
 	int (*probe)(struct sd *sd);
 
 	/* Performs a initialization sequence */
 	int (*init)(struct sd *sd);
 
+	/* Executed when the camera starts to send data */
+	int (*start)(struct sd *sd);
+
+	/* Executed when the camera ends to send data */
+	int (*stop)(struct sd *sd);
+
+	/* Executed when the device is disconnected */
+	void (*disconnect)(struct sd *sd);
+
 	/* Performs a power down sequence */
 	int (*power_down)(struct sd *sd);
-
-	/* Reads a sensor register */
-	int (*read_sensor)(struct sd *sd, const u8 address,
-	      u8 *i2c_data, const u8 len);
-
-	/* Writes to a sensor register */
-	int (*write_sensor)(struct sd *sd, const u8 address,
-	      u8 *i2c_data, const u8 len);
-
-	int nctrls;
-	struct ctrl ctrls[M5602_MAX_CTRLS];
-
-	char nmodes;
-	struct v4l2_pix_format modes[];
 };
 
 #endif

@@ -121,8 +121,11 @@ acpi_os_wait_semaphore(acpi_semaphore handle, u32 units, u16 timeout);
 acpi_status acpi_os_signal_semaphore(acpi_semaphore handle, u32 units);
 
 /*
- * Mutex primitives
+ * Mutex primitives. May be configured to use semaphores instead via
+ * ACPI_MUTEX_TYPE (see platform/acenv.h)
  */
+#if (ACPI_MUTEX_TYPE != ACPI_BINARY_SEMAPHORE)
+
 acpi_status acpi_os_create_mutex(acpi_mutex * out_handle);
 
 void acpi_os_delete_mutex(acpi_mutex handle);
@@ -130,13 +133,7 @@ void acpi_os_delete_mutex(acpi_mutex handle);
 acpi_status acpi_os_acquire_mutex(acpi_mutex handle, u16 timeout);
 
 void acpi_os_release_mutex(acpi_mutex handle);
-
-/* Temporary macros for Mutex* interfaces, map to existing semaphore xfaces */
-
-#define acpi_os_create_mutex(out_handle)    acpi_os_create_semaphore (1, 1, out_handle)
-#define acpi_os_delete_mutex(handle)        (void) acpi_os_delete_semaphore (handle)
-#define acpi_os_acquire_mutex(handle,time)  acpi_os_wait_semaphore (handle, 1, time)
-#define acpi_os_release_mutex(handle)       (void) acpi_os_signal_semaphore (handle, 1)
+#endif
 
 /*
  * Memory allocation and mapping
@@ -147,6 +144,7 @@ void __iomem *acpi_os_map_memory(acpi_physical_address where,
 				acpi_size length);
 
 void acpi_os_unmap_memory(void __iomem * logical_address, acpi_size size);
+void early_acpi_os_unmap_memory(void __iomem * virt, acpi_size size);
 
 #ifdef ACPI_FUTURE_USAGE
 acpi_status
@@ -243,10 +241,6 @@ acpi_os_derive_pci_id(acpi_handle rhandle,
  */
 acpi_status acpi_os_validate_interface(char *interface);
 acpi_status acpi_osi_invalidate(char* interface);
-
-acpi_status
-acpi_os_validate_address(u8 space_id, acpi_physical_address address,
-			 acpi_size length, char *name);
 
 u64 acpi_os_get_timer(void);
 

@@ -171,7 +171,7 @@ static int tx_params[MAX_UNITS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 #include <asm/unaligned.h>
 #include <asm/cache.h>
 
-static char version[] __devinitdata =
+static const char version[] __devinitconst =
 KERN_INFO DRV_NAME ".c:v" DRV_VERSION " " DRV_RELDATE "  Written by Donald Becker\n"
 KERN_INFO "   Some modifications by Eric kasten <kasten@nscl.msu.edu>\n"
 KERN_INFO "   Further modifications by Keith Underwood <keithu@parl.clemson.edu>\n";
@@ -568,6 +568,20 @@ static void set_rx_mode(struct net_device *dev);
 static const struct ethtool_ops ethtool_ops;
 static const struct ethtool_ops ethtool_ops_no_mii;
 
+static const struct net_device_ops hamachi_netdev_ops = {
+	.ndo_open		= hamachi_open,
+	.ndo_stop		= hamachi_close,
+	.ndo_start_xmit		= hamachi_start_xmit,
+	.ndo_get_stats		= hamachi_get_stats,
+	.ndo_set_multicast_list	= set_rx_mode,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_tx_timeout		= hamachi_tx_timeout,
+	.ndo_do_ioctl		= netdev_ioctl,
+};
+
+
 static int __devinit hamachi_init_one (struct pci_dev *pdev,
 				    const struct pci_device_id *ent)
 {
@@ -582,7 +596,6 @@ static int __devinit hamachi_init_one (struct pci_dev *pdev,
 	void *ring_space;
 	dma_addr_t ring_dma;
 	int ret = -ENOMEM;
-	DECLARE_MAC_BUF(mac);
 
 /* when built into the kernel, we only print version if device is found */
 #ifndef MODULE
@@ -723,17 +736,11 @@ static int __devinit hamachi_init_one (struct pci_dev *pdev,
 
 
 	/* The Hamachi-specific entries in the device structure. */
-	dev->open = &hamachi_open;
-	dev->hard_start_xmit = &hamachi_start_xmit;
-	dev->stop = &hamachi_close;
-	dev->get_stats = &hamachi_get_stats;
-	dev->set_multicast_list = &set_rx_mode;
-	dev->do_ioctl = &netdev_ioctl;
+	dev->netdev_ops = &hamachi_netdev_ops;
 	if (chip_tbl[hmp->chip_id].flags & CanHaveMII)
 		SET_ETHTOOL_OPS(dev, &ethtool_ops);
 	else
 		SET_ETHTOOL_OPS(dev, &ethtool_ops_no_mii);
-	dev->tx_timeout = &hamachi_tx_timeout;
 	dev->watchdog_timeo = TX_TIMEOUT;
 	if (mtu)
 		dev->mtu = mtu;
@@ -744,9 +751,9 @@ static int __devinit hamachi_init_one (struct pci_dev *pdev,
 		goto err_out_unmap_rx;
 	}
 
-	printk(KERN_INFO "%s: %s type %x at %p, %s, IRQ %d.\n",
+	printk(KERN_INFO "%s: %s type %x at %p, %pM, IRQ %d.\n",
 		   dev->name, chip_tbl[chip_id].name, readl(ioaddr + ChipRev),
-		   ioaddr, print_mac(mac, dev->dev_addr), irq);
+		   ioaddr, dev->dev_addr, irq);
 	i = readb(ioaddr + PCIClkMeas);
 	printk(KERN_INFO "%s:  %d-bit %d Mhz PCI bus (%d), Virtual Jumpers "
 		   "%2.2x, LPA %4.4x.\n",
@@ -1237,7 +1244,7 @@ do { \
     csum_add(sum, (ih)->saddr & 0xffff); \
     csum_add(sum, (ih)->daddr >> 16); \
     csum_add(sum, (ih)->daddr & 0xffff); \
-    csum_add(sum, __constant_htons(IPPROTO_UDP)); \
+    csum_add(sum, cpu_to_be16(IPPROTO_UDP)); \
     csum_add(sum, (uh)->len); \
 } while (0)
 
@@ -1248,7 +1255,7 @@ do { \
     csum_add(sum, (ih)->saddr & 0xffff); \
     csum_add(sum, (ih)->daddr >> 16); \
     csum_add(sum, (ih)->daddr & 0xffff); \
-    csum_add(sum, __constant_htons(IPPROTO_TCP)); \
+    csum_add(sum, cpu_to_be16(IPPROTO_TCP)); \
     csum_add(sum, htons(len)); \
 } while (0)
 #endif
@@ -1289,7 +1296,7 @@ static int hamachi_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	    /* tack on checksum tag */
 	    u32 tagval = 0;
 	    struct ethhdr *eh = (struct ethhdr *)skb->data;
-	    if (eh->h_proto == __constant_htons(ETH_P_IP)) {
+	    if (eh->h_proto == cpu_to_be16(ETH_P_IP)) {
 		struct iphdr *ih = (struct iphdr *)((char *)eh + ETH_HLEN);
 		if (ih->protocol == IPPROTO_UDP) {
 		    struct udphdr *uh
@@ -1598,7 +1605,7 @@ static int hamachi_rx(struct net_device *dev)
 				 */
 				if (ntohs(ih->tot_len) >= 46){
 					/* don't worry about frags */
-					if (!(ih->frag_off & __constant_htons(IP_MF|IP_OFFSET))) {
+					if (!(ih->frag_off & cpu_to_be16(IP_MF|IP_OFFSET))) {
 						u32 inv = *(u32 *) &buf_addr[data_size - 16];
 						u32 *p = (u32 *) &buf_addr[data_size - 20];
 						register u32 crc, p_r, p_r1;
@@ -1646,7 +1653,6 @@ static int hamachi_rx(struct net_device *dev)
 #endif  /* RX_CHECKSUM */
 
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			hmp->stats.rx_packets++;
 		}
 		entry = (++hmp->cur_rx) % RX_RING_SIZE;

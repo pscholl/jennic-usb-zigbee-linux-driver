@@ -207,7 +207,7 @@ int sr_do_ioctl(Scsi_CD *cd, struct packet_command *cgc)
 	memset(sense, 0, sizeof(*sense));
 	result = scsi_execute(SDev, cgc->cmd, cgc->data_direction,
 			      cgc->buffer, cgc->buflen, (char *)sense,
-			      cgc->timeout, IOCTL_RETRIES, 0);
+			      cgc->timeout, IOCTL_RETRIES, 0, NULL);
 
 	scsi_normalize_sense((char *)sense, sizeof(*sense), &sshdr);
 
@@ -308,6 +308,11 @@ int sr_drive_status(struct cdrom_device_info *cdi, int slot)
 	}
 	if (0 == sr_test_unit_ready(cd->device, &sshdr))
 		return CDS_DISC_OK;
+
+	/* SK/ASC/ASCQ of 2/4/1 means "unit is becoming ready" */
+	if (scsi_sense_valid(&sshdr) && sshdr.sense_key == NOT_READY
+			&& sshdr.asc == 0x04 && sshdr.ascq == 0x01)
+		return CDS_DRIVE_NOT_READY;
 
 	if (!cdrom_get_media_event(cdi, &med)) {
 		if (med.media_present)

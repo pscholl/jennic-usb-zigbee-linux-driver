@@ -373,7 +373,7 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	if (dev->flags & IFF_LOOPBACK || dev->type != ARPHRD_ETHER)
 		return -EINVAL;
 
-	if (dev->hard_start_xmit == br_dev_xmit)
+	if (dev->netdev_ops->ndo_start_xmit == br_dev_xmit)
 		return -ELOOP;
 
 	if (dev->br_port != NULL)
@@ -426,7 +426,6 @@ err2:
 err1:
 	kobject_del(&p->kobj);
 err0:
-	kobject_put(&p->kobj);
 	dev_set_promiscuity(dev, -1);
 put_back:
 	dev_put(dev);
@@ -460,7 +459,7 @@ void br_net_exit(struct net *net)
 restart:
 	for_each_netdev(net, dev) {
 		if (dev->priv_flags & IFF_EBRIDGE) {
-			del_br(dev->priv);
+			del_br(netdev_priv(dev));
 			goto restart;
 		}
 	}

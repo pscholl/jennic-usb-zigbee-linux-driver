@@ -23,9 +23,20 @@
 #include <sound/jack.h>
 #include <sound/core.h>
 
+static int jack_types[] = {
+	SW_HEADPHONE_INSERT,
+	SW_MICROPHONE_INSERT,
+	SW_LINEOUT_INSERT,
+	SW_JACK_PHYSICAL_INSERT,
+	SW_VIDEOOUT_INSERT,
+};
+
 static int snd_jack_dev_free(struct snd_device *device)
 {
 	struct snd_jack *jack = device->device_data;
+
+	if (jack->private_free)
+		jack->private_free(jack);
 
 	/* If the input device is registered with the input subsystem
 	 * then we need to use a different deallocator. */
@@ -34,6 +45,7 @@ static int snd_jack_dev_free(struct snd_device *device)
 	else
 		input_free_device(jack->input_dev);
 
+	kfree(jack->id);
 	kfree(jack);
 
 	return 0;
@@ -46,7 +58,7 @@ static int snd_jack_dev_register(struct snd_device *device)
 	int err;
 
 	snprintf(jack->name, sizeof(jack->name), "%s %s",
-		 card->longname, jack->id);
+		 card->shortname, jack->id);
 	jack->input_dev->name = jack->name;
 
 	/* Default to the sound card device. */
@@ -78,6 +90,7 @@ int snd_jack_new(struct snd_card *card, const char *id, int type,
 {
 	struct snd_jack *jack;
 	int err;
+	int i;
 	static struct snd_device_ops ops = {
 		.dev_free = snd_jack_dev_free,
 		.dev_register = snd_jack_dev_register,
@@ -87,7 +100,7 @@ int snd_jack_new(struct snd_card *card, const char *id, int type,
 	if (jack == NULL)
 		return -ENOMEM;
 
-	jack->id = id;
+	jack->id = kstrdup(id, GFP_KERNEL);
 
 	jack->input_dev = input_allocate_device();
 	if (jack->input_dev == NULL) {
@@ -99,12 +112,10 @@ int snd_jack_new(struct snd_card *card, const char *id, int type,
 
 	jack->type = type;
 
-	if (type & SND_JACK_HEADPHONE)
-		input_set_capability(jack->input_dev, EV_SW,
-				     SW_HEADPHONE_INSERT);
-	if (type & SND_JACK_MICROPHONE)
-		input_set_capability(jack->input_dev, EV_SW,
-				     SW_MICROPHONE_INSERT);
+	for (i = 0; i < ARRAY_SIZE(jack_types); i++)
+		if (type & (1 << i))
+			input_set_capability(jack->input_dev, EV_SW,
+					     jack_types[i]);
 
 	err = snd_device_new(card, SNDRV_DEV_JACK, jack, &ops);
 	if (err < 0)
@@ -147,15 +158,17 @@ EXPORT_SYMBOL(snd_jack_set_parent);
  */
 void snd_jack_report(struct snd_jack *jack, int status)
 {
+	int i;
+
 	if (!jack)
 		return;
 
-	if (jack->type & SND_JACK_HEADPHONE)
-		input_report_switch(jack->input_dev, SW_HEADPHONE_INSERT,
-				    status & SND_JACK_HEADPHONE);
-	if (jack->type & SND_JACK_MICROPHONE)
-		input_report_switch(jack->input_dev, SW_MICROPHONE_INSERT,
-				    status & SND_JACK_MICROPHONE);
+	for (i = 0; i < ARRAY_SIZE(jack_types); i++) {
+		int testbit = 1 << i;
+		if (jack->type & testbit)
+			input_report_switch(jack->input_dev, jack_types[i],
+					    status & testbit);
+	}
 
 	input_sync(jack->input_dev);
 }

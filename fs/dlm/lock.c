@@ -307,7 +307,7 @@ static void queue_cast(struct dlm_rsb *r, struct dlm_lkb *lkb, int rv)
 	lkb->lkb_lksb->sb_status = rv;
 	lkb->lkb_lksb->sb_flags = lkb->lkb_sbflags;
 
-	dlm_add_ast(lkb, AST_COMP);
+	dlm_add_ast(lkb, AST_COMP, 0);
 }
 
 static inline void queue_cast_overlap(struct dlm_rsb *r, struct dlm_lkb *lkb)
@@ -318,12 +318,12 @@ static inline void queue_cast_overlap(struct dlm_rsb *r, struct dlm_lkb *lkb)
 
 static void queue_bast(struct dlm_rsb *r, struct dlm_lkb *lkb, int rqmode)
 {
+	lkb->lkb_time_bast = ktime_get();
+
 	if (is_master_copy(lkb))
 		send_bast(r, lkb, rqmode);
-	else {
-		lkb->lkb_bastmode = rqmode;
-		dlm_add_ast(lkb, AST_BAST);
-	}
+	else
+		dlm_add_ast(lkb, AST_BAST, rqmode);
 }
 
 /*
@@ -412,9 +412,9 @@ static int search_rsb(struct dlm_ls *ls, char *name, int len, int b,
 		      unsigned int flags, struct dlm_rsb **r_ret)
 {
 	int error;
-	write_lock(&ls->ls_rsbtbl[b].lock);
+	spin_lock(&ls->ls_rsbtbl[b].lock);
 	error = _search_rsb(ls, name, len, b, flags, r_ret);
-	write_unlock(&ls->ls_rsbtbl[b].lock);
+	spin_unlock(&ls->ls_rsbtbl[b].lock);
 	return error;
 }
 
@@ -478,16 +478,16 @@ static int find_rsb(struct dlm_ls *ls, char *name, int namelen,
 		r->res_nodeid = nodeid;
 	}
 
-	write_lock(&ls->ls_rsbtbl[bucket].lock);
+	spin_lock(&ls->ls_rsbtbl[bucket].lock);
 	error = _search_rsb(ls, name, namelen, bucket, 0, &tmp);
 	if (!error) {
-		write_unlock(&ls->ls_rsbtbl[bucket].lock);
+		spin_unlock(&ls->ls_rsbtbl[bucket].lock);
 		dlm_free_rsb(r);
 		r = tmp;
 		goto out;
 	}
 	list_add(&r->res_hashchain, &ls->ls_rsbtbl[bucket].list);
-	write_unlock(&ls->ls_rsbtbl[bucket].lock);
+	spin_unlock(&ls->ls_rsbtbl[bucket].lock);
 	error = 0;
  out:
 	*r_ret = r;
@@ -530,9 +530,9 @@ static void put_rsb(struct dlm_rsb *r)
 	struct dlm_ls *ls = r->res_ls;
 	uint32_t bucket = r->res_bucket;
 
-	write_lock(&ls->ls_rsbtbl[bucket].lock);
+	spin_lock(&ls->ls_rsbtbl[bucket].lock);
 	kref_put(&r->res_ref, toss_rsb);
-	write_unlock(&ls->ls_rsbtbl[bucket].lock);
+	spin_unlock(&ls->ls_rsbtbl[bucket].lock);
 }
 
 void dlm_put_rsb(struct dlm_rsb *r)
@@ -744,6 +744,8 @@ static void add_lkb(struct dlm_rsb *r, struct dlm_lkb *lkb, int status)
 
 	DLM_ASSERT(!lkb->lkb_status, dlm_print_lkb(lkb););
 
+	lkb->lkb_timestamp = ktime_get();
+
 	lkb->lkb_status = status;
 
 	switch (status) {
@@ -833,7 +835,7 @@ static int add_to_waiters(struct dlm_lkb *lkb, int mstype)
 		lkb->lkb_wait_count++;
 		hold_lkb(lkb);
 
-		log_debug(ls, "add overlap %x cur %d new %d count %d flags %x",
+		log_debug(ls, "addwait %x cur %d overlap %d count %d f %x",
 			  lkb->lkb_id, lkb->lkb_wait_type, mstype,
 			  lkb->lkb_wait_count, lkb->lkb_flags);
 		goto out;
@@ -849,7 +851,7 @@ static int add_to_waiters(struct dlm_lkb *lkb, int mstype)
 	list_add(&lkb->lkb_wait_reply, &ls->ls_waiters);
  out:
 	if (error)
-		log_error(ls, "add_to_waiters %x error %d flags %x %d %d %s",
+		log_error(ls, "addwait error %x %d flags %x %d %d %s",
 			  lkb->lkb_id, error, lkb->lkb_flags, mstype,
 			  lkb->lkb_wait_type, lkb->lkb_resource->res_name);
 	mutex_unlock(&ls->ls_waiters_mutex);
@@ -861,20 +863,52 @@ static int add_to_waiters(struct dlm_lkb *lkb, int mstype)
    request reply on the requestqueue) between dlm_recover_waiters_pre() which
    set RESEND and dlm_recover_waiters_post() */
 
-static int _remove_from_waiters(struct dlm_lkb *lkb, int mstype)
+static int _remove_from_waiters(struct dlm_lkb *lkb, int mstype,
+				struct dlm_message *ms)
 {
 	struct dlm_ls *ls = lkb->lkb_resource->res_ls;
 	int overlap_done = 0;
 
 	if (is_overlap_unlock(lkb) && (mstype == DLM_MSG_UNLOCK_REPLY)) {
+		log_debug(ls, "remwait %x unlock_reply overlap", lkb->lkb_id);
 		lkb->lkb_flags &= ~DLM_IFL_OVERLAP_UNLOCK;
 		overlap_done = 1;
 		goto out_del;
 	}
 
 	if (is_overlap_cancel(lkb) && (mstype == DLM_MSG_CANCEL_REPLY)) {
+		log_debug(ls, "remwait %x cancel_reply overlap", lkb->lkb_id);
 		lkb->lkb_flags &= ~DLM_IFL_OVERLAP_CANCEL;
 		overlap_done = 1;
+		goto out_del;
+	}
+
+	/* Cancel state was preemptively cleared by a successful convert,
+	   see next comment, nothing to do. */
+
+	if ((mstype == DLM_MSG_CANCEL_REPLY) &&
+	    (lkb->lkb_wait_type != DLM_MSG_CANCEL)) {
+		log_debug(ls, "remwait %x cancel_reply wait_type %d",
+			  lkb->lkb_id, lkb->lkb_wait_type);
+		return -1;
+	}
+
+	/* Remove for the convert reply, and premptively remove for the
+	   cancel reply.  A convert has been granted while there's still
+	   an outstanding cancel on it (the cancel is moot and the result
+	   in the cancel reply should be 0).  We preempt the cancel reply
+	   because the app gets the convert result and then can follow up
+	   with another op, like convert.  This subsequent op would see the
+	   lingering state of the cancel and fail with -EBUSY. */
+
+	if ((mstype == DLM_MSG_CONVERT_REPLY) &&
+	    (lkb->lkb_wait_type == DLM_MSG_CONVERT) &&
+	    is_overlap_cancel(lkb) && ms && !ms->m_result) {
+		log_debug(ls, "remwait %x convert_reply zap overlap_cancel",
+			  lkb->lkb_id);
+		lkb->lkb_wait_type = 0;
+		lkb->lkb_flags &= ~DLM_IFL_OVERLAP_CANCEL;
+		lkb->lkb_wait_count--;
 		goto out_del;
 	}
 
@@ -886,8 +920,8 @@ static int _remove_from_waiters(struct dlm_lkb *lkb, int mstype)
 		goto out_del;
 	}
 
-	log_error(ls, "remove_from_waiters lkid %x flags %x types %d %d",
-		  lkb->lkb_id, lkb->lkb_flags, mstype, lkb->lkb_wait_type);
+	log_error(ls, "remwait error %x reply %d flags %x no wait_type",
+		  lkb->lkb_id, mstype, lkb->lkb_flags);
 	return -1;
 
  out_del:
@@ -897,7 +931,7 @@ static int _remove_from_waiters(struct dlm_lkb *lkb, int mstype)
 	   this would happen */
 
 	if (overlap_done && lkb->lkb_wait_type) {
-		log_error(ls, "remove_from_waiters %x reply %d give up on %d",
+		log_error(ls, "remwait error %x reply %d wait_type %d overlap",
 			  lkb->lkb_id, mstype, lkb->lkb_wait_type);
 		lkb->lkb_wait_count--;
 		lkb->lkb_wait_type = 0;
@@ -919,7 +953,7 @@ static int remove_from_waiters(struct dlm_lkb *lkb, int mstype)
 	int error;
 
 	mutex_lock(&ls->ls_waiters_mutex);
-	error = _remove_from_waiters(lkb, mstype);
+	error = _remove_from_waiters(lkb, mstype, NULL);
 	mutex_unlock(&ls->ls_waiters_mutex);
 	return error;
 }
@@ -934,7 +968,7 @@ static int remove_from_waiters_ms(struct dlm_lkb *lkb, struct dlm_message *ms)
 
 	if (ms != &ls->ls_stub_ms)
 		mutex_lock(&ls->ls_waiters_mutex);
-	error = _remove_from_waiters(lkb, ms->m_type);
+	error = _remove_from_waiters(lkb, ms->m_type, ms);
 	if (ms != &ls->ls_stub_ms)
 		mutex_unlock(&ls->ls_waiters_mutex);
 	return error;
@@ -965,7 +999,7 @@ static int shrink_bucket(struct dlm_ls *ls, int b)
 
 	for (;;) {
 		found = 0;
-		write_lock(&ls->ls_rsbtbl[b].lock);
+		spin_lock(&ls->ls_rsbtbl[b].lock);
 		list_for_each_entry_reverse(r, &ls->ls_rsbtbl[b].toss,
 					    res_hashchain) {
 			if (!time_after_eq(jiffies, r->res_toss_time +
@@ -976,20 +1010,20 @@ static int shrink_bucket(struct dlm_ls *ls, int b)
 		}
 
 		if (!found) {
-			write_unlock(&ls->ls_rsbtbl[b].lock);
+			spin_unlock(&ls->ls_rsbtbl[b].lock);
 			break;
 		}
 
 		if (kref_put(&r->res_ref, kill_rsb)) {
 			list_del(&r->res_hashchain);
-			write_unlock(&ls->ls_rsbtbl[b].lock);
+			spin_unlock(&ls->ls_rsbtbl[b].lock);
 
 			if (is_master(r))
 				dir_remove(r);
 			dlm_free_rsb(r);
 			count++;
 		} else {
-			write_unlock(&ls->ls_rsbtbl[b].lock);
+			spin_unlock(&ls->ls_rsbtbl[b].lock);
 			log_error(ls, "tossed rsb in use %s", r->res_name);
 		}
 	}
@@ -1013,10 +1047,8 @@ static void add_timeout(struct dlm_lkb *lkb)
 {
 	struct dlm_ls *ls = lkb->lkb_resource->res_ls;
 
-	if (is_master_copy(lkb)) {
-		lkb->lkb_timestamp = jiffies;
+	if (is_master_copy(lkb))
 		return;
-	}
 
 	if (test_bit(LSFL_TIMEWARN, &ls->ls_flags) &&
 	    !(lkb->lkb_exflags & DLM_LKF_NODLCKWT)) {
@@ -1031,7 +1063,6 @@ static void add_timeout(struct dlm_lkb *lkb)
 	DLM_ASSERT(list_empty(&lkb->lkb_time_list), dlm_print_lkb(lkb););
 	mutex_lock(&ls->ls_timeout_mutex);
 	hold_lkb(lkb);
-	lkb->lkb_timestamp = jiffies;
 	list_add_tail(&lkb->lkb_time_list, &ls->ls_timeout);
 	mutex_unlock(&ls->ls_timeout_mutex);
 }
@@ -1059,6 +1090,7 @@ void dlm_scan_timeout(struct dlm_ls *ls)
 	struct dlm_rsb *r;
 	struct dlm_lkb *lkb;
 	int do_cancel, do_warn;
+	s64 wait_us;
 
 	for (;;) {
 		if (dlm_locking_stopped(ls))
@@ -1069,14 +1101,15 @@ void dlm_scan_timeout(struct dlm_ls *ls)
 		mutex_lock(&ls->ls_timeout_mutex);
 		list_for_each_entry(lkb, &ls->ls_timeout, lkb_time_list) {
 
+			wait_us = ktime_to_us(ktime_sub(ktime_get(),
+					      		lkb->lkb_timestamp));
+
 			if ((lkb->lkb_exflags & DLM_LKF_TIMEOUT) &&
-			    time_after_eq(jiffies, lkb->lkb_timestamp +
-					  lkb->lkb_timeout_cs * HZ/100))
+			    wait_us >= (lkb->lkb_timeout_cs * 10000))
 				do_cancel = 1;
 
 			if ((lkb->lkb_flags & DLM_IFL_WATCH_TIMEWARN) &&
-			    time_after_eq(jiffies, lkb->lkb_timestamp +
-				   	   dlm_config.ci_timewarn_cs * HZ/100))
+			    wait_us >= dlm_config.ci_timewarn_cs * 10000)
 				do_warn = 1;
 
 			if (!do_cancel && !do_warn)
@@ -1122,12 +1155,12 @@ void dlm_scan_timeout(struct dlm_ls *ls)
 void dlm_adjust_timeouts(struct dlm_ls *ls)
 {
 	struct dlm_lkb *lkb;
-	long adj = jiffies - ls->ls_recover_begin;
+	u64 adj_us = jiffies_to_usecs(jiffies - ls->ls_recover_begin);
 
 	ls->ls_recover_begin = 0;
 	mutex_lock(&ls->ls_timeout_mutex);
 	list_for_each_entry(lkb, &ls->ls_timeout, lkb_time_list)
-		lkb->lkb_timestamp += adj;
+		lkb->lkb_timestamp = ktime_add_us(lkb->lkb_timestamp, adj_us);
 	mutex_unlock(&ls->ls_timeout_mutex);
 }
 
@@ -2082,6 +2115,11 @@ static int validate_lock_args(struct dlm_ls *ls, struct dlm_lkb *lkb,
 	lkb->lkb_timeout_cs = args->timeout;
 	rv = 0;
  out:
+	if (rv)
+		log_debug(ls, "validate_lock_args %d %x %x %x %d %d %s",
+			  rv, lkb->lkb_id, lkb->lkb_flags, args->flags,
+			  lkb->lkb_status, lkb->lkb_wait_type,
+			  lkb->lkb_resource->res_name);
 	return rv;
 }
 
@@ -2144,6 +2182,13 @@ static int validate_unlock_args(struct dlm_lkb *lkb, struct dlm_args *args)
 
 		if (lkb->lkb_flags & DLM_IFL_RESEND) {
 			lkb->lkb_flags |= DLM_IFL_OVERLAP_CANCEL;
+			rv = -EBUSY;
+			goto out;
+		}
+
+		/* there's nothing to cancel */
+		if (lkb->lkb_status == DLM_LKSTS_GRANTED &&
+		    !lkb->lkb_wait_type) {
 			rv = -EBUSY;
 			goto out;
 		}
@@ -4223,7 +4268,7 @@ static struct dlm_rsb *find_purged_rsb(struct dlm_ls *ls, int bucket)
 {
 	struct dlm_rsb *r, *r_ret = NULL;
 
-	read_lock(&ls->ls_rsbtbl[bucket].lock);
+	spin_lock(&ls->ls_rsbtbl[bucket].lock);
 	list_for_each_entry(r, &ls->ls_rsbtbl[bucket].list, res_hashchain) {
 		if (!rsb_flag(r, RSB_LOCKS_PURGED))
 			continue;
@@ -4232,7 +4277,7 @@ static struct dlm_rsb *find_purged_rsb(struct dlm_ls *ls, int bucket)
 		r_ret = r;
 		break;
 	}
-	read_unlock(&ls->ls_rsbtbl[bucket].lock);
+	spin_unlock(&ls->ls_rsbtbl[bucket].lock);
 	return r_ret;
 }
 

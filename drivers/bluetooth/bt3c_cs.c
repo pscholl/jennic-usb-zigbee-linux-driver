@@ -359,9 +359,9 @@ static irqreturn_t bt3c_interrupt(int irq, void *dev_inst)
 			BT_ERR("Very strange (stat=0x%04x)", stat);
 		} else if ((stat & 0xff) != 0xff) {
 			if (stat & 0x0020) {
-				int stat = bt3c_read(iobase, 0x7002) & 0x10;
+				int status = bt3c_read(iobase, 0x7002) & 0x10;
 				BT_INFO("%s: Antenna %s", info->hdev->name,
-							stat ? "out" : "in");
+							status ? "out" : "in");
 			}
 			if (stat & 0x0001)
 				bt3c_receive(info);
@@ -502,15 +502,15 @@ static int bt3c_load_firmware(bt3c_info_t *info, const unsigned char *firmware,
 
 		memset(b, 0, sizeof(b));
 		memcpy(b, ptr + 2, 2);
-		size = simple_strtol(b, NULL, 16);
+		size = simple_strtoul(b, NULL, 16);
 
 		memset(b, 0, sizeof(b));
 		memcpy(b, ptr + 4, 8);
-		addr = simple_strtol(b, NULL, 16);
+		addr = simple_strtoul(b, NULL, 16);
 
 		memset(b, 0, sizeof(b));
 		memcpy(b, ptr + (size * 2) + 2, 2);
-		fcs = simple_strtol(b, NULL, 16);
+		fcs = simple_strtoul(b, NULL, 16);
 
 		memset(b, 0, sizeof(b));
 		for (tmp = 0, i = 0; i < size; i++) {
@@ -530,7 +530,7 @@ static int bt3c_load_firmware(bt3c_info_t *info, const unsigned char *firmware,
 			memset(b, 0, sizeof(b));
 			for (i = 0; i < (size - 4) / 2; i++) {
 				memcpy(b, ptr + (i * 4) + 12, 4);
-				tmp = simple_strtol(b, NULL, 16);
+				tmp = simple_strtoul(b, NULL, 16);
 				bt3c_put(iobase, tmp);
 			}
 		}

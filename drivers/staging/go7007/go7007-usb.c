@@ -91,6 +91,7 @@ static struct go7007_usb_board board_matrix_ii = {
 		.num_i2c_devs	 = 1,
 		.i2c_devs	 = {
 			{
+				.type	= "wis_saa7115",
 				.id	= I2C_DRIVERID_WIS_SAA7115,
 				.addr	= 0x20,
 			},
@@ -127,6 +128,7 @@ static struct go7007_usb_board board_matrix_reload = {
 		.num_i2c_devs	 = 1,
 		.i2c_devs	 = {
 			{
+				.type	= "wis_saa7113",
 				.id	= I2C_DRIVERID_WIS_SAA7113,
 				.addr	= 0x25,
 			},
@@ -164,6 +166,7 @@ static struct go7007_usb_board board_star_trek = {
 		.num_i2c_devs	 = 1,
 		.i2c_devs	 = {
 			{
+				.type	= "wis_saa7115",
 				.id	= I2C_DRIVERID_WIS_SAA7115,
 				.addr	= 0x20,
 			},
@@ -209,14 +212,17 @@ static struct go7007_usb_board board_px_tv402u = {
 		.num_i2c_devs	 = 3,
 		.i2c_devs	 = {
 			{
+				.type	= "wis_saa7115",
 				.id	= I2C_DRIVERID_WIS_SAA7115,
 				.addr	= 0x20,
 			},
 			{
+				.type	= "wis_uda1342",
 				.id	= I2C_DRIVERID_WIS_UDA1342,
 				.addr	= 0x1a,
 			},
 			{
+				.type	= "wis_sony_tuner",
 				.id	= I2C_DRIVERID_WIS_SONY_TUNER,
 				.addr	= 0x60,
 			},
@@ -225,7 +231,7 @@ static struct go7007_usb_board board_px_tv402u = {
 		.inputs 	 = {
 			{
 				.video_input	= 1,
-		.audio_input	 = TVAUDIO_INPUT_EXTERN,
+				.audio_input	= TVAUDIO_INPUT_EXTERN,
 				.name		= "Composite",
 			},
 			{
@@ -264,6 +270,7 @@ static struct go7007_usb_board board_xmen = {
 		.num_i2c_devs	  = 1,
 		.i2c_devs	  = {
 			{
+				.type	= "wis_ov7640",
 				.id	= I2C_DRIVERID_WIS_OV7640,
 				.addr	= 0x21,
 			},
@@ -296,6 +303,7 @@ static struct go7007_usb_board board_matrix_revolution = {
 		.num_i2c_devs	 = 1,
 		.i2c_devs	 = {
 			{
+				.type	= "wis_tw9903",
 				.id	= I2C_DRIVERID_WIS_TW9903,
 				.addr	= 0x44,
 			},
@@ -385,6 +393,7 @@ static struct go7007_usb_board board_adlink_mpg24 = {
 		.num_i2c_devs	 = 1,
 		.i2c_devs	 = {
 			{
+				.type	= "wis_twTW2804",
 				.id	= I2C_DRIVERID_WIS_TW2804,
 				.addr	= 0x00, /* yes, really */
 			},
@@ -393,6 +402,42 @@ static struct go7007_usb_board board_adlink_mpg24 = {
 		.inputs 	 = {
 			{
 				.name		= "Composite",
+			},
+		},
+	},
+};
+
+static struct go7007_usb_board board_sensoray_2250 = {
+	.flags		= GO7007_USB_EZUSB | GO7007_USB_EZUSB_I2C,
+	.main_info	= {
+		.firmware	 = "go7007tv.bin",
+		.audio_flags	 = GO7007_AUDIO_I2S_MODE_1 |
+					GO7007_AUDIO_I2S_MASTER |
+					GO7007_AUDIO_WORD_16,
+		.flags		 = GO7007_BOARD_HAS_AUDIO,
+		.audio_rate	 = 48000,
+		.audio_bclk_div	 = 8,
+		.audio_main_div	 = 2,
+		.hpi_buffer_cap  = 7,
+		.sensor_flags	 = GO7007_SENSOR_656 |
+					GO7007_SENSOR_TV,
+		.num_i2c_devs	 = 1,
+		.i2c_devs	 = {
+			{
+				.type	= "s2250_board",
+				.id	= I2C_DRIVERID_S2250,
+				.addr	= 0x43,
+			},
+		},
+		.num_inputs	 = 2,
+		.inputs 	 = {
+			{
+				.video_input	= 0,
+				.name		= "Composite",
+			},
+			{
+				.video_input	= 1,
+				.name		= "S-Video",
 			},
 		},
 	},
@@ -490,6 +535,14 @@ static struct usb_device_id go7007_usb_id_table[] = {
 		.bcdDevice_lo	= 0x1,
 		.bcdDevice_hi	= 0x1,
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_LIFEVIEW_LR192,
+	},
+	{
+		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
+		.idVendor	= 0x1943,  /* Vendor ID Sensoray */
+		.idProduct	= 0x2250,  /* Product ID of 2250/2251 */
+		.bcdDevice_lo	= 0x1,
+		.bcdDevice_hi	= 0x1,
+		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_SENSORAY_2250,
 	},
 	{ }					/* Terminating entry */
 };
@@ -637,9 +690,10 @@ static void go7007_usb_readinterrupt_complete(struct urb *urb)
 {
 	struct go7007 *go = (struct go7007 *)urb->context;
 	u16 *regs = (u16 *)urb->transfer_buffer;
+	int status = urb->status;
 
-	if (urb->status != 0) {
-		if (urb->status != -ESHUTDOWN &&
+	if (status) {
+		if (status != -ESHUTDOWN &&
 				go->status != STATUS_SHUTDOWN) {
 			printk(KERN_ERR
 				"go7007-usb: error in read interrupt: %d\n",
@@ -680,15 +734,14 @@ static int go7007_usb_read_interrupt(struct go7007 *go)
 static void go7007_usb_read_video_pipe_complete(struct urb *urb)
 {
 	struct go7007 *go = (struct go7007 *)urb->context;
-	int r;
+	int r, status = urb-> status;
 
 	if (!go->streaming) {
 		wake_up_interruptible(&go->frame_waitq);
 		return;
 	}
-	if (urb->status != 0) {
-		printk(KERN_ERR "go7007-usb: error in video pipe: %d\n",
-				urb->status);
+	if (status) {
+		printk(KERN_ERR "go7007-usb: error in video pipe: %d\n", status);
 		return;
 	}
 	if (urb->actual_length != urb->transfer_buffer_length) {
@@ -704,13 +757,12 @@ static void go7007_usb_read_video_pipe_complete(struct urb *urb)
 static void go7007_usb_read_audio_pipe_complete(struct urb *urb)
 {
 	struct go7007 *go = (struct go7007 *)urb->context;
-	int r;
+	int r, status = urb->status;
 
 	if (!go->streaming)
 		return;
-	if (urb->status != 0) {
-		printk(KERN_ERR "go7007-usb: error in audio pipe: %d\n",
-				urb->status);
+	if (status) {
+		printk(KERN_ERR "go7007-usb: error in audio pipe: %d\n", status);
 		return;
 	}
 	if (urb->actual_length != urb->transfer_buffer_length) {
@@ -751,7 +803,7 @@ static int go7007_usb_stream_start(struct go7007 *go)
 	return 0;
 
 audio_submit_failed:
-	for (i = 0; i < 8; ++i)
+	for (i = 0; i < 7; ++i)
 		usb_kill_urb(usb->audio_urbs[i]);
 video_submit_failed:
 	for (i = 0; i < 8; ++i)
@@ -901,9 +953,7 @@ static struct i2c_algorithm go7007_usb_algo = {
 
 static struct i2c_adapter go7007_usb_adap_templ = {
 	.owner			= THIS_MODULE,
-	.class			= I2C_CLASS_TV_ANALOG,
 	.name			= "WIS GO7007SB EZ-USB",
-	.id			= I2C_ALGO_GO7007_USB,
 	.algo			= &go7007_usb_algo,
 };
 
@@ -965,16 +1015,20 @@ static int go7007_usb_probe(struct usb_interface *intf,
 		name = "Lifeview TV Walker Ultra";
 		board = &board_lifeview_lr192;
 		break;
+	case GO7007_BOARDID_SENSORAY_2250:
+		printk(KERN_INFO "Sensoray 2250 found\n");
+		name = "Sensoray 2250/2251\n";
+		board = &board_sensoray_2250;
+		break;
 	default:
 		printk(KERN_ERR "go7007-usb: unknown board ID %d!\n",
 				(unsigned int)id->driver_info);
 		return 0;
 	}
 
-	usb = kmalloc(sizeof(struct go7007_usb), GFP_KERNEL);
+	usb = kzalloc(sizeof(struct go7007_usb), GFP_KERNEL);
 	if (usb == NULL)
 		return -ENOMEM;
-	memset(usb, 0, sizeof(struct go7007_usb));
 
 	/* Allocate the URB and buffer for receiving incoming interrupts */
 	usb->intr_urb = usb_alloc_urb(0, GFP_KERNEL);
@@ -1179,6 +1233,7 @@ static void go7007_usb_disconnect(struct usb_interface *intf)
 {
 	struct go7007 *go = usb_get_intfdata(intf);
 	struct go7007_usb *usb = go->hpi_context;
+	struct urb *vurb, *aurb;
 	int i;
 
 	go->status = STATUS_SHUTDOWN;
@@ -1186,15 +1241,19 @@ static void go7007_usb_disconnect(struct usb_interface *intf)
 
 	/* Free USB-related structs */
 	for (i = 0; i < 8; ++i) {
-		if (usb->video_urbs[i] != NULL) {
-			if (usb->video_urbs[i]->transfer_buffer != NULL)
-				kfree(usb->video_urbs[i]->transfer_buffer);
-			usb_free_urb(usb->video_urbs[i]);
+		vurb = usb->video_urbs[i];
+		if (vurb) {
+			usb_kill_urb(vurb);
+			if (vurb->transfer_buffer)
+				kfree(vurb->transfer_buffer);
+			usb_free_urb(vurb);
 		}
-		if (usb->audio_urbs[i] != NULL) {
-			if (usb->audio_urbs[i]->transfer_buffer != NULL)
-				kfree(usb->audio_urbs[i]->transfer_buffer);
-			usb_free_urb(usb->audio_urbs[i]);
+		aurb = usb->audio_urbs[i];
+		if (aurb) {
+			usb_kill_urb(aurb);
+			if (aurb->transfer_buffer)
+				kfree(aurb->transfer_buffer);
+			usb_free_urb(aurb);
 		}
 	}
 	kfree(usb->intr_urb->transfer_buffer);

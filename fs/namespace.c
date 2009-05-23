@@ -27,6 +27,7 @@
 #include <linux/ramfs.h>
 #include <linux/log2.h>
 #include <linux/idr.h>
+#include <linux/fs_struct.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include "pnode.h"
@@ -397,11 +398,10 @@ static void __mnt_unmake_readonly(struct vfsmount *mnt)
 	spin_unlock(&vfsmount_lock);
 }
 
-int simple_set_mnt(struct vfsmount *mnt, struct super_block *sb)
+void simple_set_mnt(struct vfsmount *mnt, struct super_block *sb)
 {
 	mnt->mnt_sb = sb;
 	mnt->mnt_root = dget(sb->s_root);
-	return 0;
 }
 
 EXPORT_SYMBOL(simple_set_mnt);
@@ -614,9 +614,11 @@ static inline void __mntput(struct vfsmount *mnt)
 	 */
 	for_each_possible_cpu(cpu) {
 		struct mnt_writer *cpu_writer = &per_cpu(mnt_writers, cpu);
-		if (cpu_writer->mnt != mnt)
-			continue;
 		spin_lock(&cpu_writer->lock);
+		if (cpu_writer->mnt != mnt) {
+			spin_unlock(&cpu_writer->lock);
+			continue;
+		}
 		atomic_add(cpu_writer->count, &mnt->__mnt_writers);
 		cpu_writer->count = 0;
 		/*
@@ -693,12 +695,16 @@ static inline void mangle(struct seq_file *m, const char *s)
  */
 int generic_show_options(struct seq_file *m, struct vfsmount *mnt)
 {
-	const char *options = mnt->mnt_sb->s_options;
+	const char *options;
+
+	rcu_read_lock();
+	options = rcu_dereference(mnt->mnt_sb->s_options);
 
 	if (options != NULL && options[0]) {
 		seq_putc(m, ',');
 		mangle(m, options);
 	}
+	rcu_read_unlock();
 
 	return 0;
 }
@@ -719,10 +725,21 @@ EXPORT_SYMBOL(generic_show_options);
  */
 void save_mount_options(struct super_block *sb, char *options)
 {
-	kfree(sb->s_options);
-	sb->s_options = kstrdup(options, GFP_KERNEL);
+	BUG_ON(sb->s_options);
+	rcu_assign_pointer(sb->s_options, kstrdup(options, GFP_KERNEL));
 }
 EXPORT_SYMBOL(save_mount_options);
+
+void replace_mount_options(struct super_block *sb, char *options)
+{
+	char *old = sb->s_options;
+	rcu_assign_pointer(sb->s_options, options);
+	if (old) {
+		synchronize_rcu();
+		kfree(old);
+	}
+}
+EXPORT_SYMBOL(replace_mount_options);
 
 #ifdef CONFIG_PROC_FS
 /* iterator */
@@ -778,6 +795,7 @@ static void show_mnt_opts(struct seq_file *m, struct vfsmount *mnt)
 		{ MNT_NOATIME, ",noatime" },
 		{ MNT_NODIRATIME, ",nodiratime" },
 		{ MNT_RELATIME, ",relatime" },
+		{ MNT_STRICTATIME, ",strictatime" },
 		{ 0, NULL }
 	};
 	const struct proc_fs_info *fs_infop;
@@ -1070,9 +1088,7 @@ static int do_umount(struct vfsmount *mnt, int flags)
 	 */
 
 	if (flags & MNT_FORCE && sb->s_op->umount_begin) {
-		lock_kernel();
 		sb->s_op->umount_begin(sb);
-		unlock_kernel();
 	}
 
 	/*
@@ -1128,7 +1144,7 @@ static int do_umount(struct vfsmount *mnt, int flags)
  * unixes. Our API is identical to OSF/1 to avoid making a mess of AMD
  */
 
-asmlinkage long sys_umount(char __user * name, int flags)
+SYSCALL_DEFINE2(umount, char __user *, name, int, flags)
 {
 	struct path path;
 	int retval;
@@ -1160,7 +1176,7 @@ out:
 /*
  *	The 2.0 compatible umount. No flags.
  */
-asmlinkage long sys_oldumount(char __user * name)
+SYSCALL_DEFINE1(oldumount, char __user *, name)
 {
 	return sys_umount(name, 0);
 }
@@ -1176,7 +1192,7 @@ static int mount_is_safe(struct path *path)
 	if (S_ISLNK(path->dentry->d_inode->i_mode))
 		return -EPERM;
 	if (path->dentry->d_inode->i_mode & S_ISVTX) {
-		if (current->uid != path->dentry->d_inode->i_uid)
+		if (current_uid() != path->dentry->d_inode->i_uid)
 			return -EPERM;
 	}
 	if (inode_permission(path->dentry->d_inode, MAY_WRITE))
@@ -1374,7 +1390,7 @@ static int attach_recursive_mnt(struct vfsmount *source_mnt,
 	if (parent_path) {
 		detach_mnt(source_mnt, parent_path);
 		attach_mnt(source_mnt, path);
-		touch_mnt_namespace(current->nsproxy->mnt_ns);
+		touch_mnt_namespace(parent_path->mnt->mnt_ns);
 	} else {
 		mnt_set_mountpoint(dest_mnt, dest_dentry, source_mnt);
 		commit_tree(source_mnt);
@@ -1917,6 +1933,10 @@ long do_mount(char *dev_name, char *dir_name, char *type_page,
 	if (data_page)
 		((char *)data_page)[PAGE_SIZE - 1] = 0;
 
+	/* Default to relatime unless overriden */
+	if (!(flags & MS_NOATIME))
+		mnt_flags |= MNT_RELATIME;
+
 	/* Separate the per-mountpoint flags */
 	if (flags & MS_NOSUID)
 		mnt_flags |= MNT_NOSUID;
@@ -1928,13 +1948,14 @@ long do_mount(char *dev_name, char *dir_name, char *type_page,
 		mnt_flags |= MNT_NOATIME;
 	if (flags & MS_NODIRATIME)
 		mnt_flags |= MNT_NODIRATIME;
-	if (flags & MS_RELATIME)
-		mnt_flags |= MNT_RELATIME;
+	if (flags & MS_STRICTATIME)
+		mnt_flags &= ~(MNT_RELATIME | MNT_NOATIME);
 	if (flags & MS_RDONLY)
 		mnt_flags |= MNT_READONLY;
 
 	flags &= ~(MS_NOSUID | MS_NOEXEC | MS_NODEV | MS_ACTIVE |
-		   MS_NOATIME | MS_NODIRATIME | MS_RELATIME| MS_KERNMOUNT);
+		   MS_NOATIME | MS_NODIRATIME | MS_RELATIME| MS_KERNMOUNT |
+		   MS_STRICTATIME);
 
 	/* ... and get the mountpoint */
 	retval = kern_path(dir_name, LOOKUP_FOLLOW, &path);
@@ -1990,7 +2011,7 @@ static struct mnt_namespace *dup_mnt_ns(struct mnt_namespace *mnt_ns,
 	if (!new_ns->root) {
 		up_write(&namespace_sem);
 		kfree(new_ns);
-		return ERR_PTR(-ENOMEM);;
+		return ERR_PTR(-ENOMEM);
 	}
 	spin_lock(&vfsmount_lock);
 	list_add_tail(&new_ns->list, &new_ns->root->mnt_list);
@@ -2045,9 +2066,8 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
 	return new_ns;
 }
 
-asmlinkage long sys_mount(char __user * dev_name, char __user * dir_name,
-			  char __user * type, unsigned long flags,
-			  void __user * data)
+SYSCALL_DEFINE5(mount, char __user *, dev_name, char __user *, dir_name,
+		char __user *, type, unsigned long, flags, void __user *, data)
 {
 	int retval;
 	unsigned long data_page;
@@ -2088,66 +2108,6 @@ out1:
 }
 
 /*
- * Replace the fs->{rootmnt,root} with {mnt,dentry}. Put the old values.
- * It can block. Requires the big lock held.
- */
-void set_fs_root(struct fs_struct *fs, struct path *path)
-{
-	struct path old_root;
-
-	write_lock(&fs->lock);
-	old_root = fs->root;
-	fs->root = *path;
-	path_get(path);
-	write_unlock(&fs->lock);
-	if (old_root.dentry)
-		path_put(&old_root);
-}
-
-/*
- * Replace the fs->{pwdmnt,pwd} with {mnt,dentry}. Put the old values.
- * It can block. Requires the big lock held.
- */
-void set_fs_pwd(struct fs_struct *fs, struct path *path)
-{
-	struct path old_pwd;
-
-	write_lock(&fs->lock);
-	old_pwd = fs->pwd;
-	fs->pwd = *path;
-	path_get(path);
-	write_unlock(&fs->lock);
-
-	if (old_pwd.dentry)
-		path_put(&old_pwd);
-}
-
-static void chroot_fs_refs(struct path *old_root, struct path *new_root)
-{
-	struct task_struct *g, *p;
-	struct fs_struct *fs;
-
-	read_lock(&tasklist_lock);
-	do_each_thread(g, p) {
-		task_lock(p);
-		fs = p->fs;
-		if (fs) {
-			atomic_inc(&fs->count);
-			task_unlock(p);
-			if (fs->root.dentry == old_root->dentry
-			    && fs->root.mnt == old_root->mnt)
-				set_fs_root(fs, new_root);
-			if (fs->pwd.dentry == old_root->dentry
-			    && fs->pwd.mnt == old_root->mnt)
-				set_fs_pwd(fs, new_root);
-			put_fs_struct(fs);
-		} else
-			task_unlock(p);
-	} while_each_thread(g, p);
-	read_unlock(&tasklist_lock);
-}
-
-/*
  * pivot_root Semantics:
  * Moves the root file system of the current process to the directory put_old,
  * makes new_root as the new root file system of the current process, and sets
@@ -2172,8 +2132,8 @@ static void chroot_fs_refs(struct path *old_root, struct path *new_root)
  *    though, so you may need to say mount --bind /nfs/my_root /nfs/my_root
  *    first.
  */
-asmlinkage long sys_pivot_root(const char __user * new_root,
-			       const char __user * put_old)
+SYSCALL_DEFINE2(pivot_root, const char __user *, new_root,
+		const char __user *, put_old)
 {
 	struct vfsmount *tmp;
 	struct path new, old, parent_path, root_parent, root;

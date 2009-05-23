@@ -46,6 +46,9 @@ struct timespec xtime __attribute__ ((aligned (16)));
 struct timespec wall_to_monotonic __attribute__ ((aligned (16)));
 static unsigned long total_sleep_time;		/* seconds */
 
+/* flag for if timekeeping is suspended */
+int __read_mostly timekeeping_suspended;
+
 static struct timespec xtime_cache __attribute__ ((aligned (16)));
 void update_xtime_cache(u64 nsec)
 {
@@ -91,6 +94,8 @@ void getnstimeofday(struct timespec *ts)
 	cycle_t cycle_now, cycle_delta;
 	unsigned long seq;
 	s64 nsecs;
+
+	WARN_ON(timekeeping_suspended);
 
 	do {
 		seq = read_seqbegin(&xtime_lock);
@@ -177,7 +182,7 @@ EXPORT_SYMBOL(do_settimeofday);
  */
 static void change_clocksource(void)
 {
-	struct clocksource *new;
+	struct clocksource *new, *old;
 
 	new = clocksource_get_next();
 
@@ -186,11 +191,16 @@ static void change_clocksource(void)
 
 	clocksource_forward_now();
 
-	new->raw_time = clock->raw_time;
+	if (clocksource_enable(new))
+		return;
 
+	new->raw_time = clock->raw_time;
+	old = clock;
 	clock = new;
+	clocksource_disable(old);
+
 	clock->cycle_last = 0;
-	clock->cycle_last = clocksource_read(new);
+	clock->cycle_last = clocksource_read(clock);
 	clock->error = 0;
 	clock->xtime_nsec = 0;
 	clocksource_calculate_interval(clock, NTP_INTERVAL_LENGTH);
@@ -287,6 +297,7 @@ void __init timekeeping_init(void)
 	ntp_init();
 
 	clock = clocksource_get_next();
+	clocksource_enable(clock);
 	clocksource_calculate_interval(clock, NTP_INTERVAL_LENGTH);
 	clock->cycle_last = clocksource_read(clock);
 
@@ -299,8 +310,6 @@ void __init timekeeping_init(void)
 	write_sequnlock_irqrestore(&xtime_lock, flags);
 }
 
-/* flag for if timekeeping is suspended */
-static int timekeeping_suspended;
 /* time in seconds when suspend began */
 static unsigned long timekeeping_suspend_time;
 

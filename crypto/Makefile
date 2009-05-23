@@ -5,6 +5,8 @@
 obj-$(CONFIG_CRYPTO) += crypto.o
 crypto-objs := api.o cipher.o digest.o compress.o
 
+obj-$(CONFIG_CRYPTO_WORKQUEUE) += crypto_wq.o
+
 obj-$(CONFIG_CRYPTO_FIPS) += fips.o
 
 crypto_algapi-$(CONFIG_PROC_FS) += proc.o
@@ -22,7 +24,10 @@ obj-$(CONFIG_CRYPTO_SEQIV) += seqiv.o
 
 crypto_hash-objs := hash.o
 crypto_hash-objs += ahash.o
+crypto_hash-objs += shash.o
 obj-$(CONFIG_CRYPTO_HASH2) += crypto_hash.o
+
+obj-$(CONFIG_CRYPTO_PCOMP) += pcompress.o
 
 cryptomgr-objs := algboss.o testmgr.o
 
@@ -69,6 +74,7 @@ obj-$(CONFIG_CRYPTO_ANUBIS) += anubis.o
 obj-$(CONFIG_CRYPTO_SEED) += seed.o
 obj-$(CONFIG_CRYPTO_SALSA20) += salsa20_generic.o
 obj-$(CONFIG_CRYPTO_DEFLATE) += deflate.o
+obj-$(CONFIG_CRYPTO_ZLIB) += zlib.o
 obj-$(CONFIG_CRYPTO_MICHAEL_MIC) += michael_mic.o
 obj-$(CONFIG_CRYPTO_CRC32C) += crc32c.o
 obj-$(CONFIG_CRYPTO_AUTHENC) += authenc.o

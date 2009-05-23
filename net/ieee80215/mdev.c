@@ -65,7 +65,7 @@ static void ieee80215_xmit_worker(struct work_struct *work)
 	res = xw->priv->hw->ops->tx(&xw->priv->hw->hw, xw->skb);
 
 out:
-	// FIXME: result processing and/or requeue!!!
+	/* FIXME: result processing and/or requeue!!! */
 	dev_kfree_skb(xw->skb);
 
 	xw->priv->hw->ops->set_trx_state(&xw->priv->hw->hw, PHY_RX_ON);
@@ -149,6 +149,13 @@ static void ieee80215_netdev_setup_master(struct net_device *dev)
 	dev->watchdog_timeo	= 0;
 }
 
+static const struct net_device_ops ieee80215_master_ops = {
+	.ndo_open		= ieee80215_master_open,
+	.ndo_stop		= ieee80215_master_close,
+	.ndo_start_xmit		= ieee80215_master_hard_start_xmit,
+	.ndo_do_ioctl		= ieee80215_master_ioctl,
+};
+
 int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 {
 	struct net_device *dev;
@@ -164,11 +171,8 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	priv->dev = dev;
 	priv->hw = hw;
 	hw->master = dev;
-	dev->open = ieee80215_master_open;
-	dev->stop = ieee80215_master_close;
-	dev->hard_start_xmit = ieee80215_master_hard_start_xmit;
+	dev->netdev_ops = &ieee80215_master_ops;
 	dev->needed_headroom = hw->hw.extra_tx_headroom;
-	dev->do_ioctl = ieee80215_master_ioctl;
 	SET_NETDEV_DEV(dev, hw->hw.parent);
 	register_netdev(dev);
 	return 0;

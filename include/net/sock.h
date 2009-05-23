@@ -42,6 +42,7 @@
 
 #include <linux/kernel.h>
 #include <linux/list.h>
+#include <linux/list_nulls.h>
 #include <linux/timer.h>
 #include <linux/cache.h>
 #include <linux/module.h>
@@ -52,6 +53,7 @@
 #include <linux/security.h>
 
 #include <linux/filter.h>
+#include <linux/rculist_nulls.h>
 
 #include <asm/atomic.h>
 #include <net/dst.h>
@@ -106,6 +108,7 @@ struct net;
  *	@skc_reuse: %SO_REUSEADDR setting
  *	@skc_bound_dev_if: bound device index if != 0
  *	@skc_node: main hash linkage for various protocol lookup tables
+ *	@skc_nulls_node: main hash linkage for UDP/UDP-Lite protocol
  *	@skc_bind_node: bind hash linkage for various protocol lookup tables
  *	@skc_refcnt: reference count
  *	@skc_hash: hash value used with various protocol lookup tables
@@ -120,7 +123,10 @@ struct sock_common {
 	volatile unsigned char	skc_state;
 	unsigned char		skc_reuse;
 	int			skc_bound_dev_if;
-	struct hlist_node	skc_node;
+	union {
+		struct hlist_node	skc_node;
+		struct hlist_nulls_node skc_nulls_node;
+	};
 	struct hlist_node	skc_bind_node;
 	atomic_t		skc_refcnt;
 	unsigned int		skc_hash;
@@ -152,7 +158,7 @@ struct sock_common {
   *	@sk_allocation: allocation mode
   *	@sk_sndbuf: size of send buffer in bytes
   *	@sk_flags: %SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE,
-  *		   %SO_OOBINLINE settings
+  *		   %SO_OOBINLINE settings, %SO_TIMESTAMPING settings
   *	@sk_no_check: %SO_NO_CHECK setting, wether or not checkup packets
   *	@sk_route_caps: route capabilities (e.g. %NETIF_F_TSO)
   *	@sk_gso_type: GSO type (e.g. %SKB_GSO_TCPV4)
@@ -206,6 +212,7 @@ struct sock {
 #define sk_reuse		__sk_common.skc_reuse
 #define sk_bound_dev_if		__sk_common.skc_bound_dev_if
 #define sk_node			__sk_common.skc_node
+#define sk_nulls_node		__sk_common.skc_nulls_node
 #define sk_bind_node		__sk_common.skc_bind_node
 #define sk_refcnt		__sk_common.skc_refcnt
 #define sk_hash			__sk_common.skc_hash
@@ -229,7 +236,9 @@ struct sock {
 	} sk_backlog;
 	wait_queue_head_t	*sk_sleep;
 	struct dst_entry	*sk_dst_cache;
+#ifdef CONFIG_XFRM
 	struct xfrm_policy	*sk_policy[2];
+#endif
 	rwlock_t		sk_dst_lock;
 	atomic_t		sk_rmem_alloc;
 	atomic_t		sk_wmem_alloc;
@@ -237,7 +246,9 @@ struct sock {
 	int			sk_sndbuf;
 	struct sk_buff_head	sk_receive_queue;
 	struct sk_buff_head	sk_write_queue;
+#ifdef CONFIG_NET_DMA
 	struct sk_buff_head	sk_async_wait_queue;
+#endif
 	int			sk_wmem_queued;
 	int			sk_forward_alloc;
 	gfp_t			sk_allocation;
@@ -269,7 +280,9 @@ struct sock {
 	struct sk_buff		*sk_send_head;
 	__u32			sk_sndmsg_off;
 	int			sk_write_pending;
+#ifdef CONFIG_SECURITY
 	void			*sk_security;
+#endif
 	__u32			sk_mark;
 	/* XXX 4 bytes hole on 64 bit */
 	void			(*sk_state_change)(struct sock *sk);
@@ -294,10 +307,28 @@ static inline struct sock *sk_head(const struct hlist_head *head)
 	return hlist_empty(head) ? NULL : __sk_head(head);
 }
 
+static inline struct sock *__sk_nulls_head(const struct hlist_nulls_head *head)
+{
+	return hlist_nulls_entry(head->first, struct sock, sk_nulls_node);
+}
+
+static inline struct sock *sk_nulls_head(const struct hlist_nulls_head *head)
+{
+	return hlist_nulls_empty(head) ? NULL : __sk_nulls_head(head);
+}
+
 static inline struct sock *sk_next(const struct sock *sk)
 {
 	return sk->sk_node.next ?
 		hlist_entry(sk->sk_node.next, struct sock, sk_node) : NULL;
+}
+
+static inline struct sock *sk_nulls_next(const struct sock *sk)
+{
+	return (!is_a_nulls(sk->sk_nulls_node.next)) ?
+		hlist_nulls_entry(sk->sk_nulls_node.next,
+				  struct sock, sk_nulls_node) :
+		NULL;
 }
 
 static inline int sk_unhashed(const struct sock *sk)
@@ -311,6 +342,11 @@ static inline int sk_hashed(const struct sock *sk)
 }
 
 static __inline__ void sk_node_init(struct hlist_node *node)
+{
+	node->pprev = NULL;
+}
+
+static __inline__ void sk_nulls_node_init(struct hlist_nulls_node *node)
 {
 	node->pprev = NULL;
 }
@@ -361,6 +397,27 @@ static __inline__ int sk_del_node_init(struct sock *sk)
 	return rc;
 }
 
+static __inline__ int __sk_nulls_del_node_init_rcu(struct sock *sk)
+{
+	if (sk_hashed(sk)) {
+		hlist_nulls_del_init_rcu(&sk->sk_nulls_node);
+		return 1;
+	}
+	return 0;
+}
+
+static __inline__ int sk_nulls_del_node_init_rcu(struct sock *sk)
+{
+	int rc = __sk_nulls_del_node_init_rcu(sk);
+
+	if (rc) {
+		/* paranoid for a while -acme */
+		WARN_ON(atomic_read(&sk->sk_refcnt) == 1);
+		__sock_put(sk);
+	}
+	return rc;
+}
+
 static __inline__ void __sk_add_node(struct sock *sk, struct hlist_head *list)
 {
 	hlist_add_head(&sk->sk_node, list);
@@ -370,6 +427,17 @@ static __inline__ void sk_add_node(struct sock *sk, struct hlist_head *list)
 {
 	sock_hold(sk);
 	__sk_add_node(sk, list);
+}
+
+static __inline__ void __sk_nulls_add_node_rcu(struct sock *sk, struct hlist_nulls_head *list)
+{
+	hlist_nulls_add_head_rcu(&sk->sk_nulls_node, list);
+}
+
+static __inline__ void sk_nulls_add_node_rcu(struct sock *sk, struct hlist_nulls_head *list)
+{
+	sock_hold(sk);
+	__sk_nulls_add_node_rcu(sk, list);
 }
 
 static __inline__ void __sk_del_bind_node(struct sock *sk)
@@ -385,9 +453,16 @@ static __inline__ void sk_add_bind_node(struct sock *sk,
 
 #define sk_for_each(__sk, node, list) \
 	hlist_for_each_entry(__sk, node, list, sk_node)
+#define sk_nulls_for_each(__sk, node, list) \
+	hlist_nulls_for_each_entry(__sk, node, list, sk_nulls_node)
+#define sk_nulls_for_each_rcu(__sk, node, list) \
+	hlist_nulls_for_each_entry_rcu(__sk, node, list, sk_nulls_node)
 #define sk_for_each_from(__sk, node) \
 	if (__sk && ({ node = &(__sk)->sk_node; 1; })) \
 		hlist_for_each_entry_from(__sk, node, sk_node)
+#define sk_nulls_for_each_from(__sk, node) \
+	if (__sk && ({ node = &(__sk)->sk_nulls_node; 1; })) \
+		hlist_nulls_for_each_entry_from(__sk, node, sk_nulls_node)
 #define sk_for_each_continue(__sk, node) \
 	if (__sk && ({ node = &(__sk)->sk_node; 1; })) \
 		hlist_for_each_entry_continue(__sk, node, sk_node)
@@ -413,6 +488,13 @@ enum sock_flags {
 	SOCK_RCVTSTAMPNS, /* %SO_TIMESTAMPNS setting */
 	SOCK_LOCALROUTE, /* route locally only, %SO_DONTROUTE setting */
 	SOCK_QUEUE_SHRUNK, /* write queue has been shrunk recently */
+	SOCK_TIMESTAMPING_TX_HARDWARE,  /* %SOF_TIMESTAMPING_TX_HARDWARE */
+	SOCK_TIMESTAMPING_TX_SOFTWARE,  /* %SOF_TIMESTAMPING_TX_SOFTWARE */
+	SOCK_TIMESTAMPING_RX_HARDWARE,  /* %SOF_TIMESTAMPING_RX_HARDWARE */
+	SOCK_TIMESTAMPING_RX_SOFTWARE,  /* %SOF_TIMESTAMPING_RX_SOFTWARE */
+	SOCK_TIMESTAMPING_SOFTWARE,     /* %SOF_TIMESTAMPING_SOFTWARE */
+	SOCK_TIMESTAMPING_RAW_HARDWARE, /* %SOF_TIMESTAMPING_RAW_HARDWARE */
+	SOCK_TIMESTAMPING_SYS_HARDWARE, /* %SOF_TIMESTAMPING_SYS_HARDWARE */
 };
 
 static inline void sock_copy_flags(struct sock *nsk, struct sock *osk)
@@ -574,7 +656,7 @@ struct proto {
 	/* Memory pressure */
 	void			(*enter_memory_pressure)(struct sock *sk);
 	atomic_t		*memory_allocated;	/* Current allocated memory. */
-	atomic_t		*sockets_allocated;	/* Current number of sockets. */
+	struct percpu_counter	*sockets_allocated;	/* Current number of sockets. */
 	/*
 	 * Pressure flag: try to collapse.
 	 * Technical note: it is used by multiple contexts non atomically.
@@ -587,17 +669,18 @@ struct proto {
 	int			*sysctl_rmem;
 	int			max_header;
 
-	struct kmem_cache		*slab;
+	struct kmem_cache	*slab;
 	unsigned int		obj_size;
+	int			slab_flags;
 
-	atomic_t		*orphan_count;
+	struct percpu_counter	*orphan_count;
 
 	struct request_sock_ops	*rsk_prot;
 	struct timewait_sock_ops *twsk_prot;
 
 	union {
 		struct inet_hashinfo	*hashinfo;
-		struct hlist_head	*udp_hash;
+		struct udp_table	*udp_table;
 		struct raw_hashinfo	*raw_hash;
 	} h;
 
@@ -784,7 +867,6 @@ static inline void sk_mem_uncharge(struct sock *sk, int size)
 
 static inline void sk_wmem_free_skb(struct sock *sk, struct sk_buff *skb)
 {
-	skb_truesize_check(skb);
 	sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
 	sk->sk_wmem_queued -= skb->truesize;
 	sk_mem_uncharge(sk, skb->truesize);
@@ -869,6 +951,11 @@ extern struct sk_buff 		*sock_alloc_send_skb(struct sock *sk,
 						     unsigned long size,
 						     int noblock,
 						     int *errcode);
+extern struct sk_buff 		*sock_alloc_send_pskb(struct sock *sk,
+						      unsigned long header_len,
+						      unsigned long data_len,
+						      int noblock,
+						      int *errcode);
 extern void *sock_kmalloc(struct sock *sk, int size,
 			  gfp_t priority);
 extern void sock_kfree_s(struct sock *sk, void *mem, int size);
@@ -1232,7 +1319,7 @@ static inline int sock_writeable(const struct sock *sk)
 
 static inline gfp_t gfp_any(void)
 {
-	return in_atomic() ? GFP_ATOMIC : GFP_KERNEL;
+	return in_softirq() ? GFP_ATOMIC : GFP_KERNEL;
 }
 
 static inline long sock_rcvtimeo(const struct sock *sk, int noblock)
@@ -1265,12 +1352,43 @@ static __inline__ void
 sock_recv_timestamp(struct msghdr *msg, struct sock *sk, struct sk_buff *skb)
 {
 	ktime_t kt = skb->tstamp;
+	struct skb_shared_hwtstamps *hwtstamps = skb_hwtstamps(skb);
 
-	if (sock_flag(sk, SOCK_RCVTSTAMP))
+	/*
+	 * generate control messages if
+	 * - receive time stamping in software requested (SOCK_RCVTSTAMP
+	 *   or SOCK_TIMESTAMPING_RX_SOFTWARE)
+	 * - software time stamp available and wanted
+	 *   (SOCK_TIMESTAMPING_SOFTWARE)
+	 * - hardware time stamps available and wanted
+	 *   (SOCK_TIMESTAMPING_SYS_HARDWARE or
+	 *   SOCK_TIMESTAMPING_RAW_HARDWARE)
+	 */
+	if (sock_flag(sk, SOCK_RCVTSTAMP) ||
+	    sock_flag(sk, SOCK_TIMESTAMPING_RX_SOFTWARE) ||
+	    (kt.tv64 && sock_flag(sk, SOCK_TIMESTAMPING_SOFTWARE)) ||
+	    (hwtstamps->hwtstamp.tv64 &&
+	     sock_flag(sk, SOCK_TIMESTAMPING_RAW_HARDWARE)) ||
+	    (hwtstamps->syststamp.tv64 &&
+	     sock_flag(sk, SOCK_TIMESTAMPING_SYS_HARDWARE)))
 		__sock_recv_timestamp(msg, sk, skb);
 	else
 		sk->sk_stamp = kt;
 }
+
+/**
+ * sock_tx_timestamp - checks whether the outgoing packet is to be time stamped
+ * @msg:	outgoing packet
+ * @sk:		socket sending this packet
+ * @shtx:	filled with instructions for time stamping
+ *
+ * Currently only depends on SOCK_TIMESTAMPING* flags. Returns error code if
+ * parameters are invalid.
+ */
+extern int sock_tx_timestamp(struct msghdr *msg,
+			     struct sock *sk,
+			     union skb_shared_tx *shtx);
+
 
 /**
  * sk_eat_skb - Release a skb if it is no longer needed
@@ -1340,7 +1458,7 @@ static inline struct sock *skb_steal_sock(struct sk_buff *skb)
 	return NULL;
 }
 
-extern void sock_enable_timestamp(struct sock *sk);
+extern void sock_enable_timestamp(struct sock *sk, int flag);
 extern int sock_get_timestamp(struct sock *, struct timeval __user *);
 extern int sock_get_timestampns(struct sock *, struct timespec __user *);
 

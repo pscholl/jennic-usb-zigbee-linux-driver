@@ -23,15 +23,21 @@
 
 #ifdef DEBUG
 /* For development, we want to crash whenever the ring is screwed. */
-#define BAD_RING(vq, fmt...)			\
-	do { dev_err(&vq->vq.vdev->dev, fmt); BUG(); } while(0)
-#define START_USE(vq) \
-	do { if ((vq)->in_use) panic("in_use = %i\n", (vq)->in_use); (vq)->in_use = __LINE__; mb(); } while(0)
-#define END_USE(vq) \
-	do { BUG_ON(!(vq)->in_use); (vq)->in_use = 0; mb(); } while(0)
+#define BAD_RING(_vq, fmt...)			\
+	do { dev_err(&(_vq)->vq.vdev->dev, fmt); BUG(); } while(0)
+/* Caller is supposed to guarantee no reentry. */
+#define START_USE(_vq)						\
+	do {							\
+		if ((_vq)->in_use)				\
+			panic("in_use = %i\n", (_vq)->in_use);	\
+		(_vq)->in_use = __LINE__;			\
+		mb();						\
+	} while(0)
+#define END_USE(_vq) \
+	do { BUG_ON(!(_vq)->in_use); (_vq)->in_use = 0; mb(); } while(0)
 #else
-#define BAD_RING(vq, fmt...)			\
-	do { dev_err(&vq->vq.vdev->dev, fmt); (vq)->broken = true; } while(0)
+#define BAD_RING(_vq, fmt...)			\
+	do { dev_err(&_vq->vq.vdev->dev, fmt); (_vq)->broken = true; } while(0)
 #define START_USE(vq)
 #define END_USE(vq)
 #endif
@@ -274,6 +280,7 @@ static struct virtqueue_ops vring_vq_ops = {
 };
 
 struct virtqueue *vring_new_virtqueue(unsigned int num,
+				      unsigned int vring_align,
 				      struct virtio_device *vdev,
 				      void *pages,
 				      void (*notify)(struct virtqueue *),
@@ -292,7 +299,7 @@ struct virtqueue *vring_new_virtqueue(unsigned int num,
 	if (!vq)
 		return NULL;
 
-	vring_init(&vq->vring, num, pages, PAGE_SIZE);
+	vring_init(&vq->vring, num, pages, vring_align);
 	vq->vq.callback = callback;
 	vq->vq.vdev = vdev;
 	vq->vq.vq_ops = &vring_vq_ops;

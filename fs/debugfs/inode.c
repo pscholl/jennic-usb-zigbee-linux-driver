@@ -30,6 +30,7 @@
 
 static struct vfsmount *debugfs_mount;
 static int debugfs_mount_count;
+static bool debugfs_registered;
 
 static struct inode *debugfs_get_inode(struct super_block *sb, int mode, dev_t dev)
 {
@@ -37,9 +38,6 @@ static struct inode *debugfs_get_inode(struct super_block *sb, int mode, dev_t d
 
 	if (inode) {
 		inode->i_mode = mode;
-		inode->i_uid = 0;
-		inode->i_gid = 0;
-		inode->i_blocks = 0;
 		inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 		switch (mode & S_IFMT) {
 		default:
@@ -499,6 +497,16 @@ exit:
 }
 EXPORT_SYMBOL_GPL(debugfs_rename);
 
+/**
+ * debugfs_initialized - Tells whether debugfs has been registered
+ */
+bool debugfs_initialized(void)
+{
+	return debugfs_registered;
+}
+EXPORT_SYMBOL_GPL(debugfs_initialized);
+
+
 static struct kobject *debug_kobj;
 
 static int __init debugfs_init(void)
@@ -512,11 +520,16 @@ static int __init debugfs_init(void)
 	retval = register_filesystem(&debug_fs_type);
 	if (retval)
 		kobject_put(debug_kobj);
+	else
+		debugfs_registered = true;
+
 	return retval;
 }
 
 static void __exit debugfs_exit(void)
 {
+	debugfs_registered = false;
+
 	simple_release_fs(&debugfs_mount, &debugfs_mount_count);
 	unregister_filesystem(&debug_fs_type);
 	kobject_put(debug_kobj);

@@ -124,33 +124,22 @@ int scsi_eh_scmd_add(struct scsi_cmnd *scmd, int eh_flag)
 enum blk_eh_timer_return scsi_times_out(struct request *req)
 {
 	struct scsi_cmnd *scmd = req->special;
-	enum blk_eh_timer_return (*eh_timed_out)(struct scsi_cmnd *);
 	enum blk_eh_timer_return rtn = BLK_EH_NOT_HANDLED;
 
 	scsi_log_completion(scmd, TIMEOUT_ERROR);
 
 	if (scmd->device->host->transportt->eh_timed_out)
-		eh_timed_out = scmd->device->host->transportt->eh_timed_out;
+		rtn = scmd->device->host->transportt->eh_timed_out(scmd);
 	else if (scmd->device->host->hostt->eh_timed_out)
-		eh_timed_out = scmd->device->host->hostt->eh_timed_out;
-	else
-		eh_timed_out = NULL;
+		rtn = scmd->device->host->hostt->eh_timed_out(scmd);
 
-	if (eh_timed_out)
-		rtn = eh_timed_out(scmd);
-		switch (rtn) {
-		case BLK_EH_NOT_HANDLED:
-			break;
-		default:
-			return rtn;
-		}
-
-	if (unlikely(!scsi_eh_scmd_add(scmd, SCSI_EH_CANCEL_CMD))) {
+	if (unlikely(rtn == BLK_EH_NOT_HANDLED &&
+		     !scsi_eh_scmd_add(scmd, SCSI_EH_CANCEL_CMD))) {
 		scmd->result |= DID_TIME_OUT << 16;
-		return BLK_EH_HANDLED;
+		rtn = BLK_EH_HANDLED;
 	}
 
-	return BLK_EH_NOT_HANDLED;
+	return rtn;
 }
 
 /**
@@ -1405,8 +1394,9 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		return ADD_TO_MLQUEUE;
 	case GOOD:
 	case COMMAND_TERMINATED:
-	case TASK_ABORTED:
 		return SUCCESS;
+	case TASK_ABORTED:
+		goto maybe_retry;
 	case CHECK_CONDITION:
 		rtn = scsi_check_sense(scmd);
 		if (rtn == NEEDS_RETRY)
@@ -1451,6 +1441,11 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 	}
 }
 
+static void eh_lock_door_done(struct request *req, int uptodate)
+{
+	__blk_put_request(req->q, req);
+}
+
 /**
  * scsi_eh_lock_door - Prevent medium removal for the specified device
  * @sdev:	SCSI device to prevent medium removal
@@ -1473,19 +1468,28 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
  */
 static void scsi_eh_lock_door(struct scsi_device *sdev)
 {
-	unsigned char cmnd[MAX_COMMAND_SIZE];
+	struct request *req;
 
-	cmnd[0] = ALLOW_MEDIUM_REMOVAL;
-	cmnd[1] = 0;
-	cmnd[2] = 0;
-	cmnd[3] = 0;
-	cmnd[4] = SCSI_REMOVAL_PREVENT;
-	cmnd[5] = 0;
+	req = blk_get_request(sdev->request_queue, READ, GFP_KERNEL);
+	if (!req)
+		return;
 
-	scsi_execute_async(sdev, cmnd, 6, DMA_NONE, NULL, 0, 0, 10 * HZ,
-			   5, NULL, NULL, GFP_KERNEL);
+	req->cmd[0] = ALLOW_MEDIUM_REMOVAL;
+	req->cmd[1] = 0;
+	req->cmd[2] = 0;
+	req->cmd[3] = 0;
+	req->cmd[4] = SCSI_REMOVAL_PREVENT;
+	req->cmd[5] = 0;
+
+	req->cmd_len = COMMAND_SIZE(req->cmd[0]);
+
+	req->cmd_type = REQ_TYPE_BLOCK_PC;
+	req->cmd_flags |= REQ_QUIET;
+	req->timeout = 10 * HZ;
+	req->retries = 5;
+
+	blk_execute_rq_nowait(req->q, NULL, req, 1, eh_lock_door_done);
 }
-
 
 /**
  * scsi_restart_operations - restart io operations to the specified host.
@@ -1648,7 +1652,7 @@ int scsi_error_handler(void *data)
 	 * We use TASK_INTERRUPTIBLE so that the thread is not
 	 * counted against the load average as a running process.
 	 * We never actually get interrupted because kthread_run
-	 * disables singal delivery for the created thread.
+	 * disables signal delivery for the created thread.
 	 */
 	set_current_state(TASK_INTERRUPTIBLE);
 	while (!kthread_should_stop()) {

@@ -51,7 +51,6 @@
 #include "xfs_vnodeops.h"
 
 #include <linux/capability.h>
-#include <linux/mount.h>
 #include <linux/writeback.h>
 
 
@@ -243,7 +242,7 @@ xfs_read(
 
 	if (unlikely(ioflags & IO_ISDIRECT)) {
 		if (inode->i_mapping->nrpages)
-			ret = xfs_flushinval_pages(ip, (*offset & PAGE_CACHE_MASK),
+			ret = -xfs_flushinval_pages(ip, (*offset & PAGE_CACHE_MASK),
 						    -1, FI_REMAPF_LOCKED);
 		mutex_unlock(&inode->i_mutex);
 		if (ret) {
@@ -668,15 +667,8 @@ start:
 	if (new_size > xip->i_size)
 		xip->i_new_size = new_size;
 
-	/*
-	 * We're not supposed to change timestamps in readonly-mounted
-	 * filesystems.  Throw it away if anyone asks us.
-	 */
-	if (likely(!(ioflags & IO_INVIS) &&
-		   !mnt_want_write(file->f_path.mnt))) {
+	if (likely(!(ioflags & IO_INVIS)))
 		xfs_ichgtime(xip, XFS_ICHGTIME_MOD | XFS_ICHGTIME_CHG);
-		mnt_drop_write(file->f_path.mnt);
-	}
 
 	/*
 	 * If the offset is beyond the size of the file, we have a couple
@@ -715,7 +707,6 @@ start:
 		}
 	}
 
-retry:
 	/* We can write back this queue in page reclaim */
 	current->backing_dev_info = mapping->backing_dev_info;
 
@@ -760,16 +751,43 @@ retry:
 			goto relock;
 		}
 	} else {
+		int enospc = 0;
+		ssize_t ret2 = 0;
+
+write_retry:
 		xfs_rw_enter_trace(XFS_WRITE_ENTER, xip, (void *)iovp, segs,
 				*offset, ioflags);
-		ret = generic_file_buffered_write(iocb, iovp, segs,
+		ret2 = generic_file_buffered_write(iocb, iovp, segs,
 				pos, offset, count, ret);
+		/*
+		 * if we just got an ENOSPC, flush the inode now we
+		 * aren't holding any page locks and retry *once*
+		 */
+		if (ret2 == -ENOSPC && !enospc) {
+			error = xfs_flush_pages(xip, 0, -1, 0, FI_NONE);
+			if (error)
+				goto out_unlock_internal;
+			enospc = 1;
+			goto write_retry;
+		}
+		ret = ret2;
 	}
 
 	current->backing_dev_info = NULL;
 
 	if (ret == -EIOCBQUEUED && !(ioflags & IO_ISAIO))
 		ret = wait_on_sync_kiocb(iocb);
+
+	isize = i_size_read(inode);
+	if (unlikely(ret < 0 && ret != -EFAULT && *offset > isize))
+		*offset = isize;
+
+	if (*offset > xip->i_size) {
+		xfs_ilock(xip, XFS_ILOCK_EXCL);
+		if (*offset > xip->i_size)
+			xip->i_size = *offset;
+		xfs_iunlock(xip, XFS_ILOCK_EXCL);
+	}
 
 	if (ret == -ENOSPC &&
 	    DM_EVENT_ENABLED(xip, DM_EVENT_NOSPACE) && !(ioflags & IO_INVIS)) {
@@ -784,20 +802,7 @@ retry:
 		xfs_ilock(xip, iolock);
 		if (error)
 			goto out_unlock_internal;
-		pos = xip->i_size;
-		ret = 0;
-		goto retry;
-	}
-
-	isize = i_size_read(inode);
-	if (unlikely(ret < 0 && ret != -EFAULT && *offset > isize))
-		*offset = isize;
-
-	if (*offset > xip->i_size) {
-		xfs_ilock(xip, XFS_ILOCK_EXCL);
-		if (*offset > xip->i_size)
-			xip->i_size = *offset;
-		xfs_iunlock(xip, XFS_ILOCK_EXCL);
+		goto start;
 	}
 
 	error = -ret;
@@ -855,13 +860,7 @@ retry:
 int
 xfs_bdstrat_cb(struct xfs_buf *bp)
 {
-	xfs_mount_t	*mp;
-
-	mp = XFS_BUF_FSPRIVATE3(bp, xfs_mount_t *);
-	if (!XFS_FORCED_SHUTDOWN(mp)) {
-		xfs_buf_iorequest(bp);
-		return 0;
-	} else {
+	if (XFS_FORCED_SHUTDOWN(bp->b_mount)) {
 		xfs_buftrace("XFS__BDSTRAT IOERROR", bp);
 		/*
 		 * Metadata write that didn't get logged but
@@ -874,6 +873,9 @@ xfs_bdstrat_cb(struct xfs_buf *bp)
 		else
 			return (xfs_bioerror(bp));
 	}
+
+	xfs_buf_iorequest(bp);
+	return 0;
 }
 
 /*

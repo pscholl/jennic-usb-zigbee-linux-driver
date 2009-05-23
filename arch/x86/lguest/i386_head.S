@@ -27,23 +27,8 @@ ENTRY(lguest_entry)
 	/* We make the "initialization" hypercall now to tell the Host about
 	 * us, and also find out where it put our page tables. */
 	movl $LHCALL_LGUEST_INIT, %eax
-	movl $lguest_data - __PAGE_OFFSET, %edx
-	int $LGUEST_TRAP_ENTRY
-
-	/* The Host put the toplevel pagetable in lguest_data.pgdir.  The movsl
-	 * instruction uses %esi implicitly as the source for the copy we're
-	 * about to do. */
-	movl lguest_data - __PAGE_OFFSET + LGUEST_DATA_pgdir, %esi
-
-	/* Copy first 32 entries of page directory to __PAGE_OFFSET entries.
-	 * This means the first 128M of kernel memory will be mapped at
-	 * PAGE_OFFSET where the kernel expects to run.  This will get it far
-	 * enough through boot to switch to its own pagetables. */
-	movl $32, %ecx
-	movl %esi, %edi
-	addl $((__PAGE_OFFSET >> 22) * 4), %edi
-	rep
-	movsl
+	movl $lguest_data - __PAGE_OFFSET, %ebx
+	.byte 0x0f,0x01,0xc1 /* KVM_HYPERCALL */
 
 	/* Set up the initial stack so we can run C code. */
 	movl $(init_thread_union+THREAD_SIZE),%esp

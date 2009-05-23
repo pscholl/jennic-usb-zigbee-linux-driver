@@ -14,6 +14,7 @@
 #include <linux/percpu.h>
 #include <asm/tlbflush.h>
 #include <asm/uaccess.h>
+#include <asm/bootparam.h>
 #include "lg.h"
 
 /*M:008 We hold reference to pages, which prevents them from being swapped.
@@ -198,7 +199,7 @@ static void check_gpgd(struct lg_cpu *cpu, pgd_t gpgd)
  *
  * If we fixed up the fault (ie. we mapped the address), this routine returns
  * true.  Otherwise, it was a real fault and we need to tell the Guest. */
-int demand_page(struct lg_cpu *cpu, unsigned long vaddr, int errcode)
+bool demand_page(struct lg_cpu *cpu, unsigned long vaddr, int errcode)
 {
 	pgd_t gpgd;
 	pgd_t *spgd;
@@ -210,7 +211,7 @@ int demand_page(struct lg_cpu *cpu, unsigned long vaddr, int errcode)
 	gpgd = lgread(cpu, gpgd_addr(cpu, vaddr), pgd_t);
 	/* Toplevel not present?  We can't map it in. */
 	if (!(pgd_flags(gpgd) & _PAGE_PRESENT))
-		return 0;
+		return false;
 
 	/* Now look at the matching shadow entry. */
 	spgd = spgd_addr(cpu, cpu->cpu_pgd, vaddr);
@@ -221,7 +222,7 @@ int demand_page(struct lg_cpu *cpu, unsigned long vaddr, int errcode)
 		 * simple for this corner case. */
 		if (!ptepage) {
 			kill_guest(cpu, "out of memory allocating pte page");
-			return 0;
+			return false;
 		}
 		/* We check that the Guest pgd is OK. */
 		check_gpgd(cpu, gpgd);
@@ -237,16 +238,16 @@ int demand_page(struct lg_cpu *cpu, unsigned long vaddr, int errcode)
 
 	/* If this page isn't in the Guest page tables, we can't page it in. */
 	if (!(pte_flags(gpte) & _PAGE_PRESENT))
-		return 0;
+		return false;
 
 	/* Check they're not trying to write to a page the Guest wants
 	 * read-only (bit 2 of errcode == write). */
 	if ((errcode & 2) && !(pte_flags(gpte) & _PAGE_RW))
-		return 0;
+		return false;
 
 	/* User access to a kernel-only page? (bit 3 == user access) */
 	if ((errcode & 4) && !(pte_flags(gpte) & _PAGE_USER))
-		return 0;
+		return false;
 
 	/* Check that the Guest PTE flags are OK, and the page number is below
 	 * the pfn_limit (ie. not mapping the Launcher binary). */
@@ -282,7 +283,7 @@ int demand_page(struct lg_cpu *cpu, unsigned long vaddr, int errcode)
 	 * manipulated, the result returned and the code complete.  A small
 	 * delay and a trace of alliteration are the only indications the Guest
 	 * has that a page fault occurred at all. */
-	return 1;
+	return true;
 }
 
 /*H:360
@@ -295,7 +296,7 @@ int demand_page(struct lg_cpu *cpu, unsigned long vaddr, int errcode)
  *
  * This is a quick version which answers the question: is this virtual address
  * mapped by the shadow page tables, and is it writable? */
-static int page_writable(struct lg_cpu *cpu, unsigned long vaddr)
+static bool page_writable(struct lg_cpu *cpu, unsigned long vaddr)
 {
 	pgd_t *spgd;
 	unsigned long flags;
@@ -303,7 +304,7 @@ static int page_writable(struct lg_cpu *cpu, unsigned long vaddr)
 	/* Look at the current top level entry: is it present? */
 	spgd = spgd_addr(cpu, cpu->cpu_pgd, vaddr);
 	if (!(pgd_flags(*spgd) & _PAGE_PRESENT))
-		return 0;
+		return false;
 
 	/* Check the flags on the pte entry itself: it must be present and
 	 * writable. */
@@ -372,8 +373,10 @@ unsigned long guest_pa(struct lg_cpu *cpu, unsigned long vaddr)
 	/* First step: get the top-level Guest page table entry. */
 	gpgd = lgread(cpu, gpgd_addr(cpu, vaddr), pgd_t);
 	/* Toplevel not present?  We can't map it in. */
-	if (!(pgd_flags(gpgd) & _PAGE_PRESENT))
+	if (!(pgd_flags(gpgd) & _PAGE_PRESENT)) {
 		kill_guest(cpu, "Bad address %#lx", vaddr);
+		return -1UL;
+	}
 
 	gpte = lgread(cpu, gpte_addr(gpgd, vaddr), pte_t);
 	if (!(pte_flags(gpte) & _PAGE_PRESENT))
@@ -581,15 +584,82 @@ void guest_set_pmd(struct lguest *lg, unsigned long gpgdir, u32 idx)
 		release_pgd(lg, lg->pgdirs[pgdir].pgdir + idx);
 }
 
+/* Once we know how much memory we have we can construct simple identity
+ * (which set virtual == physical) and linear mappings
+ * which will get the Guest far enough into the boot to create its own.
+ *
+ * We lay them out of the way, just below the initrd (which is why we need to
+ * know its size here). */
+static unsigned long setup_pagetables(struct lguest *lg,
+				      unsigned long mem,
+				      unsigned long initrd_size)
+{
+	pgd_t __user *pgdir;
+	pte_t __user *linear;
+	unsigned int mapped_pages, i, linear_pages, phys_linear;
+	unsigned long mem_base = (unsigned long)lg->mem_base;
+
+	/* We have mapped_pages frames to map, so we need
+	 * linear_pages page tables to map them. */
+	mapped_pages = mem / PAGE_SIZE;
+	linear_pages = (mapped_pages + PTRS_PER_PTE - 1) / PTRS_PER_PTE;
+
+	/* We put the toplevel page directory page at the top of memory. */
+	pgdir = (pgd_t *)(mem + mem_base - initrd_size - PAGE_SIZE);
+
+	/* Now we use the next linear_pages pages as pte pages */
+	linear = (void *)pgdir - linear_pages * PAGE_SIZE;
+
+	/* Linear mapping is easy: put every page's address into the
+	 * mapping in order. */
+	for (i = 0; i < mapped_pages; i++) {
+		pte_t pte;
+		pte = pfn_pte(i, __pgprot(_PAGE_PRESENT|_PAGE_RW|_PAGE_USER));
+		if (copy_to_user(&linear[i], &pte, sizeof(pte)) != 0)
+			return -EFAULT;
+	}
+
+	/* The top level points to the linear page table pages above.
+	 * We setup the identity and linear mappings here. */
+	phys_linear = (unsigned long)linear - mem_base;
+	for (i = 0; i < mapped_pages; i += PTRS_PER_PTE) {
+		pgd_t pgd;
+		pgd = __pgd((phys_linear + i * sizeof(pte_t)) |
+			    (_PAGE_PRESENT | _PAGE_RW | _PAGE_USER));
+
+		if (copy_to_user(&pgdir[i / PTRS_PER_PTE], &pgd, sizeof(pgd))
+		    || copy_to_user(&pgdir[pgd_index(PAGE_OFFSET)
+					   + i / PTRS_PER_PTE],
+				    &pgd, sizeof(pgd)))
+			return -EFAULT;
+	}
+
+	/* We return the top level (guest-physical) address: remember where
+	 * this is. */
+	return (unsigned long)pgdir - mem_base;
+}
+
 /*H:500 (vii) Setting up the page tables initially.
  *
  * When a Guest is first created, the Launcher tells us where the toplevel of
  * its first page table is.  We set some things up here: */
-int init_guest_pagetable(struct lguest *lg, unsigned long pgtable)
+int init_guest_pagetable(struct lguest *lg)
 {
+	u64 mem;
+	u32 initrd_size;
+	struct boot_params __user *boot = (struct boot_params *)lg->mem_base;
+
+	/* Get the Guest memory size and the ramdisk size from the boot header
+	 * located at lg->mem_base (Guest address 0). */
+	if (copy_from_user(&mem, &boot->e820_map[0].size, sizeof(mem))
+	    || get_user(initrd_size, &boot->hdr.ramdisk_size))
+		return -EFAULT;
+
 	/* We start on the first shadow page table, and give it a blank PGD
 	 * page. */
-	lg->pgdirs[0].gpgdir = pgtable;
+	lg->pgdirs[0].gpgdir = setup_pagetables(lg, mem, initrd_size);
+	if (IS_ERR_VALUE(lg->pgdirs[0].gpgdir))
+		return lg->pgdirs[0].gpgdir;
 	lg->pgdirs[0].pgdir = (pgd_t *)get_zeroed_page(GFP_KERNEL);
 	if (!lg->pgdirs[0].pgdir)
 		return -ENOMEM;

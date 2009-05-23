@@ -47,7 +47,11 @@
  */
 #define CIFS_MAX_REQ 50
 
-#define SERVER_NAME_LENGTH 15
+#define RFC1001_NAME_LEN 15
+#define RFC1001_NAME_LEN_WITH_NULL (RFC1001_NAME_LEN + 1)
+
+/* currently length of NIP6_FMT */
+#define SERVER_NAME_LENGTH 40
 #define SERVER_NAME_LEN_WITH_NULL     (SERVER_NAME_LENGTH + 1)
 
 /* used to define string lengths for reversing unicode strings */
@@ -78,8 +82,8 @@ enum securityEnum {
 	LANMAN,			/* Legacy LANMAN auth */
 	NTLM,			/* Legacy NTLM012 auth with NTLM hash */
 	NTLMv2,			/* Legacy NTLM auth with NTLMv2 hash */
-	RawNTLMSSP,		/* NTLMSSP without SPNEGO */
-	NTLMSSP,		/* NTLMSSP via SPNEGO */
+	RawNTLMSSP,		/* NTLMSSP without SPNEGO, NTLMv2 hash */
+	NTLMSSP,		/* NTLMSSP via SPNEGO, NTLMv2 hash */
 	Kerberos,		/* Kerberos via SPNEGO */
 	MSKerberos,		/* MS Kerberos via SPNEGO */
 };
@@ -125,8 +129,7 @@ struct TCP_Server_Info {
 	struct list_head smb_ses_list;
 	int srv_count; /* reference counter */
 	/* 15 character server name + 0x20 16th byte indicating type = srv */
-	char server_RFC1001_name[SERVER_NAME_LEN_WITH_NULL];
-	char unicode_server_Name[SERVER_NAME_LEN_WITH_NULL * 2];
+	char server_RFC1001_name[RFC1001_NAME_LEN_WITH_NULL];
 	char *hostname; /* hostname portion of UNC string */
 	struct socket *ssocket;
 	union {
@@ -151,7 +154,7 @@ struct TCP_Server_Info {
 	atomic_t num_waiters;   /* blocked waiting to get in sendrecv */
 #endif
 	enum statusEnum tcpStatus; /* what we think the status is */
-	struct semaphore tcpSem;
+	struct mutex srv_mutex;
 	struct task_struct *tsk;
 	char server_GUID[16];
 	char secMode;
@@ -161,9 +164,12 @@ struct TCP_Server_Info {
 	/* multiplexed reads or writes */
 	unsigned int maxBuf;	/* maxBuf specifies the maximum */
 	/* message size the server can send or receive for non-raw SMBs */
-	unsigned int maxRw;	/* maxRw specifies the maximum */
+	unsigned int max_rw;	/* maxRw specifies the maximum */
 	/* message size the server can send or receive for */
 	/* SMB_COM_WRITE_RAW or SMB_COM_READ_RAW. */
+	unsigned int max_vcs;	/* maximum number of smb sessions, at least
+				   those that can be specified uniquely with
+				   vcnumbers */
 	char sessid[4];		/* unique token id for this session */
 	/* (returned on Negotiate */
 	int capabilities; /* allow selective disabling of caps by smb sess */
@@ -171,7 +177,7 @@ struct TCP_Server_Info {
 	__u16 CurrentMid;         /* multiplex id - rotating counter */
 	char cryptKey[CIFS_CRYPTO_KEY_SIZE];
 	/* 16th byte of RFC1001 workstation name is always null */
-	char workstation_RFC1001_name[SERVER_NAME_LEN_WITH_NULL];
+	char workstation_RFC1001_name[RFC1001_NAME_LEN_WITH_NULL];
 	__u32 sequence_number; /* needed for CIFS PDU signature */
 	struct mac_key mac_signing_key;
 	char ntlmv2_hash[16];
@@ -207,6 +213,7 @@ struct cifsSesInfo {
 	unsigned overrideSecFlg;  /* if non-zero override global sec flags */
 	__u16 ipc_tid;		/* special tid for connection to IPC share */
 	__u16 flags;
+	__u16 vcnum;
 	char *serverOS;		/* name of operating system underlying server */
 	char *serverNOS;	/* name of network operating system of server */
 	char *serverDomain;	/* security realm of server */
@@ -239,6 +246,7 @@ struct cifsTconInfo {
 	struct cifsSesInfo *ses;	/* pointer to session associated with */
 	char treeName[MAX_TREE_SIZE + 1]; /* UNC name of resource in ASCII */
 	char *nativeFileSystem;
+	char *password;		/* for share-level security */
 	__u16 tid;		/* The 2 byte tree id */
 	__u16 Flags;		/* optional support bits */
 	enum statusEnum tidStatus;
@@ -246,6 +254,7 @@ struct cifsTconInfo {
 	atomic_t num_smbs_sent;
 	atomic_t num_writes;
 	atomic_t num_reads;
+	atomic_t num_flushes;
 	atomic_t num_oplock_brks;
 	atomic_t num_opens;
 	atomic_t num_closes;
@@ -290,6 +299,7 @@ struct cifsTconInfo {
 	bool unix_ext:1;  /* if false disable Linux extensions to CIFS protocol
 				for this mount even if server would support */
 	bool local_lease:1; /* check leases (only) on local system not remote */
+	bool broken_posix_open; /* e.g. Samba server versions < 3.3.2, 3.2.9 */
 	bool need_reconnect:1; /* connection reset, tid now invalid */
 	/* BB add field for back pointer to sb struct(s)? */
 };
@@ -340,7 +350,7 @@ struct cifsFileInfo {
 	bool invalidHandle:1;	/* file closed via session abend */
 	bool messageMode:1;	/* for pipes: message vs byte mode */
 	atomic_t wrtPending;   /* handle in use - defer close */
-	struct semaphore fh_sem; /* prevents reopen race after dead ses*/
+	struct mutex fh_mutex; /* prevents reopen race after dead ses*/
 	struct cifs_search_info srch_inf;
 };
 
@@ -360,6 +370,7 @@ struct cifsInodeInfo {
 	bool clientCanCacheAll:1;	/* read and writebehind oplock */
 	bool oplockPending:1;
 	bool delete_pending:1;		/* DELETE_ON_CLOSE is set */
+	u64  server_eof;		/* current file size on server */
 	struct inode vfs_inode;
 };
 
@@ -422,7 +433,6 @@ struct mid_q_entry {
 	unsigned long when_sent; /* time when smb send finished */
 	unsigned long when_received; /* when demux complete (taken off wire) */
 #endif
-	struct cifsSesInfo *ses;	/* smb was sent to this server */
 	struct task_struct *tsk;	/* task waiting for response */
 	struct smb_hdr *resp_buf;	/* response buffer */
 	int midState;	/* wish this were enum but can not pass to wait_event */
@@ -521,6 +531,7 @@ static inline void free_dfs_info_array(struct dfs_info3_param *param,
 #define   CIFSSEC_MAY_PLNTXT    0
 #endif /* weak passwords */
 #define   CIFSSEC_MAY_SEAL	0x00040 /* not supported yet */
+#define   CIFSSEC_MAY_NTLMSSP	0x00080 /* raw ntlmssp with ntlmv2 */
 
 #define   CIFSSEC_MUST_SIGN	0x01001
 /* note that only one of the following can be set so the
@@ -533,22 +544,23 @@ require use of the stronger protocol */
 #define   CIFSSEC_MUST_LANMAN	0x10010
 #define   CIFSSEC_MUST_PLNTXT	0x20020
 #ifdef CONFIG_CIFS_UPCALL
-#define   CIFSSEC_MASK          0x3F03F /* allows weak security but also krb5 */
+#define   CIFSSEC_MASK          0xAF0AF /* allows weak security but also krb5 */
 #else
-#define   CIFSSEC_MASK          0x37037 /* current flags supported if weak */
+#define   CIFSSEC_MASK          0xA70A7 /* current flags supported if weak */
 #endif /* UPCALL */
 #else /* do not allow weak pw hash */
 #ifdef CONFIG_CIFS_UPCALL
-#define   CIFSSEC_MASK          0x0F00F /* flags supported if no weak allowed */
+#define   CIFSSEC_MASK          0x8F08F /* flags supported if no weak allowed */
 #else
-#define	  CIFSSEC_MASK          0x07007 /* flags supported if no weak allowed */
+#define	  CIFSSEC_MASK          0x87087 /* flags supported if no weak allowed */
 #endif /* UPCALL */
 #endif /* WEAK_PW_HASH */
 #define   CIFSSEC_MUST_SEAL	0x40040 /* not supported yet */
+#define   CIFSSEC_MUST_NTLMSSP	0x80080 /* raw ntlmssp with ntlmv2 */
 
 #define   CIFSSEC_DEF (CIFSSEC_MAY_SIGN | CIFSSEC_MAY_NTLM | CIFSSEC_MAY_NTLMV2)
 #define   CIFSSEC_MAX (CIFSSEC_MUST_SIGN | CIFSSEC_MUST_NTLMV2)
-#define   CIFSSEC_AUTH_MASK (CIFSSEC_MAY_NTLM | CIFSSEC_MAY_NTLMV2 | CIFSSEC_MAY_LANMAN | CIFSSEC_MAY_PLNTXT | CIFSSEC_MAY_KRB5)
+#define   CIFSSEC_AUTH_MASK (CIFSSEC_MAY_NTLM | CIFSSEC_MAY_NTLMV2 | CIFSSEC_MAY_LANMAN | CIFSSEC_MAY_PLNTXT | CIFSSEC_MAY_KRB5 | CIFSSEC_MAY_NTLMSSP)
 /*
  *****************************************************************
  * All constants go here

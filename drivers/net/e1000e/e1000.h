@@ -101,6 +101,7 @@ enum e1000_boards {
 	board_82572,
 	board_82573,
 	board_82574,
+	board_82583,
 	board_80003es2lan,
 	board_ich8lan,
 	board_ich9lan,
@@ -193,8 +194,7 @@ struct e1000_adapter {
 	u16 mng_vlan_id;
 	u16 link_speed;
 	u16 link_duplex;
-
-	spinlock_t tx_queue_lock; /* prevent concurrent tail updates */
+	u16 eeprom_vers;
 
 	/* track device up/down/testing state */
 	unsigned long state;
@@ -388,6 +388,7 @@ extern int e1000e_setup_tx_resources(struct e1000_adapter *adapter);
 extern void e1000e_free_rx_resources(struct e1000_adapter *adapter);
 extern void e1000e_free_tx_resources(struct e1000_adapter *adapter);
 extern void e1000e_update_stats(struct e1000_adapter *adapter);
+extern bool e1000_has_link(struct e1000_adapter *adapter);
 extern void e1000e_set_interrupt_capability(struct e1000_adapter *adapter);
 extern void e1000e_reset_interrupt_capability(struct e1000_adapter *adapter);
 
@@ -399,6 +400,7 @@ extern struct e1000_info e1000_82571_info;
 extern struct e1000_info e1000_82572_info;
 extern struct e1000_info e1000_82573_info;
 extern struct e1000_info e1000_82574_info;
+extern struct e1000_info e1000_82583_info;
 extern struct e1000_info e1000_ich8_info;
 extern struct e1000_info e1000_ich9_info;
 extern struct e1000_info e1000_ich10_info;

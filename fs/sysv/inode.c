@@ -27,6 +27,7 @@
 #include <linux/init.h>
 #include <linux/buffer_head.h>
 #include <linux/vfs.h>
+#include <linux/namei.h>
 #include <asm/byteorder.h>
 #include "sysv.h"
 
@@ -89,6 +90,7 @@ static int sysv_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct super_block *sb = dentry->d_sb;
 	struct sysv_sb_info *sbi = SYSV_SB(sb);
+	u64 id = huge_encode_dev(sb->s_bdev->bd_dev);
 
 	buf->f_type = sb->s_magic;
 	buf->f_bsize = sb->s_blocksize;
@@ -97,6 +99,8 @@ static int sysv_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_files = sbi->s_ninodes;
 	buf->f_ffree = sysv_count_free_inodes(sb);
 	buf->f_namelen = SYSV_NAMELEN;
+	buf->f_fsid.val[0] = (u32)id;
+	buf->f_fsid.val[1] = (u32)(id >> 32);
 	return 0;
 }
 
@@ -163,8 +167,11 @@ void sysv_set_inode(struct inode *inode, dev_t rdev)
 		if (inode->i_blocks) {
 			inode->i_op = &sysv_symlink_inode_operations;
 			inode->i_mapping->a_ops = &sysv_aops;
-		} else
+		} else {
 			inode->i_op = &sysv_fast_symlink_inode_operations;
+			nd_terminate_link(SYSV_I(inode)->i_data, inode->i_size,
+				sizeof(SYSV_I(inode)->i_data) - 1);
+		}
 	} else
 		init_special_inode(inode, inode->i_mode, rdev);
 }

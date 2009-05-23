@@ -230,36 +230,17 @@ static struct resource realview_pb11mp_smsc911x_resources[] = {
 	},
 };
 
-static struct platform_device realview_pb11mp_smsc911x_device = {
-	.name		= "smc911x",
-	.id		= 0,
-	.num_resources	= ARRAY_SIZE(realview_pb11mp_smsc911x_resources),
-	.resource	= realview_pb11mp_smsc911x_resources,
-};
-
-struct resource realview_pb11mp_cf_resources[] = {
+static struct resource realview_pb11mp_isp1761_resources[] = {
 	[0] = {
-		.start		= REALVIEW_PB11MP_CF_BASE,
-		.end		= REALVIEW_PB11MP_CF_BASE + SZ_4K - 1,
+		.start		= REALVIEW_PB11MP_USB_BASE,
+		.end		= REALVIEW_PB11MP_USB_BASE + SZ_128K - 1,
 		.flags		= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start		= REALVIEW_PB11MP_CF_MEM_BASE,
-		.end		= REALVIEW_PB11MP_CF_MEM_BASE + SZ_4K - 1,
-		.flags		= IORESOURCE_MEM,
-	},
-	[2] = {
-		.start		= -1,		/* FIXME: Find correct irq */
-		.end		= -1,
+		.start		= IRQ_TC11MP_USB,
+		.end		= IRQ_TC11MP_USB,
 		.flags		= IORESOURCE_IRQ,
 	},
-};
-
-struct platform_device realview_pb11mp_cf_device = {
-	.name		= "compactflash",
-	.id		= 0,
-	.num_resources	= ARRAY_SIZE(realview_pb11mp_cf_resources),
-	.resource	= realview_pb11mp_cf_resources,
 };
 
 static void __init gic_init_irq(void)
@@ -292,8 +273,7 @@ static void __init realview_pb11mp_timer_init(void)
 	timer3_va_base = __io_address(REALVIEW_PB11MP_TIMER2_3_BASE) + 0x20;
 
 #ifdef CONFIG_LOCAL_TIMERS
-	twd_base_addr = __io_address(REALVIEW_TC11MP_TWD_BASE);
-	twd_size = REALVIEW_TC11MP_TWD_SIZE;
+	twd_base = __io_address(REALVIEW_TC11MP_TWD_BASE);
 #endif
 	realview_timer_init(IRQ_TC11MP_TIMER0_1);
 }
@@ -312,13 +292,12 @@ static void __init realview_pb11mp_init(void)
 	l2x0_init(__io_address(REALVIEW_TC11MP_L220_BASE), 0x00790000, 0xfe000fff);
 #endif
 
-	clk_register(&realview_clcd_clk);
-
 	realview_flash_register(realview_pb11mp_flash_resource,
 				ARRAY_SIZE(realview_pb11mp_flash_resource));
-	platform_device_register(&realview_pb11mp_smsc911x_device);
+	realview_eth_register(NULL, realview_pb11mp_smsc911x_resources);
 	platform_device_register(&realview_i2c_device);
-	platform_device_register(&realview_pb11mp_cf_device);
+	platform_device_register(&realview_cf_device);
+	realview_usb_register(realview_pb11mp_isp1761_resources);
 
 	for (i = 0; i < ARRAY_SIZE(amba_devs); i++) {
 		struct amba_device *d = amba_devs[i];
@@ -334,7 +313,7 @@ MACHINE_START(REALVIEW_PB11MP, "ARM-RealView PB11MPCore")
 	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.phys_io	= REALVIEW_PB11MP_UART0_BASE,
 	.io_pg_offst	= (IO_ADDRESS(REALVIEW_PB11MP_UART0_BASE) >> 18) & 0xfffc,
-	.boot_params	= 0x00000100,
+	.boot_params	= PHYS_OFFSET + 0x00000100,
 	.map_io		= realview_pb11mp_map_io,
 	.init_irq	= gic_init_irq,
 	.timer		= &realview_pb11mp_timer,

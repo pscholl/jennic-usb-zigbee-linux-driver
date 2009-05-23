@@ -149,7 +149,7 @@ dsthash_alloc_init(struct xt_hashlimit_htable *ht,
 	/* initialize hash with random val at the time we allocate
 	 * the first hashtable entry */
 	if (!ht->rnd_initialized) {
-		get_random_bytes(&ht->rnd, 4);
+		get_random_bytes(&ht->rnd, sizeof(ht->rnd));
 		ht->rnd_initialized = 1;
 	}
 
@@ -565,8 +565,7 @@ hashlimit_init_dst(const struct xt_hashlimit_htable *hinfo,
 static bool
 hashlimit_mt_v0(const struct sk_buff *skb, const struct xt_match_param *par)
 {
-	const struct xt_hashlimit_info *r =
-		((const struct xt_hashlimit_info *)par->matchinfo)->u.master;
+	const struct xt_hashlimit_info *r = par->matchinfo;
 	struct xt_hashlimit_htable *hinfo = r->hinfo;
 	unsigned long now = jiffies;
 	struct dsthash_ent *dh;
@@ -702,8 +701,6 @@ static bool hashlimit_mt_check_v0(const struct xt_mtchk_param *par)
 	}
 	mutex_unlock(&hlimit_mutex);
 
-	/* Ugly hack: For SMP, we only want to use one set */
-	r->u.master = r;
 	return true;
 }
 
@@ -893,23 +890,21 @@ static int dl_seq_real_show(struct dsthash_ent *ent, u_int8_t family,
 
 	switch (family) {
 	case NFPROTO_IPV4:
-		return seq_printf(s, "%ld %u.%u.%u.%u:%u->"
-				     "%u.%u.%u.%u:%u %u %u %u\n",
+		return seq_printf(s, "%ld %pI4:%u->%pI4:%u %u %u %u\n",
 				 (long)(ent->expires - jiffies)/HZ,
-				 NIPQUAD(ent->dst.ip.src),
+				 &ent->dst.ip.src,
 				 ntohs(ent->dst.src_port),
-				 NIPQUAD(ent->dst.ip.dst),
+				 &ent->dst.ip.dst,
 				 ntohs(ent->dst.dst_port),
 				 ent->rateinfo.credit, ent->rateinfo.credit_cap,
 				 ent->rateinfo.cost);
 #if defined(CONFIG_IP6_NF_IPTABLES) || defined(CONFIG_IP6_NF_IPTABLES_MODULE)
 	case NFPROTO_IPV6:
-		return seq_printf(s, "%ld " NIP6_FMT ":%u->"
-				     NIP6_FMT ":%u %u %u %u\n",
+		return seq_printf(s, "%ld %pI6:%u->%pI6:%u %u %u %u\n",
 				 (long)(ent->expires - jiffies)/HZ,
-				 NIP6(*(struct in6_addr *)&ent->dst.ip6.src),
+				 &ent->dst.ip6.src,
 				 ntohs(ent->dst.src_port),
-				 NIP6(*(struct in6_addr *)&ent->dst.ip6.dst),
+				 &ent->dst.ip6.dst,
 				 ntohs(ent->dst.dst_port),
 				 ent->rateinfo.credit, ent->rateinfo.credit_cap,
 				 ent->rateinfo.cost);

@@ -31,7 +31,7 @@ void hostap_dump_rx_header(const char *name,
 void hostap_dump_tx_header(const char *name,
 			   const struct hfa384x_tx_frame *tx);
 extern const struct header_ops hostap_80211_ops;
-int hostap_80211_get_hdrlen(u16 fc);
+int hostap_80211_get_hdrlen(__le16 fc);
 struct net_device_stats *hostap_get_stats(struct net_device *dev);
 void hostap_setup_dev(struct net_device *dev, local_info_t *local,
 		      int type);
@@ -63,7 +63,7 @@ void ap_control_flush_macs(struct mac_restrictions *mac_restrictions);
 int ap_control_kick_mac(struct ap_data *ap, struct net_device *dev, u8 *mac);
 void ap_control_kickall(struct ap_data *ap);
 void * ap_crypt_get_ptrs(struct ap_data *ap, u8 *addr, int permanent,
-			 struct ieee80211_crypt_data ***crypt);
+			 struct lib80211_crypt_data ***crypt);
 int prism2_ap_get_sta_qual(local_info_t *local, struct sockaddr addr[],
 			   struct iw_quality qual[], int buf_size,
 			   int aplist);

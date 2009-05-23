@@ -71,8 +71,8 @@ static int get_chip(struct map_info *map, struct flchip *chip, unsigned long adr
 static void put_chip(struct map_info *map, struct flchip *chip, unsigned long adr);
 #include "fwh_lock.h"
 
-static int cfi_atmel_lock(struct mtd_info *mtd, loff_t ofs, size_t len);
-static int cfi_atmel_unlock(struct mtd_info *mtd, loff_t ofs, size_t len);
+static int cfi_atmel_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
+static int cfi_atmel_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 
 static struct mtd_chip_driver cfi_amdstd_chipdrv = {
 	.probe		= NULL, /* Not usable directly */
@@ -282,6 +282,16 @@ static void fixup_s29gl032n_sectors(struct mtd_info *mtd, void *param)
 	}
 }
 
+static void fixup_M29W128G_write_buffer(struct mtd_info *mtd, void *param)
+{
+	struct map_info *map = mtd->priv;
+	struct cfi_private *cfi = map->fldrv_priv;
+	if (cfi->cfiq->BufWriteTimeoutTyp) {
+		pr_warning("Don't use write buffer on ST flash M29W128G\n");
+		cfi->cfiq->BufWriteTimeoutTyp = 0;
+	}
+}
+
 static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_ATMEL, CFI_ID_ANY, fixup_convert_atmel_pri, NULL },
 #ifdef AMD_BOOTLOC_BUG
@@ -298,6 +308,7 @@ static struct cfi_fixup cfi_fixup_table[] = {
 	{ CFI_MFR_AMD, 0x1301, fixup_s29gl064n_sectors, NULL, },
 	{ CFI_MFR_AMD, 0x1a00, fixup_s29gl032n_sectors, NULL, },
 	{ CFI_MFR_AMD, 0x1a01, fixup_s29gl032n_sectors, NULL, },
+	{ CFI_MFR_ST,  0x227E, fixup_M29W128G_write_buffer, NULL, },
 #if !FORCE_WORD_WRITE
 	{ CFI_MFR_ANY, CFI_ID_ANY, fixup_use_write_buffers, NULL, },
 #endif
@@ -321,6 +332,14 @@ static struct cfi_fixup fixup_table[] = {
 	{ 0, 0, NULL, NULL }
 };
 
+
+static void cfi_fixup_major_minor(struct cfi_private *cfi,
+				  struct cfi_pri_amdstd *extp)
+{
+	if (cfi->mfr == CFI_MFR_SAMSUNG && cfi->id == 0x257e &&
+	    extp->MajorVersion == '0')
+		extp->MajorVersion = '1';
+}
 
 struct mtd_info *cfi_cmdset_0002(struct map_info *map, int primary)
 {
@@ -362,6 +381,8 @@ struct mtd_info *cfi_cmdset_0002(struct map_info *map, int primary)
 			kfree(mtd);
 			return NULL;
 		}
+
+		cfi_fixup_major_minor(cfi, extp);
 
 		if (extp->MajorVersion != '1' ||
 		    (extp->MinorVersion < '0' || extp->MinorVersion > '4')) {
@@ -1774,12 +1795,12 @@ out_unlock:
 	return ret;
 }
 
-static int cfi_atmel_lock(struct mtd_info *mtd, loff_t ofs, size_t len)
+static int cfi_atmel_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	return cfi_varsize_frob(mtd, do_atmel_lock, ofs, len, NULL);
 }
 
-static int cfi_atmel_unlock(struct mtd_info *mtd, loff_t ofs, size_t len)
+static int cfi_atmel_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	return cfi_varsize_frob(mtd, do_atmel_unlock, ofs, len, NULL);
 }

@@ -54,10 +54,6 @@ ACPI_MODULE_NAME("power");
 #define ACPI_POWER_RESOURCE_STATE_ON	0x01
 #define ACPI_POWER_RESOURCE_STATE_UNKNOWN 0xFF
 
-#ifdef MODULE_PARAM_PREFIX
-#undef MODULE_PARAM_PREFIX
-#endif
-#define MODULE_PARAM_PREFIX "acpi."
 int acpi_power_nocheck;
 module_param_named(power_nocheck, acpi_power_nocheck, bool, 000);
 
@@ -139,6 +135,8 @@ static int acpi_power_get_state(acpi_handle handle, int *state)
 {
 	acpi_status status = AE_OK;
 	unsigned long long sta = 0;
+	char node_name[5];
+	struct acpi_buffer buffer = { sizeof(node_name), node_name };
 
 
 	if (!handle || !state)
@@ -151,8 +149,10 @@ static int acpi_power_get_state(acpi_handle handle, int *state)
 	*state = (sta & 0x01)?ACPI_POWER_RESOURCE_STATE_ON:
 			      ACPI_POWER_RESOURCE_STATE_OFF;
 
+	acpi_get_name(handle, ACPI_SINGLE_NAME, &buffer);
+
 	ACPI_DEBUG_PRINT((ACPI_DB_INFO, "Resource [%s] is %s\n",
-			  acpi_ut_get_node_name(handle),
+			  node_name,
 				*state ? "on" : "off"));
 
 	return 0;
@@ -769,13 +769,9 @@ static int acpi_power_resume(struct acpi_device *device)
 	return 0;
 }
 
-static int __init acpi_power_init(void)
+int __init acpi_power_init(void)
 {
 	int result = 0;
-
-
-	if (acpi_disabled)
-		return 0;
 
 	INIT_LIST_HEAD(&acpi_power_resource_list);
 
@@ -791,5 +787,3 @@ static int __init acpi_power_init(void)
 
 	return 0;
 }
-
-subsys_initcall(acpi_power_init);

@@ -14,14 +14,31 @@
 #include <linux/uaccess.h>
 #include <linux/ftrace.h>
 #include <linux/percpu.h>
+#include <linux/sched.h>
 #include <linux/init.h>
 #include <linux/list.h>
 
+#include <trace/syscall.h>
+
+#include <asm/cacheflush.h>
 #include <asm/ftrace.h>
 #include <asm/nops.h>
+#include <asm/nmi.h>
 
 
-static unsigned char ftrace_nop[MCOUNT_INSN_SIZE];
+#ifdef CONFIG_DYNAMIC_FTRACE
+
+int ftrace_arch_code_modify_prepare(void)
+{
+	set_kernel_text_rw();
+	return 0;
+}
+
+int ftrace_arch_code_modify_post_process(void)
+{
+	set_kernel_text_ro();
+	return 0;
+}
 
 union ftrace_code_union {
 	char code[MCOUNT_INSN_SIZE];
@@ -31,18 +48,12 @@ union ftrace_code_union {
 	} __attribute__((packed));
 };
 
-
 static int ftrace_calc_offset(long ip, long addr)
 {
 	return (int)(addr - ip);
 }
 
-unsigned char *ftrace_nop_replace(void)
-{
-	return ftrace_nop;
-}
-
-unsigned char *ftrace_call_replace(unsigned long ip, unsigned long addr)
+static unsigned char *ftrace_call_replace(unsigned long ip, unsigned long addr)
 {
 	static union ftrace_code_union calc;
 
@@ -56,7 +67,162 @@ unsigned char *ftrace_call_replace(unsigned long ip, unsigned long addr)
 	return calc.code;
 }
 
-int
+/*
+ * Modifying code must take extra care. On an SMP machine, if
+ * the code being modified is also being executed on another CPU
+ * that CPU will have undefined results and possibly take a GPF.
+ * We use kstop_machine to stop other CPUS from exectuing code.
+ * But this does not stop NMIs from happening. We still need
+ * to protect against that. We separate out the modification of
+ * the code to take care of this.
+ *
+ * Two buffers are added: An IP buffer and a "code" buffer.
+ *
+ * 1) Put the instruction pointer into the IP buffer
+ *    and the new code into the "code" buffer.
+ * 2) Wait for any running NMIs to finish and set a flag that says
+ *    we are modifying code, it is done in an atomic operation.
+ * 3) Write the code
+ * 4) clear the flag.
+ * 5) Wait for any running NMIs to finish.
+ *
+ * If an NMI is executed, the first thing it does is to call
+ * "ftrace_nmi_enter". This will check if the flag is set to write
+ * and if it is, it will write what is in the IP and "code" buffers.
+ *
+ * The trick is, it does not matter if everyone is writing the same
+ * content to the code location. Also, if a CPU is executing code
+ * it is OK to write to that code location if the contents being written
+ * are the same as what exists.
+ */
+
+#define MOD_CODE_WRITE_FLAG (1 << 31)	/* set when NMI should do the write */
+static atomic_t nmi_running = ATOMIC_INIT(0);
+static int mod_code_status;		/* holds return value of text write */
+static void *mod_code_ip;		/* holds the IP to write to */
+static void *mod_code_newcode;		/* holds the text to write to the IP */
+
+static unsigned nmi_wait_count;
+static atomic_t nmi_update_count = ATOMIC_INIT(0);
+
+int ftrace_arch_read_dyn_info(char *buf, int size)
+{
+	int r;
+
+	r = snprintf(buf, size, "%u %u",
+		     nmi_wait_count,
+		     atomic_read(&nmi_update_count));
+	return r;
+}
+
+static void clear_mod_flag(void)
+{
+	int old = atomic_read(&nmi_running);
+
+	for (;;) {
+		int new = old & ~MOD_CODE_WRITE_FLAG;
+
+		if (old == new)
+			break;
+
+		old = atomic_cmpxchg(&nmi_running, old, new);
+	}
+}
+
+static void ftrace_mod_code(void)
+{
+	/*
+	 * Yes, more than one CPU process can be writing to mod_code_status.
+	 *    (and the code itself)
+	 * But if one were to fail, then they all should, and if one were
+	 * to succeed, then they all should.
+	 */
+	mod_code_status = probe_kernel_write(mod_code_ip, mod_code_newcode,
+					     MCOUNT_INSN_SIZE);
+
+	/* if we fail, then kill any new writers */
+	if (mod_code_status)
+		clear_mod_flag();
+}
+
+void ftrace_nmi_enter(void)
+{
+	if (atomic_inc_return(&nmi_running) & MOD_CODE_WRITE_FLAG) {
+		smp_rmb();
+		ftrace_mod_code();
+		atomic_inc(&nmi_update_count);
+	}
+	/* Must have previous changes seen before executions */
+	smp_mb();
+}
+
+void ftrace_nmi_exit(void)
+{
+	/* Finish all executions before clearing nmi_running */
+	smp_mb();
+	atomic_dec(&nmi_running);
+}
+
+static void wait_for_nmi_and_set_mod_flag(void)
+{
+	if (!atomic_cmpxchg(&nmi_running, 0, MOD_CODE_WRITE_FLAG))
+		return;
+
+	do {
+		cpu_relax();
+	} while (atomic_cmpxchg(&nmi_running, 0, MOD_CODE_WRITE_FLAG));
+
+	nmi_wait_count++;
+}
+
+static void wait_for_nmi(void)
+{
+	if (!atomic_read(&nmi_running))
+		return;
+
+	do {
+		cpu_relax();
+	} while (atomic_read(&nmi_running));
+
+	nmi_wait_count++;
+}
+
+static int
+do_ftrace_mod_code(unsigned long ip, void *new_code)
+{
+	mod_code_ip = (void *)ip;
+	mod_code_newcode = new_code;
+
+	/* The buffers need to be visible before we let NMIs write them */
+	smp_mb();
+
+	wait_for_nmi_and_set_mod_flag();
+
+	/* Make sure all running NMIs have finished before we write the code */
+	smp_mb();
+
+	ftrace_mod_code();
+
+	/* Make sure the write happens before clearing the bit */
+	smp_mb();
+
+	clear_mod_flag();
+	wait_for_nmi();
+
+	return mod_code_status;
+}
+
+
+
+
+static unsigned char ftrace_nop[MCOUNT_INSN_SIZE];
+
+static unsigned char *ftrace_nop_replace(void)
+{
+	return ftrace_nop;
+}
+
+static int
 ftrace_modify_code(unsigned long ip, unsigned char *old_code,
 		   unsigned char *new_code)
 {
@@ -81,12 +247,35 @@ ftrace_modify_code(unsigned long ip, unsigned char *old_code,
 		return -EINVAL;
 
 	/* replace the text with the new text */
-	if (probe_kernel_write((void *)ip, new_code, MCOUNT_INSN_SIZE))
+	if (do_ftrace_mod_code(ip, new_code))
 		return -EPERM;
 
 	sync_core();
 
 	return 0;
+}
+
+int ftrace_make_nop(struct module *mod,
+		    struct dyn_ftrace *rec, unsigned long addr)
+{
+	unsigned char *new, *old;
+	unsigned long ip = rec->ip;
+
+	old = ftrace_call_replace(ip, addr);
+	new = ftrace_nop_replace();
+
+	return ftrace_modify_code(rec->ip, old, new);
+}
+
+int ftrace_make_call(struct dyn_ftrace *rec, unsigned long addr)
+{
+	unsigned char *new, *old;
+	unsigned long ip = rec->ip;
+
+	old = ftrace_nop_replace();
+	new = ftrace_call_replace(ip, addr);
+
+	return ftrace_modify_code(rec->ip, old, new);
 }
 
 int ftrace_update_ftrace_func(ftrace_func_t func)
@@ -165,3 +354,179 @@ int __init ftrace_dyn_arch_init(void *data)
 
 	return 0;
 }
+#endif
+
+#ifdef CONFIG_FUNCTION_GRAPH_TRACER
+
+#ifdef CONFIG_DYNAMIC_FTRACE
+extern void ftrace_graph_call(void);
+
+static int ftrace_mod_jmp(unsigned long ip,
+			  int old_offset, int new_offset)
+{
+	unsigned char code[MCOUNT_INSN_SIZE];
+
+	if (probe_kernel_read(code, (void *)ip, MCOUNT_INSN_SIZE))
+		return -EFAULT;
+
+	if (code[0] != 0xe9 || old_offset != *(int *)(&code[1]))
+		return -EINVAL;
+
+	*(int *)(&code[1]) = new_offset;
+
+	if (do_ftrace_mod_code(ip, &code))
+		return -EPERM;
+
+	return 0;
+}
+
+int ftrace_enable_ftrace_graph_caller(void)
+{
+	unsigned long ip = (unsigned long)(&ftrace_graph_call);
+	int old_offset, new_offset;
+
+	old_offset = (unsigned long)(&ftrace_stub) - (ip + MCOUNT_INSN_SIZE);
+	new_offset = (unsigned long)(&ftrace_graph_caller) - (ip + MCOUNT_INSN_SIZE);
+
+	return ftrace_mod_jmp(ip, old_offset, new_offset);
+}
+
+int ftrace_disable_ftrace_graph_caller(void)
+{
+	unsigned long ip = (unsigned long)(&ftrace_graph_call);
+	int old_offset, new_offset;
+
+	old_offset = (unsigned long)(&ftrace_graph_caller) - (ip + MCOUNT_INSN_SIZE);
+	new_offset = (unsigned long)(&ftrace_stub) - (ip + MCOUNT_INSN_SIZE);
+
+	return ftrace_mod_jmp(ip, old_offset, new_offset);
+}
+
+#endif /* !CONFIG_DYNAMIC_FTRACE */
+
+/*
+ * Hook the return address and push it in the stack of return addrs
+ * in current thread info.
+ */
+void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr)
+{
+	unsigned long old;
+	int faulted;
+	struct ftrace_graph_ent trace;
+	unsigned long return_hooker = (unsigned long)
+				&return_to_handler;
+
+	/* Nmi's are currently unsupported */
+	if (unlikely(in_nmi()))
+		return;
+
+	if (unlikely(atomic_read(&current->tracing_graph_pause)))
+		return;
+
+	/*
+	 * Protect against fault, even if it shouldn't
+	 * happen. This tool is too much intrusive to
+	 * ignore such a protection.
+	 */
+	asm volatile(
+		"1: " _ASM_MOV " (%[parent]), %[old]\n"
+		"2: " _ASM_MOV " %[return_hooker], (%[parent])\n"
+		"   movl $0, %[faulted]\n"
+		"3:\n"
+
+		".section .fixup, \"ax\"\n"
+		"4: movl $1, %[faulted]\n"
+		"   jmp 3b\n"
+		".previous\n"
+
+		_ASM_EXTABLE(1b, 4b)
+		_ASM_EXTABLE(2b, 4b)
+
+		: [old] "=r" (old), [faulted] "=r" (faulted)
+		: [parent] "r" (parent), [return_hooker] "r" (return_hooker)
+		: "memory"
+	);
+
+	if (unlikely(faulted)) {
+		ftrace_graph_stop();
+		WARN_ON(1);
+		return;
+	}
+
+	if (ftrace_push_return_trace(old, self_addr, &trace.depth) == -EBUSY) {
+		*parent = old;
+		return;
+	}
+
+	trace.func = self_addr;
+
+	/* Only trace if the calling function expects to */
+	if (!ftrace_graph_entry(&trace)) {
+		current->curr_ret_stack--;
+		*parent = old;
+	}
+}
+#endif /* CONFIG_FUNCTION_GRAPH_TRACER */
+
+#ifdef CONFIG_FTRACE_SYSCALLS
+
+extern unsigned long __start_syscalls_metadata[];
+extern unsigned long __stop_syscalls_metadata[];
+extern unsigned long *sys_call_table;
+
+static struct syscall_metadata **syscalls_metadata;
+
+static struct syscall_metadata *find_syscall_meta(unsigned long *syscall)
+{
+	struct syscall_metadata *start;
+	struct syscall_metadata *stop;
+	char str[KSYM_SYMBOL_LEN];
+
+
+	start = (struct syscall_metadata *)__start_syscalls_metadata;
+	stop = (struct syscall_metadata *)__stop_syscalls_metadata;
+	kallsyms_lookup((unsigned long) syscall, NULL, NULL, NULL, str);
+
+	for ( ; start < stop; start++) {
+		if (start->name && !strcmp(start->name, str))
+			return start;
+	}
+	return NULL;
+}
+
+struct syscall_metadata *syscall_nr_to_meta(int nr)
+{
+	if (!syscalls_metadata || nr >= FTRACE_SYSCALL_MAX || nr < 0)
+		return NULL;
+
+	return syscalls_metadata[nr];
+}
+
+void arch_init_ftrace_syscalls(void)
+{
+	int i;
+	struct syscall_metadata *meta;
+	unsigned long **psys_syscall_table = &sys_call_table;
+	static atomic_t refs;
+
+	if (atomic_inc_return(&refs) != 1)
+		goto end;
+
+	syscalls_metadata = kzalloc(sizeof(*syscalls_metadata) *
+					FTRACE_SYSCALL_MAX, GFP_KERNEL);
+	if (!syscalls_metadata) {
+		WARN_ON(1);
+		return;
+	}
+
+	for (i = 0; i < FTRACE_SYSCALL_MAX; i++) {
+		meta = find_syscall_meta(psys_syscall_table[i]);
+		syscalls_metadata[i] = meta;
+	}
+	return;
+
+	/* Paranoid: avoid overflow */
+end:
+	atomic_dec(&refs);
+}
+#endif

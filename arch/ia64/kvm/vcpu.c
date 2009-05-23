@@ -112,7 +112,6 @@ void switch_to_physical_rid(struct kvm_vcpu *vcpu)
 	return;
 }
 
-
 void switch_to_virtual_rid(struct kvm_vcpu *vcpu)
 {
 	unsigned long psr;
@@ -165,8 +164,6 @@ void switch_mm_mode(struct kvm_vcpu *vcpu, struct ia64_psr old_psr,
 	}
 	return;
 }
-
-
 
 /*
  * In physical mode, insert tc/tr for region 0 and 4 uses
@@ -268,7 +265,6 @@ static inline unsigned long fph_index(struct kvm_pt_regs *regs,
 	unsigned long rrb_fr = (regs->cr_ifs >> 25) & 0x7f;
 	return rotate_reg(96, rrb_fr, (regnum - IA64_FIRST_ROTATING_FR));
 }
-
 
 /*
  * The inverse of the above: given bspstore and the number of
@@ -390,7 +386,7 @@ void set_rse_reg(struct kvm_pt_regs *regs, unsigned long r1,
 		else
 			*rnat_addr = (*rnat_addr) & (~nat_mask);
 
-		ia64_setreg(_IA64_REG_AR_BSPSTORE, bspstore);
+		ia64_setreg(_IA64_REG_AR_BSPSTORE, (unsigned long)bspstore);
 		ia64_setreg(_IA64_REG_AR_RNAT, rnat);
 	}
 	local_irq_restore(psr);
@@ -811,13 +807,17 @@ static inline void vcpu_set_itm(struct kvm_vcpu *vcpu, u64 val);
 static void vcpu_set_itc(struct kvm_vcpu *vcpu, u64 val)
 {
 	struct kvm_vcpu *v;
+	struct kvm *kvm;
 	int i;
 	long itc_offset = val - ia64_getreg(_IA64_REG_AR_ITC);
 	unsigned long vitv = VCPU(vcpu, itv);
 
+	kvm = (struct kvm *)KVM_VM_BASE;
+
 	if (vcpu->vcpu_id == 0) {
-		for (i = 0; i < MAX_VCPU_NUM; i++) {
-			v = (struct kvm_vcpu *)((char *)vcpu + VCPU_SIZE * i);
+		for (i = 0; i < kvm->arch.online_vcpus; i++) {
+			v = (struct kvm_vcpu *)((char *)vcpu +
+					sizeof(struct kvm_vcpu_data) * i);
 			VMX(v, itc_offset) = itc_offset;
 			VMX(v, last_itc) = 0;
 		}
@@ -1038,8 +1038,6 @@ u64 vcpu_tak(struct kvm_vcpu *vcpu, u64 vadr)
 	return key;
 }
 
-
-
 void kvm_thash(struct kvm_vcpu *vcpu, INST64 inst)
 {
 	unsigned long thash, vadr;
@@ -1048,7 +1046,6 @@ void kvm_thash(struct kvm_vcpu *vcpu, INST64 inst)
 	thash = vcpu_thash(vcpu, vadr);
 	vcpu_set_gr(vcpu, inst.M46.r1, thash, 0);
 }
-
 
 void kvm_ttag(struct kvm_vcpu *vcpu, INST64 inst)
 {
@@ -1130,7 +1127,6 @@ int vcpu_tpa(struct kvm_vcpu *vcpu, u64 vadr, u64 *padr)
 	return IA64_NO_FAULT;
 }
 
-
 int kvm_tpa(struct kvm_vcpu *vcpu, INST64 inst)
 {
 	unsigned long r1, r3;
@@ -1152,7 +1148,6 @@ void kvm_tak(struct kvm_vcpu *vcpu, INST64 inst)
 	r1 = vcpu_tak(vcpu, r3);
 	vcpu_set_gr(vcpu, inst.M46.r1, r1, 0);
 }
-
 
 /************************************
  * Insert/Purge translation register/cache
@@ -1384,7 +1379,6 @@ void kvm_mov_to_ar_reg(struct kvm_vcpu *vcpu, INST64 inst)
 	vcpu_set_itc(vcpu, r2);
 }
 
-
 void kvm_mov_from_ar_reg(struct kvm_vcpu *vcpu, INST64 inst)
 {
 	unsigned long r1;
@@ -1392,8 +1386,9 @@ void kvm_mov_from_ar_reg(struct kvm_vcpu *vcpu, INST64 inst)
 	r1 = vcpu_get_itc(vcpu);
 	vcpu_set_gr(vcpu, inst.M31.r1, r1, 0);
 }
+
 /**************************************************************************
-  struct kvm_vcpu*protection key register access routines
+  struct kvm_vcpu protection key register access routines
  **************************************************************************/
 
 unsigned long vcpu_get_pkr(struct kvm_vcpu *vcpu, unsigned long reg)
@@ -1405,20 +1400,6 @@ void vcpu_set_pkr(struct kvm_vcpu *vcpu, unsigned long reg, unsigned long val)
 {
 	ia64_set_pkr(reg, val);
 }
-
-
-unsigned long vcpu_get_itir_on_fault(struct kvm_vcpu *vcpu, unsigned long ifa)
-{
-	union ia64_rr rr, rr1;
-
-	rr.val = vcpu_get_rr(vcpu, ifa);
-	rr1.val = 0;
-	rr1.ps = rr.ps;
-	rr1.rid = rr.rid;
-	return (rr1.val);
-}
-
-
 
 /********************************
  * Moves to privileged registers
@@ -1462,8 +1443,6 @@ unsigned long vcpu_set_rr(struct kvm_vcpu *vcpu, unsigned long reg,
 
 	return (IA64_NO_FAULT);
 }
-
-
 
 void kvm_mov_to_rr(struct kvm_vcpu *vcpu, INST64 inst)
 {
@@ -1509,8 +1488,6 @@ void kvm_mov_to_pkr(struct kvm_vcpu *vcpu, INST64 inst)
 	vcpu_set_pkr(vcpu, r3, r2);
 }
 
-
-
 void kvm_mov_from_rr(struct kvm_vcpu *vcpu, INST64 inst)
 {
 	unsigned long r3, r1;
@@ -1555,7 +1532,6 @@ void kvm_mov_from_pmc(struct kvm_vcpu *vcpu, INST64 inst)
 	r1 = vcpu_get_pmc(vcpu, r3);
 	vcpu_set_gr(vcpu, inst.M43.r1, r1, 0);
 }
-
 
 unsigned long vcpu_get_cpuid(struct kvm_vcpu *vcpu, unsigned long reg)
 {
@@ -1608,7 +1584,6 @@ unsigned long kvm_mov_to_cr(struct kvm_vcpu *vcpu, INST64 inst)
 	return 0;
 }
 
-
 unsigned long kvm_mov_from_cr(struct kvm_vcpu *vcpu, INST64 inst)
 {
 	unsigned long tgt = inst.M33.r1;
@@ -1632,8 +1607,6 @@ unsigned long kvm_mov_from_cr(struct kvm_vcpu *vcpu, INST64 inst)
 	return 0;
 }
 
-
-
 void vcpu_set_psr(struct kvm_vcpu *vcpu, unsigned long val)
 {
 
@@ -1650,7 +1623,8 @@ void vcpu_set_psr(struct kvm_vcpu *vcpu, unsigned long val)
 	 * Otherwise panic
 	 */
 	if (val & (IA64_PSR_PK | IA64_PSR_IS | IA64_PSR_VM))
-		panic_vm(vcpu);
+		panic_vm(vcpu, "Only support guests with vpsr.pk =0 \
+				& vpsr.is=0\n");
 
 	/*
 	 * For those IA64_PSR bits: id/da/dd/ss/ed/ia
@@ -1774,9 +1748,6 @@ void vcpu_bsw1(struct kvm_vcpu *vcpu)
 	}
 }
 
-
-
-
 void vcpu_rfi(struct kvm_vcpu *vcpu)
 {
 	unsigned long ifs, psr;
@@ -1793,7 +1764,6 @@ void vcpu_rfi(struct kvm_vcpu *vcpu)
 		regs->cr_ifs = ifs;
 	regs->cr_iip = VCPU(vcpu, iip);
 }
-
 
 /*
    VPSR can't keep track of below bits of guest PSR
@@ -2103,7 +2073,7 @@ void kvm_init_all_rr(struct kvm_vcpu *vcpu)
 
 	if (is_physical_mode(vcpu)) {
 		if (vcpu->arch.mode_flags & GUEST_PHY_EMUL)
-			panic_vm(vcpu);
+			panic_vm(vcpu, "Machine Status conflicts!\n");
 
 		ia64_set_rr((VRN0 << VRN_SHIFT), vcpu->arch.metaphysical_rr0);
 		ia64_dv_serialize_data();
@@ -2152,10 +2122,70 @@ int vmm_entry(void)
 	return 0;
 }
 
-void panic_vm(struct kvm_vcpu *v)
+static void kvm_show_registers(struct kvm_pt_regs *regs)
 {
-	struct exit_ctl_data *p = &v->arch.exit_data;
+	unsigned long ip = regs->cr_iip + ia64_psr(regs)->ri;
 
+	struct kvm_vcpu *vcpu = current_vcpu;
+	if (vcpu != NULL)
+		printk("vcpu 0x%p vcpu %d\n",
+		       vcpu, vcpu->vcpu_id);
+
+	printk("psr : %016lx ifs : %016lx ip  : [<%016lx>]\n",
+	       regs->cr_ipsr, regs->cr_ifs, ip);
+
+	printk("unat: %016lx pfs : %016lx rsc : %016lx\n",
+	       regs->ar_unat, regs->ar_pfs, regs->ar_rsc);
+	printk("rnat: %016lx bspstore: %016lx pr  : %016lx\n",
+	       regs->ar_rnat, regs->ar_bspstore, regs->pr);
+	printk("ldrs: %016lx ccv : %016lx fpsr: %016lx\n",
+	       regs->loadrs, regs->ar_ccv, regs->ar_fpsr);
+	printk("csd : %016lx ssd : %016lx\n", regs->ar_csd, regs->ar_ssd);
+	printk("b0  : %016lx b6  : %016lx b7  : %016lx\n", regs->b0,
+							regs->b6, regs->b7);
+	printk("f6  : %05lx%016lx f7  : %05lx%016lx\n",
+	       regs->f6.u.bits[1], regs->f6.u.bits[0],
+	       regs->f7.u.bits[1], regs->f7.u.bits[0]);
+	printk("f8  : %05lx%016lx f9  : %05lx%016lx\n",
+	       regs->f8.u.bits[1], regs->f8.u.bits[0],
+	       regs->f9.u.bits[1], regs->f9.u.bits[0]);
+	printk("f10 : %05lx%016lx f11 : %05lx%016lx\n",
+	       regs->f10.u.bits[1], regs->f10.u.bits[0],
+	       regs->f11.u.bits[1], regs->f11.u.bits[0]);
+
+	printk("r1  : %016lx r2  : %016lx r3  : %016lx\n", regs->r1,
+							regs->r2, regs->r3);
+	printk("r8  : %016lx r9  : %016lx r10 : %016lx\n", regs->r8,
+							regs->r9, regs->r10);
+	printk("r11 : %016lx r12 : %016lx r13 : %016lx\n", regs->r11,
+							regs->r12, regs->r13);
+	printk("r14 : %016lx r15 : %016lx r16 : %016lx\n", regs->r14,
+							regs->r15, regs->r16);
+	printk("r17 : %016lx r18 : %016lx r19 : %016lx\n", regs->r17,
+							regs->r18, regs->r19);
+	printk("r20 : %016lx r21 : %016lx r22 : %016lx\n", regs->r20,
+							regs->r21, regs->r22);
+	printk("r23 : %016lx r24 : %016lx r25 : %016lx\n", regs->r23,
+							regs->r24, regs->r25);
+	printk("r26 : %016lx r27 : %016lx r28 : %016lx\n", regs->r26,
+							regs->r27, regs->r28);
+	printk("r29 : %016lx r30 : %016lx r31 : %016lx\n", regs->r29,
+							regs->r30, regs->r31);
+
+}
+
+void panic_vm(struct kvm_vcpu *v, const char *fmt, ...)
+{
+	va_list args;
+	char buf[256];
+
+	struct kvm_pt_regs *regs = vcpu_regs(v);
+	struct exit_ctl_data *p = &v->arch.exit_data;
+	va_start(args, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, args);
+	va_end(args);
+	printk(buf);
+	kvm_show_registers(regs);
 	p->exit_reason = EXIT_REASON_VM_PANIC;
 	vmm_transition(v);
 	/*Never to return*/

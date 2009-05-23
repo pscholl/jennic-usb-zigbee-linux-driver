@@ -29,6 +29,8 @@ obj-$(CONFIG_DMAR) += dmar.o iova.o intel-iommu.o
 
 obj-$(CONFIG_INTR_REMAP) += dmar.o intr_remapping.o
 
+obj-$(CONFIG_PCI_IOV) += iov.o
+
 #
 # Some architectures use the generic PCI setup functions
 #
@@ -52,6 +54,8 @@ obj-$(CONFIG_ACPI)    += pci-acpi.o
 obj-$(CONFIG_HOTPLUG) += setup-bus.o
 
 obj-$(CONFIG_PCI_SYSCALL) += syscall.o
+
+obj-$(CONFIG_PCI_STUB) += pci-stub.o
 
 ifeq ($(CONFIG_PCI_DEBUG),y)
 EXTRA_CFLAGS += -DDEBUG

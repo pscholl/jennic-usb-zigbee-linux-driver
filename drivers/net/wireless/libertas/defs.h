@@ -41,6 +41,7 @@
 #define LBS_DEB_HEX	0x00200000
 #define LBS_DEB_SDIO	0x00400000
 #define LBS_DEB_SYSFS	0x00800000
+#define LBS_DEB_SPI	0x01000000
 
 extern unsigned int lbs_debug;
 
@@ -79,11 +80,12 @@ do { if ((lbs_debug & (grp)) == (grp)) \
 #define lbs_deb_tx(fmt, args...)        LBS_DEB_LL(LBS_DEB_TX, " tx", fmt, ##args)
 #define lbs_deb_fw(fmt, args...)        LBS_DEB_LL(LBS_DEB_FW, " fw", fmt, ##args)
 #define lbs_deb_usb(fmt, args...)       LBS_DEB_LL(LBS_DEB_USB, " usb", fmt, ##args)
-#define lbs_deb_usbd(dev, fmt, args...) LBS_DEB_LL(LBS_DEB_USB, " usbd", "%s:" fmt, (dev)->bus_id, ##args)
+#define lbs_deb_usbd(dev, fmt, args...) LBS_DEB_LL(LBS_DEB_USB, " usbd", "%s:" fmt, dev_name(dev), ##args)
 #define lbs_deb_cs(fmt, args...)        LBS_DEB_LL(LBS_DEB_CS, " cs", fmt, ##args)
 #define lbs_deb_thread(fmt, args...)    LBS_DEB_LL(LBS_DEB_THREAD, " thread", fmt, ##args)
 #define lbs_deb_sdio(fmt, args...)      LBS_DEB_LL(LBS_DEB_SDIO, " sdio", fmt, ##args)
 #define lbs_deb_sysfs(fmt, args...)     LBS_DEB_LL(LBS_DEB_SYSFS, " sysfs", fmt, ##args)
+#define lbs_deb_spi(fmt, args...)       LBS_DEB_LL(LBS_DEB_SPI, " spi", fmt, ##args)
 
 #define lbs_pr_info(format, args...) \
 	printk(KERN_INFO DRV_NAME": " format, ## args)
@@ -149,6 +151,18 @@ static inline void lbs_deb_hex(unsigned int grp, const char *prompt, u8 *buf, in
 #define EHS_WAKE_ON_MAC_EVENT		0x0004
 #define EHS_WAKE_ON_MULTICAST_DATA	0x0008
 #define EHS_REMOVE_WAKEUP		0xFFFFFFFF
+/* Wake rules for Host_Sleep_CFG command */
+#define WOL_RULE_NET_TYPE_INFRA_OR_IBSS	0x00
+#define WOL_RULE_NET_TYPE_MESH		0x10
+#define WOL_RULE_ADDR_TYPE_BCAST	0x01
+#define WOL_RULE_ADDR_TYPE_MCAST	0x08
+#define WOL_RULE_ADDR_TYPE_UCAST	0x02
+#define WOL_RULE_OP_AND			0x01
+#define WOL_RULE_OP_OR			0x02
+#define WOL_RULE_OP_INVALID		0xFF
+#define WOL_RESULT_VALID_CMD		0
+#define WOL_RESULT_NOSPC_ERR		1
+#define WOL_RESULT_EEXIST_ERR		2
 
 /** Misc constants */
 /* This section defines 802.11 specific contants */
@@ -251,6 +265,7 @@ static inline void lbs_deb_hex(unsigned int grp, const char *prompt, u8 *buf, in
 
 #define	CMD_F_HOSTCMD		(1 << 0)
 #define FW_CAPINFO_WPA  	(1 << 0)
+#define FW_CAPINFO_PS  		(1 << 1)
 #define FW_CAPINFO_FIRMWARE_UPGRADE	(1 << 13)
 #define FW_CAPINFO_BOOT2_UPGRADE	(1<<14)
 #define FW_CAPINFO_PERSISTENT_CONFIG	(1<<15)

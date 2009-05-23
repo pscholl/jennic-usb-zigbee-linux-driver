@@ -153,6 +153,22 @@ out:
 	return ERR_PTR(err);
 }
 
+
+static const struct net_device_ops ultra32_netdev_ops = {
+	.ndo_open 		= ultra32_open,
+	.ndo_stop 		= ultra32_close,
+	.ndo_start_xmit		= ei_start_xmit,
+	.ndo_tx_timeout		= ei_tx_timeout,
+	.ndo_get_stats		= ei_get_stats,
+	.ndo_set_multicast_list = ei_set_multicast_list,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller	= ei_poll,
+#endif
+};
+
 static int __init ultra32_probe1(struct net_device *dev, int ioaddr)
 {
 	int i, edge, media, retval;
@@ -163,7 +179,6 @@ static int __init ultra32_probe1(struct net_device *dev, int ioaddr)
 	unsigned char idreg;
 	unsigned char reg4;
 	const char *ifmap[] = {"UTP No Link", "", "UTP/AUI", "UTP/BNC"};
-	DECLARE_MAC_BUF(mac);
 
 	if (!request_region(ioaddr, ULTRA32_IO_EXTENT, DRV_NAME))
 		return -EBUSY;
@@ -207,8 +222,8 @@ static int __init ultra32_probe1(struct net_device *dev, int ioaddr)
 	for (i = 0; i < 6; i++)
 		dev->dev_addr[i] = inb(ioaddr + 8 + i);
 
-	printk("%s: %s at 0x%X, %s",
-	       dev->name, model_name, ioaddr, print_mac(mac, dev->dev_addr));
+	printk("%s: %s at 0x%X, %pM",
+	       dev->name, model_name, ioaddr, dev->dev_addr);
 
 	/* Switch from the station address to the alternate register set and
 	   read the useful registers there. */
@@ -274,11 +289,8 @@ static int __init ultra32_probe1(struct net_device *dev, int ioaddr)
 	ei_status.block_output = &ultra32_block_output;
 	ei_status.get_8390_hdr = &ultra32_get_8390_hdr;
 	ei_status.reset_8390 = &ultra32_reset_8390;
-	dev->open = &ultra32_open;
-	dev->stop = &ultra32_close;
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = ei_poll;
-#endif
+
+	dev->netdev_ops = &ultra32_netdev_ops;
 	NS8390_init(dev, 0);
 
 	return 0;

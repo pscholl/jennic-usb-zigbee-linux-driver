@@ -273,8 +273,7 @@ int can_send(struct sk_buff *skb, int loop)
 		err = net_xmit_errno(err);
 
 	if (err) {
-		if (newskb)
-			kfree_skb(newskb);
+		kfree_skb(newskb);
 		return err;
 	}
 
@@ -413,6 +412,12 @@ static struct hlist_head *find_rcv_list(canid_t *can_id, canid_t *mask,
  *
  *  The filter can be inverted (CAN_INV_FILTER bit set in can_id) or it can
  *  filter for error frames (CAN_ERR_FLAG bit set in mask).
+ *
+ *  The provided pointer to the sk_buff is guaranteed to be valid as long as
+ *  the callback function is running. The callback function must *not* free
+ *  the given sk_buff while processing it's task. When the given sk_buff is
+ *  needed after the end of the callback function it must be cloned inside
+ *  the callback function with skb_clone().
  *
  * Return:
  *  0 on success
@@ -569,13 +574,8 @@ EXPORT_SYMBOL(can_rx_unregister);
 
 static inline void deliver(struct sk_buff *skb, struct receiver *r)
 {
-	struct sk_buff *clone = skb_clone(skb, GFP_ATOMIC);
-
-	if (clone) {
-		clone->sk = skb->sk;
-		r->func(clone, r->data);
-		r->matches++;
-	}
+	r->func(skb, r->data);
+	r->matches++;
 }
 
 static int can_rcv_filter(struct dev_rcv_lists *d, struct sk_buff *skb)
@@ -674,8 +674,8 @@ static int can_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	rcu_read_unlock();
 
-	/* free the skbuff allocated by the netdevice driver */
-	kfree_skb(skb);
+	/* consume the skbuff allocated by the netdevice driver */
+	consume_skb(skb);
 
 	if (matches > 0) {
 		can_stats.matches++;
@@ -827,7 +827,7 @@ static int can_notifier(struct notifier_block *nb, unsigned long msg,
  */
 
 static struct packet_type can_packet __read_mostly = {
-	.type = __constant_htons(ETH_P_CAN),
+	.type = cpu_to_be16(ETH_P_CAN),
 	.dev  = NULL,
 	.func = can_rcv,
 };

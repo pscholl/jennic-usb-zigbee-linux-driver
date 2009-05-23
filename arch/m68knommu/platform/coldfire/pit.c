@@ -125,7 +125,7 @@ static struct irqaction pit_irq = {
 
 /***************************************************************************/
 
-static cycle_t pit_read_clk(void)
+static cycle_t pit_read_clk(struct clocksource *cs)
 {
 	unsigned long flags;
 	u32 cycles;
@@ -156,7 +156,7 @@ void hw_timer_init(void)
 {
 	u32 imr;
 
-	cf_pit_clockevent.cpumask = cpumask_of_cpu(smp_processor_id());
+	cf_pit_clockevent.cpumask = cpumask_of(smp_processor_id());
 	cf_pit_clockevent.mult = div_sc(FREQ, NSEC_PER_SEC, 32);
 	cf_pit_clockevent.max_delta_ns =
 		clockevent_delta2ns(0xFFFF, &cf_pit_clockevent);

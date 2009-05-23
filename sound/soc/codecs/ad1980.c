@@ -85,24 +85,13 @@ SOC_DOUBLE("Line HP Swap Switch", AC97_AD_MISC, 10, 5, 1, 0),
 SOC_DOUBLE("Surround Playback Volume", AC97_SURROUND_MASTER, 8, 0, 31, 1),
 SOC_DOUBLE("Surround Playback Switch", AC97_SURROUND_MASTER, 15, 7, 1, 1),
 
+SOC_DOUBLE("Center/LFE Playback Volume", AC97_CENTER_LFE_MASTER, 8, 0, 31, 1),
+SOC_DOUBLE("Center/LFE Playback Switch", AC97_CENTER_LFE_MASTER, 15, 7, 1, 1),
+
 SOC_ENUM("Capture Source", ad1980_cap_src),
 
 SOC_SINGLE("Mic Boost Switch", AC97_MIC, 6, 1, 0),
 };
-
-/* add non dapm controls */
-static int ad1980_add_controls(struct snd_soc_codec *codec)
-{
-	int err, i;
-
-	for (i = 0; i < ARRAY_SIZE(ad1980_snd_ac97_controls); i++) {
-		err = snd_ctl_add(codec->card, snd_soc_cnew(
-				&ad1980_snd_ac97_controls[i], codec, NULL));
-		if (err < 0)
-			return err;
-	}
-	return 0;
-}
 
 static unsigned int ac97_read(struct snd_soc_codec *codec,
 	unsigned int reg)
@@ -120,7 +109,7 @@ static unsigned int ac97_read(struct snd_soc_codec *codec,
 	default:
 		reg = reg >> 1;
 
-		if (reg >= (ARRAY_SIZE(ad1980_reg)))
+		if (reg >= ARRAY_SIZE(ad1980_reg))
 			return -EINVAL;
 
 		return cache[reg];
@@ -134,7 +123,7 @@ static int ac97_write(struct snd_soc_codec *codec, unsigned int reg,
 
 	soc_ac97_ops.write(codec->ac97, reg, val);
 	reg = reg >> 1;
-	if (reg < (ARRAY_SIZE(ad1980_reg)))
+	if (reg < ARRAY_SIZE(ad1980_reg))
 		cache[reg] = val;
 
 	return 0;
@@ -142,10 +131,11 @@ static int ac97_write(struct snd_soc_codec *codec, unsigned int reg,
 
 struct snd_soc_dai ad1980_dai = {
 	.name = "AC97",
+	.ac97_control = 1,
 	.playback = {
 		.stream_name = "Playback",
 		.channels_min = 2,
-		.channels_max = 2,
+		.channels_max = 6,
 		.rates = SNDRV_PCM_RATE_48000,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE, },
 	.capture = {
@@ -192,13 +182,14 @@ static int ad1980_soc_probe(struct platform_device *pdev)
 	struct snd_soc_codec *codec;
 	int ret = 0;
 	u16 vendor_id2;
+	u16 ext_status;
 
 	printk(KERN_INFO "AD1980 SoC Audio Codec\n");
 
-	socdev->codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
-	if (socdev->codec == NULL)
+	socdev->card->codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
+	if (socdev->card->codec == NULL)
 		return -ENOMEM;
-	codec = socdev->codec;
+	codec = socdev->card->codec;
 	mutex_init(&codec->mutex);
 
 	codec->reg_cache =
@@ -234,7 +225,7 @@ static int ad1980_soc_probe(struct platform_device *pdev)
 
 	ret = ad1980_reset(codec, 0);
 	if (ret < 0) {
-		printk(KERN_ERR "AC97 link error\n");
+		printk(KERN_ERR "Failed to reset AD1980: AC97 link error\n");
 		goto reset_err;
 	}
 
@@ -253,12 +244,20 @@ static int ad1980_soc_probe(struct platform_device *pdev)
 				"supported\n");
 	}
 
-	ac97_write(codec, AC97_MASTER, 0x0000); /* unmute line out volume */
-	ac97_write(codec, AC97_PCM, 0x0000);	/* unmute PCM out volume */
-	ac97_write(codec, AC97_REC_GAIN, 0x0000);/* unmute record volume */
+	/* unmute captures and playbacks volume */
+	ac97_write(codec, AC97_MASTER, 0x0000);
+	ac97_write(codec, AC97_PCM, 0x0000);
+	ac97_write(codec, AC97_REC_GAIN, 0x0000);
+	ac97_write(codec, AC97_CENTER_LFE_MASTER, 0x0000);
+	ac97_write(codec, AC97_SURROUND_MASTER, 0x0000);
 
-	ad1980_add_controls(codec);
-	ret = snd_soc_register_card(socdev);
+	/*power on LFE/CENTER/Surround DACs*/
+	ext_status = ac97_read(codec, AC97_EXTENDED_STATUS);
+	ac97_write(codec, AC97_EXTENDED_STATUS, ext_status&~0x3800);
+
+	snd_soc_add_controls(codec, ad1980_snd_ac97_controls,
+				ARRAY_SIZE(ad1980_snd_ac97_controls));
+	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
 		printk(KERN_ERR "ad1980: failed to register card\n");
 		goto reset_err;
@@ -276,15 +275,15 @@ codec_err:
 	kfree(codec->reg_cache);
 
 cache_err:
-	kfree(socdev->codec);
-	socdev->codec = NULL;
+	kfree(socdev->card->codec);
+	socdev->card->codec = NULL;
 	return ret;
 }
 
 static int ad1980_soc_remove(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 
 	if (codec == NULL)
 		return 0;

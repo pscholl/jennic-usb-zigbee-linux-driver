@@ -464,7 +464,7 @@ void tty_wakeup(struct tty_struct *tty)
 			tty_ldisc_deref(ld);
 		}
 	}
-	wake_up_interruptible(&tty->write_wait);
+	wake_up_interruptible_poll(&tty->write_wait, POLLOUT);
 }
 
 EXPORT_SYMBOL_GPL(tty_wakeup);
@@ -587,8 +587,8 @@ static void do_tty_hangup(struct work_struct *work)
 	 * FIXME: Once we trust the LDISC code better we can wait here for
 	 * ldisc completion and fix the driver call race
 	 */
-	wake_up_interruptible(&tty->write_wait);
-	wake_up_interruptible(&tty->read_wait);
+	wake_up_interruptible_poll(&tty->write_wait, POLLOUT);
+	wake_up_interruptible_poll(&tty->read_wait, POLLIN);
 	/*
 	 * Shutdown the current line discipline, and reset it to
 	 * N_TTY.
@@ -879,7 +879,7 @@ void stop_tty(struct tty_struct *tty)
 	if (tty->link && tty->link->packet) {
 		tty->ctrl_status &= ~TIOCPKT_START;
 		tty->ctrl_status |= TIOCPKT_STOP;
-		wake_up_interruptible(&tty->link->read_wait);
+		wake_up_interruptible_poll(&tty->link->read_wait, POLLIN);
 	}
 	spin_unlock_irqrestore(&tty->ctrl_lock, flags);
 	if (tty->ops->stop)
@@ -913,7 +913,7 @@ void start_tty(struct tty_struct *tty)
 	if (tty->link && tty->link->packet) {
 		tty->ctrl_status &= ~TIOCPKT_STOP;
 		tty->ctrl_status |= TIOCPKT_START;
-		wake_up_interruptible(&tty->link->read_wait);
+		wake_up_interruptible_poll(&tty->link->read_wait, POLLIN);
 	}
 	spin_unlock_irqrestore(&tty->ctrl_lock, flags);
 	if (tty->ops->start)
@@ -970,7 +970,7 @@ static ssize_t tty_read(struct file *file, char __user *buf, size_t count,
 void tty_write_unlock(struct tty_struct *tty)
 {
 	mutex_unlock(&tty->atomic_write_lock);
-	wake_up_interruptible(&tty->write_wait);
+	wake_up_interruptible_poll(&tty->write_wait, POLLOUT);
 }
 
 int tty_write_lock(struct tty_struct *tty, int ndelay)
@@ -1111,9 +1111,7 @@ void tty_write_message(struct tty_struct *tty, char *msg)
  *		Locks the line discipline as required
  *		Writes to the tty driver are serialized by the atomic_write_lock
  *	and are then processed in chunks to the device. The line discipline
- *	write method will not be involked in parallel for each device
- *		The line discipline write method is called under the big
- *	kernel lock for historical reasons. New code should not rely on this.
+ *	write method will not be invoked in parallel for each device.
  */
 
 static ssize_t tty_write(struct file *file, const char __user *buf,
@@ -1213,7 +1211,7 @@ static void tty_line_name(struct tty_driver *driver, int index, char *p)
  *	be held until the 'fast-open' is also done. Will change once we
  *	have refcounting in the driver and per driver locking
  */
-struct tty_struct *tty_driver_lookup_tty(struct tty_driver *driver,
+static struct tty_struct *tty_driver_lookup_tty(struct tty_driver *driver,
 		struct inode *inode, int idx)
 {
 	struct tty_struct *tty;
@@ -1625,21 +1623,21 @@ void tty_release_dev(struct file *filp)
 
 		if (tty_closing) {
 			if (waitqueue_active(&tty->read_wait)) {
-				wake_up(&tty->read_wait);
+				wake_up_poll(&tty->read_wait, POLLIN);
 				do_sleep++;
 			}
 			if (waitqueue_active(&tty->write_wait)) {
-				wake_up(&tty->write_wait);
+				wake_up_poll(&tty->write_wait, POLLOUT);
 				do_sleep++;
 			}
 		}
 		if (o_tty_closing) {
 			if (waitqueue_active(&o_tty->read_wait)) {
-				wake_up(&o_tty->read_wait);
+				wake_up_poll(&o_tty->read_wait, POLLIN);
 				do_sleep++;
 			}
 			if (waitqueue_active(&o_tty->write_wait)) {
-				wake_up(&o_tty->write_wait);
+				wake_up_poll(&o_tty->write_wait, POLLOUT);
 				do_sleep++;
 			}
 		}
@@ -1760,7 +1758,7 @@ static int __tty_open(struct inode *inode, struct file *filp)
 	struct tty_driver *driver;
 	int index;
 	dev_t device = inode->i_rdev;
-	unsigned short saved_flags = filp->f_flags;
+	unsigned saved_flags = filp->f_flags;
 
 	nonseekable_open(inode, filp);
 
@@ -1819,8 +1817,10 @@ got_driver:
 		/* check whether we're reopening an existing tty */
 		tty = tty_driver_lookup_tty(driver, inode, index);
 
-		if (IS_ERR(tty))
+		if (IS_ERR(tty)) {
+			mutex_unlock(&tty_mutex);
 			return PTR_ERR(tty);
+		}
 	}
 
 	if (tty) {
@@ -2018,6 +2018,7 @@ static int tiocsti(struct tty_struct *tty, char __user *p)
 		return -EPERM;
 	if (get_user(ch, p))
 		return -EFAULT;
+	tty_audit_tiocsti(tty, ch);
 	ld = tty_ldisc_ref_wait(tty);
 	ld->ops->receive_buf(tty, &ch, &mbz, 1);
 	tty_ldisc_deref(ld);
@@ -2049,7 +2050,6 @@ static int tiocgwinsz(struct tty_struct *tty, struct winsize __user *arg)
 /**
  *	tty_do_resize		-	resize event
  *	@tty: tty being resized
- *	@real_tty: real tty (not the same as tty if using a pty/tty pair)
  *	@rows: rows (character)
  *	@cols: cols (character)
  *
@@ -2057,41 +2057,34 @@ static int tiocgwinsz(struct tty_struct *tty, struct winsize __user *arg)
  *	peform a terminal resize correctly
  */
 
-int tty_do_resize(struct tty_struct *tty, struct tty_struct *real_tty,
-					struct winsize *ws)
+int tty_do_resize(struct tty_struct *tty, struct winsize *ws)
 {
-	struct pid *pgrp, *rpgrp;
+	struct pid *pgrp;
 	unsigned long flags;
 
-	/* For a PTY we need to lock the tty side */
-	mutex_lock(&real_tty->termios_mutex);
-	if (!memcmp(ws, &real_tty->winsize, sizeof(*ws)))
+	/* Lock the tty */
+	mutex_lock(&tty->termios_mutex);
+	if (!memcmp(ws, &tty->winsize, sizeof(*ws)))
 		goto done;
 	/* Get the PID values and reference them so we can
 	   avoid holding the tty ctrl lock while sending signals */
 	spin_lock_irqsave(&tty->ctrl_lock, flags);
 	pgrp = get_pid(tty->pgrp);
-	rpgrp = get_pid(real_tty->pgrp);
 	spin_unlock_irqrestore(&tty->ctrl_lock, flags);
 
 	if (pgrp)
 		kill_pgrp(pgrp, SIGWINCH, 1);
-	if (rpgrp != pgrp && rpgrp)
-		kill_pgrp(rpgrp, SIGWINCH, 1);
-
 	put_pid(pgrp);
-	put_pid(rpgrp);
 
 	tty->winsize = *ws;
-	real_tty->winsize = *ws;
 done:
-	mutex_unlock(&real_tty->termios_mutex);
+	mutex_unlock(&tty->termios_mutex);
 	return 0;
 }
 
 /**
  *	tiocswinsz		-	implement window size set ioctl
- *	@tty; tty
+ *	@tty; tty side of tty
  *	@arg: user buffer for result
  *
  *	Copies the user idea of the window size to the kernel. Traditionally
@@ -2104,17 +2097,16 @@ done:
  *	then calls into the default method.
  */
 
-static int tiocswinsz(struct tty_struct *tty, struct tty_struct *real_tty,
-	struct winsize __user *arg)
+static int tiocswinsz(struct tty_struct *tty, struct winsize __user *arg)
 {
 	struct winsize tmp_ws;
 	if (copy_from_user(&tmp_ws, arg, sizeof(*arg)))
 		return -EFAULT;
 
 	if (tty->ops->resize)
-		return tty->ops->resize(tty, real_tty, &tmp_ws);
+		return tty->ops->resize(tty, &tmp_ws);
 	else
-		return tty_do_resize(tty, real_tty, &tmp_ws);
+		return tty_do_resize(tty, &tmp_ws);
 }
 
 /**
@@ -2170,13 +2162,12 @@ static int fionbio(struct file *file, int __user *p)
 	if (get_user(nonblock, p))
 		return -EFAULT;
 
-	/* file->f_flags is still BKL protected in the fs layer - vomit */
-	lock_kernel();
+	spin_lock(&file->f_lock);
 	if (nonblock)
 		file->f_flags |= O_NONBLOCK;
 	else
 		file->f_flags &= ~O_NONBLOCK;
-	unlock_kernel();
+	spin_unlock(&file->f_lock);
 	return 0;
 }
 
@@ -2539,7 +2530,7 @@ long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case TIOCGWINSZ:
 		return tiocgwinsz(real_tty, p);
 	case TIOCSWINSZ:
-		return tiocswinsz(tty, real_tty, p);
+		return tiocswinsz(real_tty, p);
 	case TIOCCONS:
 		return real_tty != tty ? -EINVAL : tioccons(file);
 	case FIONBIO:
@@ -2690,7 +2681,7 @@ void __do_SAK(struct tty_struct *tty)
 	/* Kill the entire session */
 	do_each_pid_task(session, PIDTYPE_SID, p) {
 		printk(KERN_NOTICE "SAK: killed process %d"
-			" (%s): task_session_nr(p)==tty->session\n",
+			" (%s): task_session(p)==tty->session\n",
 			task_pid_nr(p), p->comm);
 		send_sig(SIGKILL, p, 1);
 	} while_each_pid_task(session, PIDTYPE_SID, p);
@@ -2700,7 +2691,7 @@ void __do_SAK(struct tty_struct *tty)
 	do_each_thread(g, p) {
 		if (p->signal->tty == tty) {
 			printk(KERN_NOTICE "SAK: killed process %d"
-			    " (%s): task_session_nr(p)==tty->session\n",
+			    " (%s): task_session(p)==tty->session\n",
 			    task_pid_nr(p), p->comm);
 			send_sig(SIGKILL, p, 1);
 			continue;
@@ -2784,6 +2775,8 @@ void initialize_tty_struct(struct tty_struct *tty,
 	INIT_WORK(&tty->hangup_work, do_tty_hangup);
 	mutex_init(&tty->atomic_read_lock);
 	mutex_init(&tty->atomic_write_lock);
+	mutex_init(&tty->output_lock);
+	mutex_init(&tty->echo_lock);
 	spin_lock_init(&tty->read_lock);
 	spin_lock_init(&tty->ctrl_lock);
 	INIT_LIST_HEAD(&tty->tty_files);

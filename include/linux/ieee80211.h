@@ -12,11 +12,27 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef IEEE80211_H
-#define IEEE80211_H
+#ifndef LINUX_IEEE80211_H
+#define LINUX_IEEE80211_H
 
 #include <linux/types.h>
 #include <asm/byteorder.h>
+
+/*
+ * DS bit usage
+ *
+ * TA = transmitter address
+ * RA = receiver address
+ * DA = destination address
+ * SA = source address
+ *
+ * ToDS    FromDS  A1(RA)  A2(TA)  A3      A4      Use
+ * -----------------------------------------------------------------
+ *  0       0       DA      SA      BSSID   -       IBSS/DLS
+ *  0       1       DA      BSSID   SA      -       AP -> STA
+ *  1       0       BSSID   SA      DA      -       AP <- STA
+ *  1       1       RA      TA      DA      SA      unspecified (WDS)
+ */
 
 #define FCS_LEN 4
 
@@ -97,7 +113,10 @@
 #define IEEE80211_MAX_FRAME_LEN		2352
 
 #define IEEE80211_MAX_SSID_LEN		32
+
 #define IEEE80211_MAX_MESH_ID_LEN	32
+#define IEEE80211_MESH_CONFIG_LEN	19
+
 #define IEEE80211_QOS_CTL_LEN		2
 #define IEEE80211_QOS_CTL_TID_MASK	0x000F
 #define IEEE80211_QOS_CTL_TAG1D_MASK	0x0007
@@ -524,6 +543,8 @@ struct ieee80211_tim_ie {
 	u8 virtual_map[0];
 } __attribute__ ((packed));
 
+#define WLAN_SA_QUERY_TR_ID_LEN 16
+
 struct ieee80211_mgmt {
 	__le16 frame_control;
 	__le16 duration;
@@ -643,6 +664,10 @@ struct ieee80211_mgmt {
 					u8 action_code;
 					u8 variable[0];
 				} __attribute__((packed)) mesh_action;
+				struct {
+					u8 action;
+					u8 trans_id[WLAN_SA_QUERY_TR_ID_LEN];
+				} __attribute__ ((packed)) sa_query;
 			} u;
 		} __attribute__ ((packed)) action;
 	} u;
@@ -651,6 +676,15 @@ struct ieee80211_mgmt {
 /* mgmt header + 1 byte category code */
 #define IEEE80211_MIN_ACTION_SIZE offsetof(struct ieee80211_mgmt, u.action.u)
 
+
+/* Management MIC information element (IEEE 802.11w) */
+struct ieee80211_mmie {
+	u8 element_id;
+	u8 length;
+	__le16 key_id;
+	u8 sequence_number[6];
+	u8 mic[8];
+} __attribute__ ((packed));
 
 /* Control frames */
 struct ieee80211_rts {
@@ -664,6 +698,13 @@ struct ieee80211_cts {
 	__le16 frame_control;
 	__le16 duration;
 	u8 ra[6];
+} __attribute__ ((packed));
+
+struct ieee80211_pspoll {
+	__le16 frame_control;
+	__le16 aid;
+	u8 bssid[6];
+	u8 ta[6];
 } __attribute__ ((packed));
 
 /**
@@ -685,28 +726,88 @@ struct ieee80211_bar {
 #define IEEE80211_BAR_CTRL_ACK_POLICY_NORMAL     0x0000
 #define IEEE80211_BAR_CTRL_CBMTID_COMPRESSED_BA  0x0004
 
+
+#define IEEE80211_HT_MCS_MASK_LEN		10
+
+/**
+ * struct ieee80211_mcs_info - MCS information
+ * @rx_mask: RX mask
+ * @rx_highest: highest supported RX rate
+ * @tx_params: TX parameters
+ */
+struct ieee80211_mcs_info {
+	u8 rx_mask[IEEE80211_HT_MCS_MASK_LEN];
+	__le16 rx_highest;
+	u8 tx_params;
+	u8 reserved[3];
+} __attribute__((packed));
+
+/* 802.11n HT capability MSC set */
+#define IEEE80211_HT_MCS_RX_HIGHEST_MASK	0x3ff
+#define IEEE80211_HT_MCS_TX_DEFINED		0x01
+#define IEEE80211_HT_MCS_TX_RX_DIFF		0x02
+/* value 0 == 1 stream etc */
+#define IEEE80211_HT_MCS_TX_MAX_STREAMS_MASK	0x0C
+#define IEEE80211_HT_MCS_TX_MAX_STREAMS_SHIFT	2
+#define		IEEE80211_HT_MCS_TX_MAX_STREAMS	4
+#define IEEE80211_HT_MCS_TX_UNEQUAL_MODULATION	0x10
+
+/*
+ * 802.11n D5.0 20.3.5 / 20.6 says:
+ * - indices 0 to 7 and 32 are single spatial stream
+ * - 8 to 31 are multiple spatial streams using equal modulation
+ *   [8..15 for two streams, 16..23 for three and 24..31 for four]
+ * - remainder are multiple spatial streams using unequal modulation
+ */
+#define IEEE80211_HT_MCS_UNEQUAL_MODULATION_START 33
+#define IEEE80211_HT_MCS_UNEQUAL_MODULATION_START_BYTE \
+	(IEEE80211_HT_MCS_UNEQUAL_MODULATION_START / 8)
+
 /**
  * struct ieee80211_ht_cap - HT capabilities
  *
- * This structure refers to "HT capabilities element" as
- * described in 802.11n draft section 7.3.2.52
+ * This structure is the "HT capabilities element" as
+ * described in 802.11n D5.0 7.3.2.57
  */
 struct ieee80211_ht_cap {
 	__le16 cap_info;
 	u8 ampdu_params_info;
-	u8 supp_mcs_set[16];
+
+	/* 16 bytes MCS information */
+	struct ieee80211_mcs_info mcs;
+
 	__le16 extended_ht_cap_info;
 	__le32 tx_BF_cap_info;
 	u8 antenna_selection_info;
 } __attribute__ ((packed));
 
+/* 802.11n HT capabilities masks (for cap_info) */
+#define IEEE80211_HT_CAP_LDPC_CODING		0x0001
+#define IEEE80211_HT_CAP_SUP_WIDTH_20_40	0x0002
+#define IEEE80211_HT_CAP_SM_PS			0x000C
+#define IEEE80211_HT_CAP_GRN_FLD		0x0010
+#define IEEE80211_HT_CAP_SGI_20			0x0020
+#define IEEE80211_HT_CAP_SGI_40			0x0040
+#define IEEE80211_HT_CAP_TX_STBC		0x0080
+#define IEEE80211_HT_CAP_RX_STBC		0x0300
+#define IEEE80211_HT_CAP_DELAY_BA		0x0400
+#define IEEE80211_HT_CAP_MAX_AMSDU		0x0800
+#define IEEE80211_HT_CAP_DSSSCCK40		0x1000
+#define IEEE80211_HT_CAP_PSMP_SUPPORT		0x2000
+#define IEEE80211_HT_CAP_40MHZ_INTOLERANT	0x4000
+#define IEEE80211_HT_CAP_LSIG_TXOP_PROT		0x8000
+
+/* 802.11n HT capability AMPDU settings (for ampdu_params_info) */
+#define IEEE80211_HT_AMPDU_PARM_FACTOR		0x03
+#define IEEE80211_HT_AMPDU_PARM_DENSITY		0x1C
+
 /**
- * struct ieee80211_ht_cap - HT additional information
+ * struct ieee80211_ht_info - HT information
  *
- * This structure refers to "HT information element" as
- * described in 802.11n draft section 7.3.2.53
+ * This structure is the "HT information element" as
+ * described in 802.11n D5.0 7.3.2.58
  */
-struct ieee80211_ht_addt_info {
+struct ieee80211_ht_info {
 	u8 control_chan;
 	u8 ht_param;
 	__le16 operation_mode;
@@ -714,36 +815,33 @@ struct ieee80211_ht_addt_info {
 	u8 basic_set[16];
 } __attribute__ ((packed));
 
-/* 802.11n HT capabilities masks */
-#define IEEE80211_HT_CAP_SUP_WIDTH		0x0002
-#define IEEE80211_HT_CAP_SM_PS			0x000C
-#define IEEE80211_HT_CAP_GRN_FLD		0x0010
-#define IEEE80211_HT_CAP_SGI_20			0x0020
-#define IEEE80211_HT_CAP_SGI_40			0x0040
-#define IEEE80211_HT_CAP_DELAY_BA		0x0400
-#define IEEE80211_HT_CAP_MAX_AMSDU		0x0800
-#define IEEE80211_HT_CAP_DSSSCCK40		0x1000
-/* 802.11n HT capability AMPDU settings */
-#define IEEE80211_HT_CAP_AMPDU_FACTOR		0x03
-#define IEEE80211_HT_CAP_AMPDU_DENSITY		0x1C
-/* 802.11n HT capability MSC set */
-#define IEEE80211_SUPP_MCS_SET_UEQM		4
-#define IEEE80211_HT_CAP_MAX_STREAMS		4
-#define IEEE80211_SUPP_MCS_SET_LEN		10
-/* maximum streams the spec allows */
-#define IEEE80211_HT_CAP_MCS_TX_DEFINED		0x01
-#define IEEE80211_HT_CAP_MCS_TX_RX_DIFF		0x02
-#define IEEE80211_HT_CAP_MCS_TX_STREAMS		0x0C
-#define IEEE80211_HT_CAP_MCS_TX_UEQM		0x10
-/* 802.11n HT IE masks */
-#define IEEE80211_HT_IE_CHA_SEC_OFFSET		0x03
-#define IEEE80211_HT_IE_CHA_SEC_NONE	 	0x00
-#define IEEE80211_HT_IE_CHA_SEC_ABOVE 		0x01
-#define IEEE80211_HT_IE_CHA_SEC_BELOW 		0x03
-#define IEEE80211_HT_IE_CHA_WIDTH		0x04
-#define IEEE80211_HT_IE_HT_PROTECTION		0x0003
-#define IEEE80211_HT_IE_NON_GF_STA_PRSNT	0x0004
-#define IEEE80211_HT_IE_NON_HT_STA_PRSNT	0x0010
+/* for ht_param */
+#define IEEE80211_HT_PARAM_CHA_SEC_OFFSET		0x03
+#define		IEEE80211_HT_PARAM_CHA_SEC_NONE		0x00
+#define		IEEE80211_HT_PARAM_CHA_SEC_ABOVE	0x01
+#define		IEEE80211_HT_PARAM_CHA_SEC_BELOW	0x03
+#define IEEE80211_HT_PARAM_CHAN_WIDTH_ANY		0x04
+#define IEEE80211_HT_PARAM_RIFS_MODE			0x08
+#define IEEE80211_HT_PARAM_SPSMP_SUPPORT		0x10
+#define IEEE80211_HT_PARAM_SERV_INTERVAL_GRAN		0xE0
+
+/* for operation_mode */
+#define IEEE80211_HT_OP_MODE_PROTECTION			0x0003
+#define		IEEE80211_HT_OP_MODE_PROTECTION_NONE		0
+#define		IEEE80211_HT_OP_MODE_PROTECTION_NONMEMBER	1
+#define		IEEE80211_HT_OP_MODE_PROTECTION_20MHZ		2
+#define		IEEE80211_HT_OP_MODE_PROTECTION_NONHT_MIXED	3
+#define IEEE80211_HT_OP_MODE_NON_GF_STA_PRSNT		0x0004
+#define IEEE80211_HT_OP_MODE_NON_HT_STA_PRSNT		0x0010
+
+/* for stbc_param */
+#define IEEE80211_HT_STBC_PARAM_DUAL_BEACON		0x0040
+#define IEEE80211_HT_STBC_PARAM_DUAL_CTS_PROT		0x0080
+#define IEEE80211_HT_STBC_PARAM_STBC_BEACON		0x0100
+#define IEEE80211_HT_STBC_PARAM_LSIG_TXOP_FULLPROT	0x0200
+#define IEEE80211_HT_STBC_PARAM_PCO_ACTIVE		0x0400
+#define IEEE80211_HT_STBC_PARAM_PCO_PHASE		0x0800
+
 
 /* block-ack parameters */
 #define IEEE80211_ADDBA_PARAM_POLICY_MASK 0x0002
@@ -769,7 +867,7 @@ struct ieee80211_ht_addt_info {
 /* Authentication algorithms */
 #define WLAN_AUTH_OPEN 0
 #define WLAN_AUTH_SHARED_KEY 1
-#define WLAN_AUTH_FAST_BSS_TRANSITION 2
+#define WLAN_AUTH_FT 2
 #define WLAN_AUTH_LEAP 128
 
 #define WLAN_AUTH_CHALLENGE_LEN 128
@@ -833,6 +931,9 @@ enum ieee80211_statuscode {
 	/* 802.11g */
 	WLAN_STATUS_ASSOC_DENIED_NOSHORTTIME = 25,
 	WLAN_STATUS_ASSOC_DENIED_NODSSSOFDM = 26,
+	/* 802.11w */
+	WLAN_STATUS_ASSOC_REJECTED_TEMPORARILY = 30,
+	WLAN_STATUS_ROBUST_MGMT_FRAME_POLICY_VIOLATION = 31,
 	/* 802.11i */
 	WLAN_STATUS_INVALID_IE = 40,
 	WLAN_STATUS_INVALID_GROUP_CIPHER = 41,
@@ -949,9 +1050,11 @@ enum ieee80211_eid {
 	WLAN_EID_EXT_SUPP_RATES = 50,
 	/* 802.11n */
 	WLAN_EID_HT_CAPABILITY = 45,
-	WLAN_EID_HT_EXTRA_INFO = 61,
+	WLAN_EID_HT_INFORMATION = 61,
 	/* 802.11i */
 	WLAN_EID_RSN = 48,
+	WLAN_EID_TIMEOUT_INTERVAL = 56,
+	WLAN_EID_MMIE = 76 /* 802.11w */,
 	WLAN_EID_WPA = 221,
 	WLAN_EID_GENERIC = 221,
 	WLAN_EID_VENDOR_SPECIFIC = 221,
@@ -964,6 +1067,8 @@ enum ieee80211_category {
 	WLAN_CATEGORY_QOS = 1,
 	WLAN_CATEGORY_DLS = 2,
 	WLAN_CATEGORY_BACK = 3,
+	WLAN_CATEGORY_PUBLIC = 4,
+	WLAN_CATEGORY_SA_QUERY = 8,
 	WLAN_CATEGORY_WMM = 17,
 };
 
@@ -974,6 +1079,74 @@ enum ieee80211_spectrum_mgmt_actioncode {
 	WLAN_ACTION_SPCT_TPC_REQ = 2,
 	WLAN_ACTION_SPCT_TPC_RPRT = 3,
 	WLAN_ACTION_SPCT_CHL_SWITCH = 4,
+};
+
+/*
+ * IEEE 802.11-2007 7.3.2.9 Country information element
+ *
+ * Minimum length is 8 octets, ie len must be evenly
+ * divisible by 2
+ */
+
+/* Although the spec says 8 I'm seeing 6 in practice */
+#define IEEE80211_COUNTRY_IE_MIN_LEN	6
+
+/*
+ * For regulatory extension stuff see IEEE 802.11-2007
+ * Annex I (page 1141) and Annex J (page 1147). Also
+ * review 7.3.2.9.
+ *
+ * When dot11RegulatoryClassesRequired is true and the
+ * first_channel/reg_extension_id is >= 201 then the IE
+ * compromises of the 'ext' struct represented below:
+ *
+ *  - Regulatory extension ID - when generating IE this just needs
+ *    to be monotonically increasing for each triplet passed in
+ *    the IE
+ *  - Regulatory class - index into set of rules
+ *  - Coverage class - index into air propagation time (Table 7-27),
+ *    in microseconds, you can compute the air propagation time from
+ *    the index by multiplying by 3, so index 10 yields a propagation
+ *    of 10 us. Valid values are 0-31, values 32-255 are not defined
+ *    yet. A value of 0 inicates air propagation of <= 1 us.
+ *
+ *  See also Table I.2 for Emission limit sets and table
+ *  I.3 for Behavior limit sets. Table J.1 indicates how to map
+ *  a reg_class to an emission limit set and behavior limit set.
+ */
+#define IEEE80211_COUNTRY_EXTENSION_ID 201
+
+/*
+ *  Channels numbers in the IE must be monotonically increasing
+ *  if dot11RegulatoryClassesRequired is not true.
+ *
+ *  If dot11RegulatoryClassesRequired is true consecutive
+ *  subband triplets following a regulatory triplet shall
+ *  have monotonically increasing first_channel number fields.
+ *
+ *  Channel numbers shall not overlap.
+ *
+ *  Note that max_power is signed.
+ */
+struct ieee80211_country_ie_triplet {
+	union {
+		struct {
+			u8 first_channel;
+			u8 num_channels;
+			s8 max_power;
+		} __attribute__ ((packed)) chans;
+		struct {
+			u8 reg_extension_id;
+			u8 reg_class;
+			u8 coverage_class;
+		} __attribute__ ((packed)) ext;
+	};
+} __attribute__ ((packed));
+
+enum ieee80211_timeout_interval_type {
+	WLAN_TIMEOUT_REASSOC_DEADLINE = 1 /* 802.11r */,
+	WLAN_TIMEOUT_KEY_LIFETIME = 2 /* 802.11r */,
+	WLAN_TIMEOUT_ASSOC_COMEBACK = 3 /* 802.11w */,
 };
 
 /* BACK action code */
@@ -990,6 +1163,13 @@ enum ieee80211_back_parties {
 	WLAN_BACK_TIMER = 2,
 };
 
+/* SA Query action */
+enum ieee80211_sa_query_action {
+	WLAN_ACTION_SA_QUERY_REQUEST = 0,
+	WLAN_ACTION_SA_QUERY_RESPONSE = 1,
+};
+
+
 /* A-MSDU 802.11n */
 #define IEEE80211_QOS_CONTROL_A_MSDU_PRESENT 0x0080
 
@@ -1000,6 +1180,7 @@ enum ieee80211_back_parties {
 /* reserved: 				0x000FAC03 */
 #define WLAN_CIPHER_SUITE_CCMP		0x000FAC04
 #define WLAN_CIPHER_SUITE_WEP104	0x000FAC05
+#define WLAN_CIPHER_SUITE_AES_CMAC	0x000FAC06
 
 #define WLAN_MAX_KEY_LEN		32
 
@@ -1057,4 +1238,149 @@ static inline u8 *ieee80211_get_DA(struct ieee80211_hdr *hdr)
 		return hdr->addr1;
 }
 
-#endif /* IEEE80211_H */
+/**
+ * ieee80211_is_robust_mgmt_frame - check if frame is a robust management frame
+ * @hdr: the frame (buffer must include at least the first octet of payload)
+ */
+static inline bool ieee80211_is_robust_mgmt_frame(struct ieee80211_hdr *hdr)
+{
+	if (ieee80211_is_disassoc(hdr->frame_control) ||
+	    ieee80211_is_deauth(hdr->frame_control))
+		return true;
+
+	if (ieee80211_is_action(hdr->frame_control)) {
+		u8 *category;
+
+		/*
+		 * Action frames, excluding Public Action frames, are Robust
+		 * Management Frames. However, if we are looking at a Protected
+		 * frame, skip the check since the data may be encrypted and
+		 * the frame has already been found to be a Robust Management
+		 * Frame (by the other end).
+		 */
+		if (ieee80211_has_protected(hdr->frame_control))
+			return true;
+		category = ((u8 *) hdr) + 24;
+		return *category != WLAN_CATEGORY_PUBLIC;
+	}
+
+	return false;
+}
+
+/**
+ * ieee80211_fhss_chan_to_freq - get channel frequency
+ * @channel: the FHSS channel
+ *
+ * Convert IEEE802.11 FHSS channel to frequency (MHz)
+ * Ref IEEE 802.11-2007 section 14.6
+ */
+static inline int ieee80211_fhss_chan_to_freq(int channel)
+{
+	if ((channel > 1) && (channel < 96))
+		return channel + 2400;
+	else
+		return -1;
+}
+
+/**
+ * ieee80211_freq_to_fhss_chan - get channel
+ * @freq: the channels frequency
+ *
+ * Convert frequency (MHz) to IEEE802.11 FHSS channel
+ * Ref IEEE 802.11-2007 section 14.6
+ */
+static inline int ieee80211_freq_to_fhss_chan(int freq)
+{
+	if ((freq > 2401) && (freq < 2496))
+		return freq - 2400;
+	else
+		return -1;
+}
+
+/**
+ * ieee80211_dsss_chan_to_freq - get channel center frequency
+ * @channel: the DSSS channel
+ *
+ * Convert IEEE802.11 DSSS channel to the center frequency (MHz).
+ * Ref IEEE 802.11-2007 section 15.6
+ */
+static inline int ieee80211_dsss_chan_to_freq(int channel)
+{
+	if ((channel > 0) && (channel < 14))
+		return 2407 + (channel * 5);
+	else if (channel == 14)
+		return 2484;
+	else
+		return -1;
+}
+
+/**
+ * ieee80211_freq_to_dsss_chan - get channel
+ * @freq: the frequency
+ *
+ * Convert frequency (MHz) to IEEE802.11 DSSS channel
+ * Ref IEEE 802.11-2007 section 15.6
+ *
+ * This routine selects the channel with the closest center frequency.
+ */
+static inline int ieee80211_freq_to_dsss_chan(int freq)
+{
+	if ((freq >= 2410) && (freq < 2475))
+		return (freq - 2405) / 5;
+	else if ((freq >= 2482) && (freq < 2487))
+		return 14;
+	else
+		return -1;
+}
+
+/* Convert IEEE802.11 HR DSSS channel to frequency (MHz) and back
+ * Ref IEEE 802.11-2007 section 18.4.6.2
+ *
+ * The channels and frequencies are the same as those defined for DSSS
+ */
+#define ieee80211_hr_chan_to_freq(chan) ieee80211_dsss_chan_to_freq(chan)
+#define ieee80211_freq_to_hr_chan(freq) ieee80211_freq_to_dsss_chan(freq)
+
+/* Convert IEEE802.11 ERP channel to frequency (MHz) and back
+ * Ref IEEE 802.11-2007 section 19.4.2
+ */
+#define ieee80211_erp_chan_to_freq(chan) ieee80211_hr_chan_to_freq(chan)
+#define ieee80211_freq_to_erp_chan(freq) ieee80211_freq_to_hr_chan(freq)
+
+/**
+ * ieee80211_ofdm_chan_to_freq - get channel center frequency
+ * @s_freq: starting frequency == (dotChannelStartingFactor/2) MHz
+ * @channel: the OFDM channel
+ *
+ * Convert IEEE802.11 OFDM channel to center frequency (MHz)
+ * Ref IEEE 802.11-2007 section 17.3.8.3.2
+ */
+static inline int ieee80211_ofdm_chan_to_freq(int s_freq, int channel)
+{
+	if ((channel > 0) && (channel <= 200) &&
+	    (s_freq >= 4000))
+		return s_freq + (channel * 5);
+	else
+		return -1;
+}
+
+/**
+ * ieee80211_freq_to_ofdm_channel - get channel
+ * @s_freq: starting frequency == (dotChannelStartingFactor/2) MHz
+ * @freq: the frequency
+ *
+ * Convert frequency (MHz) to IEEE802.11 OFDM channel
+ * Ref IEEE 802.11-2007 section 17.3.8.3.2
+ *
+ * This routine selects the channel with the closest center frequency.
+ */
+static inline int ieee80211_freq_to_ofdm_chan(int s_freq, int freq)
+{
+	if ((freq > (s_freq + 2)) && (freq <= (s_freq + 1202)) &&
+	    (s_freq >= 4000))
+		return (freq + 2 - s_freq) / 5;
+	else
+		return -1;
+}
+
+#endif /* LINUX_IEEE80211_H */

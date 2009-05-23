@@ -19,31 +19,10 @@
 #include <linux/dma-mapping.h>
 #include <linux/uwb/umc.h>
 #include <linux/usb.h>
-#define D_LOCAL 0
-#include <linux/uwb/debug.h>
 
 #include "../../wusbcore/wusbhc.h"
 
 #include "whcd.h"
-
-#if D_LOCAL >= 4
-static void dump_asl(struct whc *whc, const char *tag)
-{
-	struct device *dev = &whc->umc->dev;
-	struct whc_qset *qset;
-
-	d_printf(4, dev, "ASL %s\n", tag);
-
-	list_for_each_entry(qset, &whc->async_list, list_node) {
-		dump_qset(qset, dev);
-	}
-}
-#else
-static inline void dump_asl(struct whc *whc, const char *tag)
-{
-}
-#endif
-
 
 static void qset_get_next_prev(struct whc *whc, struct whc_qset *qset,
 			       struct whc_qset **next, struct whc_qset **prev)
@@ -143,7 +122,8 @@ static uint32_t process_qset(struct whc *whc, struct whc_qset *qset)
 		process_inactive_qtd(whc, qset, td);
 	}
 
-	update |= qset_add_qtds(whc, qset);
+	if (!qset->remove)
+		update |= qset_add_qtds(whc, qset);
 
 done:
 	/*
@@ -179,11 +159,31 @@ void asl_stop(struct whc *whc)
 		      1000, "stop ASL");
 }
 
+/**
+ * asl_update - request an ASL update and wait for the hardware to be synced
+ * @whc: the WHCI HC
+ * @wusbcmd: WUSBCMD value to start the update.
+ *
+ * If the WUSB HC is inactive (i.e., the ASL is stopped) then the
+ * update must be skipped as the hardware may not respond to update
+ * requests.
+ */
 void asl_update(struct whc *whc, uint32_t wusbcmd)
 {
-	whc_write_wusbcmd(whc, wusbcmd, wusbcmd);
-	wait_event(whc->async_list_wq,
-		   (le_readl(whc->base + WUSBCMD) & WUSBCMD_ASYNC_UPDATED) == 0);
+	struct wusbhc *wusbhc = &whc->wusbhc;
+	long t;
+
+	mutex_lock(&wusbhc->mutex);
+	if (wusbhc->active) {
+		whc_write_wusbcmd(whc, wusbcmd, wusbcmd);
+		t = wait_event_timeout(
+			whc->async_list_wq,
+			(le_readl(whc->base + WUSBCMD) & WUSBCMD_ASYNC_UPDATED) == 0,
+			msecs_to_jiffies(1000));
+		if (t == 0)
+			whc_hw_error(whc, "ASL update timeout");
+	}
+	mutex_unlock(&wusbhc->mutex);
 }
 
 /**
@@ -202,8 +202,6 @@ void scan_async_work(struct work_struct *work)
 
 	spin_lock_irq(&whc->lock);
 
-	dump_asl(whc, "before processing");
-
 	/*
 	 * Transerve the software list backwards so new qsets can be
 	 * safely inserted into the ASL without making it non-circular.
@@ -216,8 +214,6 @@ void scan_async_work(struct work_struct *work)
 
 		update |= process_qset(whc, qset);
 	}
-
-	dump_asl(whc, "after processing");
 
 	spin_unlock_irq(&whc->lock);
 
@@ -232,13 +228,13 @@ void scan_async_work(struct work_struct *work)
 	 * Now that the ASL is updated, complete the removal of any
 	 * removed qsets.
 	 */
-	spin_lock(&whc->lock);
+	spin_lock_irq(&whc->lock);
 
 	list_for_each_entry_safe(qset, t, &whc->async_removed_list, list_node) {
 		qset_remove_complete(whc, qset);
 	}
 
-	spin_unlock(&whc->lock);
+	spin_unlock_irq(&whc->lock);
 }
 
 /**
@@ -259,23 +255,29 @@ int asl_urb_enqueue(struct whc *whc, struct urb *urb, gfp_t mem_flags)
 
 	spin_lock_irqsave(&whc->lock, flags);
 
+	err = usb_hcd_link_urb_to_ep(&whc->wusbhc.usb_hcd, urb);
+	if (err < 0) {
+		spin_unlock_irqrestore(&whc->lock, flags);
+		return err;
+	}
+
 	qset = get_qset(whc, urb, GFP_ATOMIC);
 	if (qset == NULL)
 		err = -ENOMEM;
 	else
 		err = qset_add_urb(whc, qset, urb, GFP_ATOMIC);
 	if (!err) {
-		usb_hcd_link_urb_to_ep(&whc->wusbhc.usb_hcd, urb);
 		if (!qset->in_sw_list)
 			asl_qset_insert_begin(whc, qset);
-	}
+	} else
+		usb_hcd_unlink_urb_from_ep(&whc->wusbhc.usb_hcd, urb);
 
 	spin_unlock_irqrestore(&whc->lock, flags);
 
 	if (!err)
 		queue_work(whc->workqueue, &whc->async_work);
 
-	return 0;
+	return err;
 }
 
 /**

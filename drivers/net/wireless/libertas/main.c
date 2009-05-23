@@ -12,9 +12,8 @@
 #include <linux/kthread.h>
 #include <linux/kfifo.h>
 #include <linux/stddef.h>
-
+#include <linux/ieee80211.h>
 #include <net/iw_handler.h>
-#include <net/ieee80211.h>
 
 #include "host.h"
 #include "decl.h"
@@ -223,7 +222,7 @@ u8 lbs_data_rate_to_fw_index(u32 rate)
 static ssize_t lbs_anycast_get(struct device *dev,
 		struct device_attribute *attr, char * buf)
 {
-	struct lbs_private *priv = to_net_dev(dev)->priv;
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
 	struct cmd_ds_mesh_access mesh_access;
 	int ret;
 
@@ -242,7 +241,7 @@ static ssize_t lbs_anycast_get(struct device *dev,
 static ssize_t lbs_anycast_set(struct device *dev,
 		struct device_attribute *attr, const char * buf, size_t count)
 {
-	struct lbs_private *priv = to_net_dev(dev)->priv;
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
 	struct cmd_ds_mesh_access mesh_access;
 	uint32_t datum;
 	int ret;
@@ -252,6 +251,58 @@ static ssize_t lbs_anycast_set(struct device *dev,
 	mesh_access.data[0] = cpu_to_le32(datum);
 
 	ret = lbs_mesh_access(priv, CMD_ACT_MESH_SET_ANYCAST, &mesh_access);
+	if (ret)
+		return ret;
+
+	return strlen(buf);
+}
+
+/**
+ * @brief Get function for sysfs attribute prb_rsp_limit
+ */
+static ssize_t lbs_prb_rsp_limit_get(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
+	struct cmd_ds_mesh_access mesh_access;
+	int ret;
+	u32 retry_limit;
+
+	memset(&mesh_access, 0, sizeof(mesh_access));
+	mesh_access.data[0] = cpu_to_le32(CMD_ACT_GET);
+
+	ret = lbs_mesh_access(priv, CMD_ACT_MESH_SET_GET_PRB_RSP_LIMIT,
+			&mesh_access);
+	if (ret)
+		return ret;
+
+	retry_limit = le32_to_cpu(mesh_access.data[1]);
+	return snprintf(buf, 10, "%d\n", retry_limit);
+}
+
+/**
+ * @brief Set function for sysfs attribute prb_rsp_limit
+ */
+static ssize_t lbs_prb_rsp_limit_set(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
+	struct cmd_ds_mesh_access mesh_access;
+	int ret;
+	unsigned long retry_limit;
+
+	memset(&mesh_access, 0, sizeof(mesh_access));
+	mesh_access.data[0] = cpu_to_le32(CMD_ACT_SET);
+
+	if (!strict_strtoul(buf, 10, &retry_limit))
+		return -ENOTSUPP;
+	if (retry_limit > 15)
+		return -ENOTSUPP;
+
+	mesh_access.data[1] = cpu_to_le32(retry_limit);
+
+	ret = lbs_mesh_access(priv, CMD_ACT_MESH_SET_GET_PRB_RSP_LIMIT,
+			&mesh_access);
 	if (ret)
 		return ret;
 
@@ -270,7 +321,7 @@ static void lbs_remove_mesh(struct lbs_private *priv);
 static ssize_t lbs_rtap_get(struct device *dev,
 		struct device_attribute *attr, char * buf)
 {
-	struct lbs_private *priv = to_net_dev(dev)->priv;
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
 	return snprintf(buf, 5, "0x%X\n", priv->monitormode);
 }
 
@@ -281,7 +332,7 @@ static ssize_t lbs_rtap_set(struct device *dev,
 		struct device_attribute *attr, const char * buf, size_t count)
 {
 	int monitor_mode;
-	struct lbs_private *priv = to_net_dev(dev)->priv;
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
 
 	sscanf(buf, "%x", &monitor_mode);
 	if (monitor_mode) {
@@ -332,7 +383,7 @@ static DEVICE_ATTR(lbs_rtap, 0644, lbs_rtap_get, lbs_rtap_set );
 static ssize_t lbs_mesh_get(struct device *dev,
 		struct device_attribute *attr, char * buf)
 {
-	struct lbs_private *priv = to_net_dev(dev)->priv;
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
 	return snprintf(buf, 5, "0x%X\n", !!priv->mesh_dev);
 }
 
@@ -342,7 +393,7 @@ static ssize_t lbs_mesh_get(struct device *dev,
 static ssize_t lbs_mesh_set(struct device *dev,
 		struct device_attribute *attr, const char * buf, size_t count)
 {
-	struct lbs_private *priv = to_net_dev(dev)->priv;
+	struct lbs_private *priv = to_net_dev(dev)->ml_priv;
 	int enable;
 	int ret, action = CMD_ACT_MESH_CONFIG_STOP;
 
@@ -376,8 +427,16 @@ static DEVICE_ATTR(lbs_mesh, 0644, lbs_mesh_get, lbs_mesh_set);
  */
 static DEVICE_ATTR(anycast_mask, 0644, lbs_anycast_get, lbs_anycast_set);
 
+/**
+ * prb_rsp_limit attribute to be exported per mshX interface
+ * through sysfs (/sys/class/net/mshX/prb_rsp_limit)
+ */
+static DEVICE_ATTR(prb_rsp_limit, 0644, lbs_prb_rsp_limit_get,
+		lbs_prb_rsp_limit_set);
+
 static struct attribute *lbs_mesh_sysfs_entries[] = {
 	&dev_attr_anycast_mask.attr,
+	&dev_attr_prb_rsp_limit.attr,
 	NULL,
 };
 
@@ -393,7 +452,7 @@ static struct attribute_group lbs_mesh_attr_group = {
  */
 static int lbs_dev_open(struct net_device *dev)
 {
-	struct lbs_private *priv = (struct lbs_private *) dev->priv ;
+	struct lbs_private *priv = dev->ml_priv;
 	int ret = 0;
 
 	lbs_deb_enter(LBS_DEB_NET);
@@ -435,7 +494,7 @@ static int lbs_dev_open(struct net_device *dev)
  */
 static int lbs_mesh_stop(struct net_device *dev)
 {
-	struct lbs_private *priv = (struct lbs_private *) (dev->priv);
+	struct lbs_private *priv = dev->ml_priv;
 
 	lbs_deb_enter(LBS_DEB_MESH);
 	spin_lock_irq(&priv->driver_lock);
@@ -462,7 +521,7 @@ static int lbs_mesh_stop(struct net_device *dev)
  */
 static int lbs_eth_stop(struct net_device *dev)
 {
-	struct lbs_private *priv = (struct lbs_private *) dev->priv;
+	struct lbs_private *priv = dev->ml_priv;
 
 	lbs_deb_enter(LBS_DEB_NET);
 
@@ -479,7 +538,7 @@ static int lbs_eth_stop(struct net_device *dev)
 
 static void lbs_tx_timeout(struct net_device *dev)
 {
-	struct lbs_private *priv = (struct lbs_private *) dev->priv;
+	struct lbs_private *priv = dev->ml_priv;
 
 	lbs_deb_enter(LBS_DEB_TX);
 
@@ -523,24 +582,10 @@ void lbs_host_to_card_done(struct lbs_private *priv)
 }
 EXPORT_SYMBOL_GPL(lbs_host_to_card_done);
 
-/**
- *  @brief This function returns the network statistics
- *
- *  @param dev     A pointer to struct lbs_private structure
- *  @return 	   A pointer to net_device_stats structure
- */
-static struct net_device_stats *lbs_get_stats(struct net_device *dev)
-{
-	struct lbs_private *priv = (struct lbs_private *) dev->priv;
-
-	lbs_deb_enter(LBS_DEB_NET);
-	return &priv->stats;
-}
-
 static int lbs_set_mac_address(struct net_device *dev, void *addr)
 {
 	int ret = 0;
-	struct lbs_private *priv = (struct lbs_private *) dev->priv;
+	struct lbs_private *priv = dev->ml_priv;
 	struct sockaddr *phwaddr = addr;
 	struct cmd_ds_802_11_mac_address cmd;
 
@@ -588,7 +633,6 @@ static int lbs_add_mcast_addrs(struct cmd_ds_mac_multicast_adr *cmd,
 {
 	int i = nr_addrs;
 	struct dev_mc_list *mc_list;
-	DECLARE_MAC_BUF(mac);
 
 	if ((dev->flags & (IFF_UP|IFF_MULTICAST)) != (IFF_UP|IFF_MULTICAST))
 		return nr_addrs;
@@ -596,16 +640,16 @@ static int lbs_add_mcast_addrs(struct cmd_ds_mac_multicast_adr *cmd,
 	netif_addr_lock_bh(dev);
 	for (mc_list = dev->mc_list; mc_list; mc_list = mc_list->next) {
 		if (mac_in_list(cmd->maclist, nr_addrs, mc_list->dmi_addr)) {
-			lbs_deb_net("mcast address %s:%s skipped\n", dev->name,
-				    print_mac(mac, mc_list->dmi_addr));
+			lbs_deb_net("mcast address %s:%pM skipped\n", dev->name,
+				    mc_list->dmi_addr);
 			continue;
 		}
 
 		if (i == MRVDRV_MAX_MULTICAST_LIST_SIZE)
 			break;
 		memcpy(&cmd->maclist[6*i], mc_list->dmi_addr, ETH_ALEN);
-		lbs_deb_net("mcast address %s:%s added to filter\n", dev->name,
-			    print_mac(mac, mc_list->dmi_addr));
+		lbs_deb_net("mcast address %s:%pM added to filter\n", dev->name,
+			    mc_list->dmi_addr);
 		i++;
 	}
 	netif_addr_unlock_bh(dev);
@@ -674,7 +718,7 @@ static void lbs_set_mcast_worker(struct work_struct *work)
 
 static void lbs_set_multicast_list(struct net_device *dev)
 {
-	struct lbs_private *priv = dev->priv;
+	struct lbs_private *priv = dev->ml_priv;
 
 	schedule_work(&priv->mcast_work);
 }
@@ -690,7 +734,7 @@ static void lbs_set_multicast_list(struct net_device *dev)
 static int lbs_thread(void *data)
 {
 	struct net_device *dev = data;
-	struct lbs_private *priv = dev->priv;
+	struct lbs_private *priv = dev->ml_priv;
 	wait_queue_t wait;
 
 	lbs_deb_enter(LBS_DEB_THREAD);
@@ -948,9 +992,8 @@ void lbs_resume(struct lbs_private *priv)
 EXPORT_SYMBOL_GPL(lbs_resume);
 
 /**
- *  @brief This function downloads firmware image, gets
- *  HW spec from firmware and set basic parameters to
- *  firmware.
+ * @brief This function gets the HW spec from the firmware and sets
+ *        some basic parameters.
  *
  *  @param priv    A pointer to struct lbs_private structure
  *  @return 	   0 or -1
@@ -1105,6 +1148,17 @@ static void lbs_free_adapter(struct lbs_private *priv)
 	lbs_deb_leave(LBS_DEB_MAIN);
 }
 
+static const struct net_device_ops lbs_netdev_ops = {
+	.ndo_open 		= lbs_dev_open,
+	.ndo_stop		= lbs_eth_stop,
+	.ndo_start_xmit		= lbs_hard_start_xmit,
+	.ndo_set_mac_address	= lbs_set_mac_address,
+	.ndo_tx_timeout 	= lbs_tx_timeout,
+	.ndo_set_multicast_list = lbs_set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /**
  * @brief This function adds the card. it will probe the
  * card, allocate the lbs_priv and initialize the device.
@@ -1125,7 +1179,8 @@ struct lbs_private *lbs_add_card(void *card, struct device *dmdev)
 		lbs_pr_err("init ethX device failed\n");
 		goto done;
 	}
-	priv = dev->priv;
+	priv = netdev_priv(dev);
+	dev->ml_priv = priv;
 
 	if (lbs_init_adapter(priv)) {
 		lbs_pr_err("failed to initialize adapter structure.\n");
@@ -1138,19 +1193,13 @@ struct lbs_private *lbs_add_card(void *card, struct device *dmdev)
 	priv->infra_open = 0;
 
 	/* Setup the OS Interface to our functions */
-	dev->open = lbs_dev_open;
-	dev->hard_start_xmit = lbs_hard_start_xmit;
-	dev->stop = lbs_eth_stop;
-	dev->set_mac_address = lbs_set_mac_address;
-	dev->tx_timeout = lbs_tx_timeout;
-	dev->get_stats = lbs_get_stats;
+ 	dev->netdev_ops = &lbs_netdev_ops;
 	dev->watchdog_timeo = 5 * HZ;
 	dev->ethtool_ops = &lbs_ethtool_ops;
 #ifdef	WIRELESS_EXT
-	dev->wireless_handlers = (struct iw_handler_def *)&lbs_handler_def;
+	dev->wireless_handlers = &lbs_handler_def;
 #endif
 	dev->flags |= IFF_BROADCAST | IFF_MULTICAST;
-	dev->set_multicast_list = lbs_set_multicast_list;
 
 	SET_NETDEV_DEV(dev, dmdev);
 
@@ -1311,7 +1360,7 @@ EXPORT_SYMBOL_GPL(lbs_start_card);
 
 void lbs_stop_card(struct lbs_private *priv)
 {
-	struct net_device *dev = priv->dev;
+	struct net_device *dev;
 	struct cmd_ctrl_node *cmdnode;
 	unsigned long flags;
 
@@ -1319,9 +1368,10 @@ void lbs_stop_card(struct lbs_private *priv)
 
 	if (!priv)
 		goto out;
+	dev = priv->dev;
 
-	netif_stop_queue(priv->dev);
-	netif_carrier_off(priv->dev);
+	netif_stop_queue(dev);
+	netif_carrier_off(dev);
 
 	lbs_debugfs_remove_one(priv);
 	if (priv->mesh_tlv) {
@@ -1359,6 +1409,14 @@ out:
 EXPORT_SYMBOL_GPL(lbs_stop_card);
 
 
+static const struct net_device_ops mesh_netdev_ops = {
+	.ndo_open		= lbs_dev_open,
+	.ndo_stop 		= lbs_mesh_stop,
+	.ndo_start_xmit		= lbs_hard_start_xmit,
+	.ndo_set_mac_address	= lbs_set_mac_address,
+	.ndo_set_multicast_list = lbs_set_multicast_list,
+};
+
 /**
  * @brief This function adds mshX interface
  *
@@ -1378,14 +1436,10 @@ static int lbs_add_mesh(struct lbs_private *priv)
 		ret = -ENOMEM;
 		goto done;
 	}
-	mesh_dev->priv = priv;
+	mesh_dev->ml_priv = priv;
 	priv->mesh_dev = mesh_dev;
 
-	mesh_dev->open = lbs_dev_open;
-	mesh_dev->hard_start_xmit = lbs_hard_start_xmit;
-	mesh_dev->stop = lbs_mesh_stop;
-	mesh_dev->get_stats = lbs_get_stats;
-	mesh_dev->set_mac_address = lbs_set_mac_address;
+	mesh_dev->netdev_ops = &mesh_netdev_ops;
 	mesh_dev->ethtool_ops = &lbs_ethtool_ops;
 	memcpy(mesh_dev->dev_addr, priv->dev->dev_addr,
 			sizeof(priv->dev->dev_addr));
@@ -1396,7 +1450,6 @@ static int lbs_add_mesh(struct lbs_private *priv)
 	mesh_dev->wireless_handlers = (struct iw_handler_def *)&mesh_handler_def;
 #endif
 	mesh_dev->flags |= IFF_BROADCAST | IFF_MULTICAST;
-	mesh_dev->set_multicast_list = lbs_set_multicast_list;
 	/* Register virtual mesh interface */
 	ret = register_netdev(mesh_dev);
 	if (ret) {
@@ -1589,14 +1642,6 @@ static int lbs_rtap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_BUSY;
 }
 
-static struct net_device_stats *lbs_rtap_get_stats(struct net_device *dev)
-{
-	struct lbs_private *priv = dev->priv;
-	lbs_deb_enter(LBS_DEB_NET);
-	return &priv->stats;
-}
-
-
 static void lbs_remove_rtap(struct lbs_private *priv)
 {
 	lbs_deb_enter(LBS_DEB_MAIN);
@@ -1608,6 +1653,12 @@ static void lbs_remove_rtap(struct lbs_private *priv)
 out:
 	lbs_deb_leave(LBS_DEB_MAIN);
 }
+
+static const struct net_device_ops rtap_netdev_ops = {
+	.ndo_open = lbs_rtap_open,
+	.ndo_stop = lbs_rtap_stop,
+	.ndo_start_xmit = lbs_rtap_hard_start_xmit,
+};
 
 static int lbs_add_rtap(struct lbs_private *priv)
 {
@@ -1628,11 +1679,8 @@ static int lbs_add_rtap(struct lbs_private *priv)
 
 	memcpy(rtap_dev->dev_addr, priv->current_addr, ETH_ALEN);
 	rtap_dev->type = ARPHRD_IEEE80211_RADIOTAP;
-	rtap_dev->open = lbs_rtap_open;
-	rtap_dev->stop = lbs_rtap_stop;
-	rtap_dev->get_stats = lbs_rtap_get_stats;
-	rtap_dev->hard_start_xmit = lbs_rtap_hard_start_xmit;
-	rtap_dev->priv = priv;
+	rtap_dev->netdev_ops = &rtap_netdev_ops;
+	rtap_dev->ml_priv = priv;
 	SET_NETDEV_DEV(rtap_dev, priv->dev->dev.parent);
 
 	ret = register_netdev(rtap_dev);
@@ -1646,33 +1694,6 @@ out:
 	lbs_deb_leave_args(LBS_DEB_MAIN, "ret %d", ret);
 	return ret;
 }
-
-#ifndef CONFIG_IEEE80211
-const char *escape_essid(const char *essid, u8 essid_len)
-{
-	static char escaped[IW_ESSID_MAX_SIZE * 2 + 1];
-	const char *s = essid;
-	char *d = escaped;
-
-	if (ieee80211_is_empty_essid(essid, essid_len)) {
-		memcpy(escaped, "<hidden>", sizeof("<hidden>"));
-		return escaped;
-	}
-
-	essid_len = min(essid_len, (u8) IW_ESSID_MAX_SIZE);
-	while (essid_len--) {
-		if (*s == '\0') {
-			*d++ = '\\';
-			*d++ = '0';
-			s++;
-		} else {
-			*d++ = *s++;
-		}
-	}
-	*d = '\0';
-	return escaped;
-}
-#endif
 
 module_init(lbs_init_module);
 module_exit(lbs_exit_module);

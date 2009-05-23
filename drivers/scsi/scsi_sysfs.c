@@ -1043,7 +1043,6 @@ EXPORT_SYMBOL(scsi_register_interface);
 /**
  * scsi_sysfs_add_host - add scsi host to subsystem
  * @shost:     scsi host struct to add to subsystem
- * @dev:       parent struct device pointer
  **/
 int scsi_sysfs_add_host(struct Scsi_Host *shost)
 {
@@ -1079,16 +1078,14 @@ void scsi_sysfs_device_initialize(struct scsi_device *sdev)
 	device_initialize(&sdev->sdev_gendev);
 	sdev->sdev_gendev.bus = &scsi_bus_type;
 	sdev->sdev_gendev.type = &scsi_dev_type;
-	sprintf(sdev->sdev_gendev.bus_id,"%d:%d:%d:%d",
-		sdev->host->host_no, sdev->channel, sdev->id,
-		sdev->lun);
-	
+	dev_set_name(&sdev->sdev_gendev, "%d:%d:%d:%d",
+		     sdev->host->host_no, sdev->channel, sdev->id, sdev->lun);
+
 	device_initialize(&sdev->sdev_dev);
 	sdev->sdev_dev.parent = &sdev->sdev_gendev;
 	sdev->sdev_dev.class = &sdev_class;
-	snprintf(sdev->sdev_dev.bus_id, BUS_ID_SIZE,
-		 "%d:%d:%d:%d", sdev->host->host_no,
-		 sdev->channel, sdev->id, sdev->lun);
+	dev_set_name(&sdev->sdev_dev, "%d:%d:%d:%d",
+		     sdev->host->host_no, sdev->channel, sdev->id, sdev->lun);
 	sdev->scsi_level = starget->scsi_level;
 	transport_setup_device(&sdev->sdev_gendev);
 	spin_lock_irqsave(shost->host_lock, flags);

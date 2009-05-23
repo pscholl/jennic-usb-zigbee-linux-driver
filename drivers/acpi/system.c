@@ -33,15 +33,12 @@
 
 #define _COMPONENT		ACPI_SYSTEM_COMPONENT
 ACPI_MODULE_NAME("system");
-#ifdef MODULE_PARAM_PREFIX
-#undef MODULE_PARAM_PREFIX
-#endif
-#define MODULE_PARAM_PREFIX "acpi."
 
 #define ACPI_SYSTEM_CLASS		"system"
 #define ACPI_SYSTEM_DEVICE_NAME		"System"
 
 u32 acpi_irq_handled;
+u32 acpi_irq_not_handled;
 
 /*
  * Make ACPICA version work as module param
@@ -62,6 +59,7 @@ module_param_call(acpica_version, NULL, param_get_acpica_version, NULL, 0444);
    -------------------------------------------------------------------------- */
 static LIST_HEAD(acpi_table_attr_list);
 static struct kobject *tables_kobj;
+static struct kobject *dynamic_tables_kobj;
 
 struct acpi_table_attr {
 	struct bin_attribute attr;
@@ -128,6 +126,40 @@ static void acpi_table_attr_init(struct acpi_table_attr *table_attr,
 	return;
 }
 
+static acpi_status
+acpi_sysfs_table_handler(u32 event, void *table, void *context)
+{
+	struct acpi_table_attr *table_attr;
+
+	switch (event) {
+	case ACPI_TABLE_EVENT_LOAD:
+		table_attr =
+			kzalloc(sizeof(struct acpi_table_attr), GFP_KERNEL);
+		if (!table_attr)
+			return AE_NO_MEMORY;
+
+		acpi_table_attr_init(table_attr, table);
+		if (sysfs_create_bin_file(dynamic_tables_kobj,
+					&table_attr->attr)) {
+			kfree(table_attr);
+			return AE_ERROR;
+		} else
+			list_add_tail(&table_attr->node,
+					&acpi_table_attr_list);
+		break;
+	case ACPI_TABLE_EVENT_UNLOAD:
+		/*
+		 * we do not need to do anything right now
+		 * because the table is not deleted from the
+		 * global table list when unloading it.
+		 */
+		break;
+	default:
+		return AE_BAD_PARAMETER;
+	}
+	return AE_OK;
+}
+
 static int acpi_system_sysfs_init(void)
 {
 	struct acpi_table_attr *table_attr;
@@ -137,7 +169,11 @@ static int acpi_system_sysfs_init(void)
 
 	tables_kobj = kobject_create_and_add("tables", acpi_kobj);
 	if (!tables_kobj)
-		return -ENOMEM;
+		goto err;
+
+	dynamic_tables_kobj = kobject_create_and_add("dynamic", tables_kobj);
+	if (!dynamic_tables_kobj)
+		goto err_dynamic_tables;
 
 	do {
 		result = acpi_get_table_by_index(table_index, &table_header);
@@ -162,8 +198,14 @@ static int acpi_system_sysfs_init(void)
 		}
 	} while (!result);
 	kobject_uevent(tables_kobj, KOBJ_ADD);
+	kobject_uevent(dynamic_tables_kobj, KOBJ_ADD);
+	result = acpi_install_table_handler(acpi_sysfs_table_handler, NULL);
 
-	return 0;
+	return result == AE_OK ? 0 : -EINVAL;
+err_dynamic_tables:
+	kobject_put(tables_kobj);
+err:
+	return -ENOMEM;
 }
 
 /*
@@ -173,8 +215,9 @@ static int acpi_system_sysfs_init(void)
 
 #define COUNT_GPE 0
 #define COUNT_SCI 1	/* acpi_irq_handled */
-#define COUNT_ERROR 2	/* other */
-#define NUM_COUNTERS_EXTRA 3
+#define COUNT_SCI_NOT 2	/* acpi_irq_not_handled */
+#define COUNT_ERROR 3	/* other */
+#define NUM_COUNTERS_EXTRA 4
 
 struct event_counter {
 	u32 count;
@@ -191,65 +234,6 @@ static struct attribute_group interrupt_stats_attr_group = {
 	.name = "interrupts",
 };
 static struct kobj_attribute *counter_attrs;
-
-static int count_num_gpes(void)
-{
-	int count = 0;
-	struct acpi_gpe_xrupt_info *gpe_xrupt_info;
-	struct acpi_gpe_block_info *gpe_block;
-	acpi_cpu_flags flags;
-
-	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
-
-	gpe_xrupt_info = acpi_gbl_gpe_xrupt_list_head;
-	while (gpe_xrupt_info) {
-		gpe_block = gpe_xrupt_info->gpe_block_list_head;
-		while (gpe_block) {
-			count += gpe_block->register_count *
-			    ACPI_GPE_REGISTER_WIDTH;
-			gpe_block = gpe_block->next;
-		}
-		gpe_xrupt_info = gpe_xrupt_info->next;
-	}
-	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
-
-	return count;
-}
-
-static int get_gpe_device(int index, acpi_handle *handle)
-{
-	struct acpi_gpe_xrupt_info *gpe_xrupt_info;
-	struct acpi_gpe_block_info *gpe_block;
-	acpi_cpu_flags flags;
-	struct acpi_namespace_node *node;
-
-	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
-
-	gpe_xrupt_info = acpi_gbl_gpe_xrupt_list_head;
-	while (gpe_xrupt_info) {
-		gpe_block = gpe_xrupt_info->gpe_block_list_head;
-		node = gpe_block->node;
-		while (gpe_block) {
-			index -= gpe_block->register_count *
-			    ACPI_GPE_REGISTER_WIDTH;
-			if (index < 0) {
-				acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
-				/* return NULL if it's FADT GPE */
-				if (node->type != ACPI_TYPE_DEVICE)
-					*handle = NULL;
-				else
-					*handle = node;
-				return 0;
-			}
-			node = gpe_block->node;
-			gpe_block = gpe_block->next;
-		}
-		gpe_xrupt_info = gpe_xrupt_info->next;
-	}
-	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
-
-	return -ENODEV;
-}
 
 static void delete_gpe_attr_array(void)
 {
@@ -309,7 +293,7 @@ static int get_status(u32 index, acpi_event_status *status, acpi_handle *handle)
 		goto end;
 
 	if (index < num_gpes) {
-		result = get_gpe_device(index, handle);
+		result = acpi_get_gpe_device(index, handle);
 		if (result) {
 			ACPI_EXCEPTION((AE_INFO, AE_NOT_FOUND,
 				"Invalid GPE 0x%x\n", index));
@@ -335,6 +319,8 @@ static ssize_t counter_show(struct kobject *kobj,
 
 	all_counters[num_gpes + ACPI_NUM_FIXED_EVENTS + COUNT_SCI].count =
 		acpi_irq_handled;
+	all_counters[num_gpes + ACPI_NUM_FIXED_EVENTS + COUNT_SCI_NOT].count =
+		acpi_irq_not_handled;
 	all_counters[num_gpes + ACPI_NUM_FIXED_EVENTS + COUNT_GPE].count =
 		acpi_gpe_count;
 
@@ -381,6 +367,7 @@ static ssize_t counter_set(struct kobject *kobj,
 			all_counters[i].count = 0;
 		acpi_gpe_count = 0;
 		acpi_irq_handled = 0;
+		acpi_irq_not_handled = 0;
 		goto end;
 	}
 
@@ -436,7 +423,7 @@ void acpi_irq_stats_init(void)
 	if (all_counters)
 		return;
 
-	num_gpes = count_num_gpes();
+	num_gpes = acpi_current_gpe_count;
 	num_counters = num_gpes + ACPI_NUM_FIXED_EVENTS + NUM_COUNTERS_EXTRA;
 
 	all_attrs = kzalloc(sizeof(struct attribute *) * (num_counters + 1),
@@ -474,6 +461,8 @@ void acpi_irq_stats_init(void)
 			sprintf(buffer, "gpe_all");
 		else if (i == num_gpes + ACPI_NUM_FIXED_EVENTS + COUNT_SCI)
 			sprintf(buffer, "sci");
+		else if (i == num_gpes + ACPI_NUM_FIXED_EVENTS + COUNT_SCI_NOT)
+			sprintf(buffer, "sci_not");
 		else if (i == num_gpes + ACPI_NUM_FIXED_EVENTS + COUNT_ERROR)
 			sprintf(buffer, "error");
 		else
@@ -630,12 +619,9 @@ static int acpi_system_procfs_init(void)
 }
 #endif
 
-static int __init acpi_system_init(void)
+int __init acpi_system_init(void)
 {
-	int result = 0;
-
-	if (acpi_disabled)
-		return 0;
+	int result;
 
 	result = acpi_system_procfs_init();
 	if (result)
@@ -645,5 +631,3 @@ static int __init acpi_system_init(void)
 
 	return result;
 }
-
-subsys_initcall(acpi_system_init);

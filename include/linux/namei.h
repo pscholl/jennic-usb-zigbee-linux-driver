@@ -69,7 +69,6 @@ extern int path_lookup(const char *, unsigned, struct nameidata *);
 extern int vfs_path_lookup(struct dentry *, struct vfsmount *,
 			   const char *, unsigned int, struct nameidata *);
 
-extern int path_lookup_open(int dfd, const char *name, unsigned lookup_flags, struct nameidata *, int open_flags);
 extern struct file *lookup_instantiate_filp(struct nameidata *nd, struct dentry *dentry,
 		int (*open)(struct inode *, struct file *));
 extern struct file *nameidata_to_filp(struct nameidata *nd, int flags);
@@ -92,6 +91,11 @@ static inline void nd_set_link(struct nameidata *nd, char *path)
 static inline char *nd_get_link(struct nameidata *nd)
 {
 	return nd->saved_names[nd->depth];
+}
+
+static inline void nd_terminate_link(void *name, size_t len, size_t maxlen)
+{
+	((char *) name)[min(len, maxlen)] = '\0';
 }
 
 #endif /* _LINUX_NAMEI_H */

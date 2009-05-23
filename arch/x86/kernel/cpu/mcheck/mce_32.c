@@ -1,6 +1,6 @@
 /*
  * mce.c - x86 Machine Check Exception Reporting
- * (c) 2002 Alan Cox <alan@redhat.com>, Dave Jones <davej@redhat.com>
+ * (c) 2002 Alan Cox <alan@lxorguk.ukuu.org.uk>, Dave Jones <davej@redhat.com>
  */
 
 #include <linux/init.h>
@@ -58,20 +58,6 @@ void mcheck_init(struct cpuinfo_x86 *c)
 	default:
 		break;
 	}
-}
-
-static unsigned long old_cr4 __initdata;
-
-void __init stop_mce(void)
-{
-	old_cr4 = read_cr4();
-	clear_in_cr4(X86_CR4_MCE);
-}
-
-void __init restart_mce(void)
-{
-	if (old_cr4 & X86_CR4_MCE)
-		set_in_cr4(X86_CR4_MCE);
 }
 
 static int __init mcheck_disable(char *str)

@@ -33,7 +33,7 @@ if SND_DRIVERS
 
 config SND_PCSP
 	tristate "PC-Speaker support (READ HELP!)"
-	depends on PCSPKR_PLATFORM && X86_PC && HIGH_RES_TIMERS
+	depends on PCSPKR_PLATFORM && X86 && HIGH_RES_TIMERS
 	depends on INPUT
 	depends on EXPERIMENTAL
 	select SND_PCM
@@ -163,7 +163,7 @@ config SND_ML403_AC97CR
 
 config SND_AC97_POWER_SAVE
 	bool "AC97 Power-Saving Mode"
-	depends on SND_AC97_CODEC && EXPERIMENTAL
+	depends on SND_AC97_CODEC
 	default n
 	help
 	  Say Y here to enable the aggressive power-saving support of

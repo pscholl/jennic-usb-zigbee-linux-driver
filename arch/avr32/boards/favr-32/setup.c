@@ -17,9 +17,12 @@
 #include <linux/linkage.h>
 #include <linux/gpio.h>
 #include <linux/leds.h>
+#include <linux/atmel-mci.h>
 #include <linux/atmel-pwm-bl.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/ads7846.h>
+
+#include <sound/atmel-abdac.h>
 
 #include <video/atmel_lcdc.h>
 
@@ -39,6 +42,9 @@ unsigned long at32_board_osc_rates[3] = {
 
 /* Initialized by bootloader-specific startup code. */
 struct tag *bootloader_tags __initdata;
+
+static struct atmel_abdac_pdata __initdata abdac0_data = {
+};
 
 struct eth_addr {
 	u8 addr[6];
@@ -76,6 +82,14 @@ static struct spi_board_info __initdata spi1_board_info[] = {
 		.chip_select	= 0,
 		.bus_num	= 1,
 		.platform_data	= &ads7843_data,
+	},
+};
+
+static struct mci_platform_data __initdata mci0_data = {
+	.slot[0] = {
+		.bus_width	= 4,
+		.detect_pin	= -ENODEV,
+		.wp_pin		= -ENODEV,
 	},
 };
 
@@ -236,7 +250,7 @@ static void __init favr32_setup_atmel_pwm_bl(void)
 
 void __init setup_board(void)
 {
-	at32_map_usart(3, 0);	/* USART 3 => /dev/ttyS0 */
+	at32_map_usart(3, 0, 0);	/* USART 3 => /dev/ttyS0 */
 	at32_setup_serial_console(0);
 }
 
@@ -307,27 +321,9 @@ static int __init favr32_init(void)
 	 * Favr-32 uses 32-bit SDRAM interface. Reserve the SDRAM-specific
 	 * pins so that nobody messes with them.
 	 */
-	at32_reserve_pin(GPIO_PIN_PE(0));	/* DATA[16]	*/
-	at32_reserve_pin(GPIO_PIN_PE(1));	/* DATA[17]	*/
-	at32_reserve_pin(GPIO_PIN_PE(2));	/* DATA[18]	*/
-	at32_reserve_pin(GPIO_PIN_PE(3));	/* DATA[19]	*/
-	at32_reserve_pin(GPIO_PIN_PE(4));	/* DATA[20]	*/
-	at32_reserve_pin(GPIO_PIN_PE(5));	/* DATA[21]	*/
-	at32_reserve_pin(GPIO_PIN_PE(6));	/* DATA[22]	*/
-	at32_reserve_pin(GPIO_PIN_PE(7));	/* DATA[23]	*/
-	at32_reserve_pin(GPIO_PIN_PE(8));	/* DATA[24]	*/
-	at32_reserve_pin(GPIO_PIN_PE(9));	/* DATA[25]	*/
-	at32_reserve_pin(GPIO_PIN_PE(10));	/* DATA[26]	*/
-	at32_reserve_pin(GPIO_PIN_PE(11));	/* DATA[27]	*/
-	at32_reserve_pin(GPIO_PIN_PE(12));	/* DATA[28]	*/
-	at32_reserve_pin(GPIO_PIN_PE(13));	/* DATA[29]	*/
-	at32_reserve_pin(GPIO_PIN_PE(14));	/* DATA[30]	*/
-	at32_reserve_pin(GPIO_PIN_PE(15));	/* DATA[31]	*/
-	at32_reserve_pin(GPIO_PIN_PE(26));	/* SDCS		*/
+	at32_reserve_pin(GPIO_PIOE_BASE, ATMEL_EBI_PE_DATA_ALL);
 
 	at32_select_gpio(GPIO_PIN_PB(3), 0);	/* IRQ from ADS7843 */
-
-	at32_add_system_devices();
 
 	at32_add_device_usart(0);
 
@@ -335,11 +331,11 @@ static int __init favr32_init(void)
 
 	spi1_board_info[0].irq = gpio_to_irq(GPIO_PIN_PB(3));
 
-	set_abdac_rate(at32_add_device_abdac(0));
+	set_abdac_rate(at32_add_device_abdac(0, &abdac0_data));
 
 	at32_add_device_pwm(1 << atmel_pwm_bl_pdata.pwm_channel);
 	at32_add_device_spi(1, spi1_board_info, ARRAY_SIZE(spi1_board_info));
-	at32_add_device_mci(0, NULL);
+	at32_add_device_mci(0, &mci0_data);
 	at32_add_device_usba(0, NULL);
 	at32_add_device_lcdc(0, &favr32_lcdc_data, fbmem_start, fbmem_size, 0);
 

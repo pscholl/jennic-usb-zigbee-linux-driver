@@ -114,7 +114,7 @@ static unsigned long siimage_selreg(ide_hwif_t *hwif, int r)
 
 static inline unsigned long siimage_seldev(ide_drive_t *drive, int r)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	unsigned long base	= (unsigned long)hwif->hwif_data;
 	u8 unit			= drive->dn & 1;
 
@@ -243,7 +243,7 @@ static void sil_set_pio_mode(ide_drive_t *drive, u8 pio)
 	static const u16 tf_speed[]   = { 0x328a, 0x2283, 0x1281, 0x10c3, 0x10c1 };
 	static const u16 data_speed[] = { 0x328a, 0x2283, 0x1104, 0x10c3, 0x10c1 };
 
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	ide_drive_t *pair	= ide_get_pair_dev(drive);
 	u32 speedt		= 0;
@@ -300,7 +300,7 @@ static void sil_set_dma_mode(ide_drive_t *drive, const u8 speed)
 	static const u8 ultra5[] = { 0x0C, 0x07, 0x05, 0x04, 0x02, 0x01 };
 	static const u16 dma[]	 = { 0x2208, 0x10C2, 0x10C1 };
 
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	unsigned long base	= (unsigned long)hwif->hwif_data;
 	u16 ultra = 0, multi	= 0;
@@ -340,7 +340,7 @@ static void sil_set_dma_mode(ide_drive_t *drive, const u8 speed)
 /* returns 1 if dma irq issued, 0 otherwise */
 static int siimage_io_dma_test_irq(ide_drive_t *drive)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	u8 dma_altstat		= 0;
 	unsigned long addr	= siimage_selreg(hwif, 1);
@@ -367,7 +367,7 @@ static int siimage_io_dma_test_irq(ide_drive_t *drive)
 
 static int siimage_mmio_dma_test_irq(ide_drive_t *drive)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	unsigned long addr	= siimage_selreg(hwif, 0x1);
 	void __iomem *sata_error_addr
 		= (void __iomem *)hwif->sata_scr[SATA_ERROR_OFFSET];
@@ -464,7 +464,7 @@ static void sil_sata_pre_reset(ide_drive_t *drive)
  *	to 133 MHz clocking if the system isn't already set up to do it.
  */
 
-static unsigned int init_chipset_siimage(struct pci_dev *dev)
+static int init_chipset_siimage(struct pci_dev *dev)
 {
 	struct ide_host *host = pci_get_drvdata(dev);
 	void __iomem *ioaddr = host->host_priv;
@@ -711,12 +711,12 @@ static const struct ide_port_ops sil_sata_port_ops = {
 static const struct ide_dma_ops sil_dma_ops = {
 	.dma_host_set		= ide_dma_host_set,
 	.dma_setup		= ide_dma_setup,
-	.dma_exec_cmd		= ide_dma_exec_cmd,
 	.dma_start		= ide_dma_start,
 	.dma_end		= ide_dma_end,
 	.dma_test_irq		= siimage_dma_test_irq,
-	.dma_timeout		= ide_dma_timeout,
+	.dma_timer_expiry	= ide_dma_sff_timer_expiry,
 	.dma_lost_irq		= ide_dma_lost_irq,
+	.dma_sff_read_status	= ide_dma_sff_read_status,
 };
 
 #define DECLARE_SII_DEV(p_ops)				\

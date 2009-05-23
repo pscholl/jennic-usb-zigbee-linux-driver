@@ -10,6 +10,7 @@
  *
  *  This is the "shell" of the ARMv6 processor support.
  */
+#include <linux/init.h>
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/asm-offsets.h>
@@ -71,6 +72,8 @@ ENTRY(cpu_v6_reset)
  *	IRQs are already disabled.
  */
 ENTRY(cpu_v6_do_idle)
+	mov	r1, #0
+	mcr	p15, 0, r1, c7, c10, 4		@ DWB - WFI may enter a low-power mode
 	mcr	p15, 0, r1, c7, c0, 4		@ wait for interrupt
 	mov	pc, lr
 
@@ -130,7 +133,7 @@ cpu_v6_name:
 	.asciz	"ARMv6-compatible processor"
 	.align
 
-	.section ".text.init", #alloc, #execinstr
+	__INIT
 
 /*
  *	__v6_setup

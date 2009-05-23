@@ -2,7 +2,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2008 Intel Corporation. All rights reserved.
+ * Copyright(c) 2008 - 2009 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -22,7 +22,7 @@
  * in the file called LICENSE.GPL.
  *
  * Contact Information:
- * Tomas Winkler <tomas.winkler@intel.com>
+ *  Intel Linux Wireless <ilw@linux.intel.com>
  * Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
  *****************************************************************************/
 
@@ -58,7 +58,16 @@
 #define DEBUGFS_ADD_BOOL(name, parent, ptr) do {                        \
 	dbgfs->dbgfs_##parent##_files.file_##name =                     \
 	debugfs_create_bool(#name, 0644, dbgfs->dir_##parent, ptr);     \
-	if (IS_ERR(dbgfs->dbgfs_##parent##_files.file_##name))          \
+	if (IS_ERR(dbgfs->dbgfs_##parent##_files.file_##name)		\
+			|| !dbgfs->dbgfs_##parent##_files.file_##name)	\
+		goto err;                                               \
+} while (0)
+
+#define DEBUGFS_ADD_X32(name, parent, ptr) do {                        \
+	dbgfs->dbgfs_##parent##_files.file_##name =                     \
+	debugfs_create_x32(#name, 0444, dbgfs->dir_##parent, ptr);     \
+	if (IS_ERR(dbgfs->dbgfs_##parent##_files.file_##name)		\
+			|| !dbgfs->dbgfs_##parent##_files.file_##name)	\
 		goto err;                                               \
 } while (0)
 
@@ -163,9 +172,6 @@ static ssize_t iwl_dbgfs_sram_read(struct file *file,
 	struct iwl_priv *priv = (struct iwl_priv *)file->private_data;
 	const size_t bufsz = sizeof(buf);
 
-	printk(KERN_DEBUG "offset is: 0x%x\tlen is: 0x%x\n",
-	priv->dbgfs->sram_offset, priv->dbgfs->sram_len);
-
 	iwl_grab_nic_access(priv);
 	for (i = priv->dbgfs->sram_len; i > 0; i -= 4) {
 		val = iwl_read_targ_mem(priv, priv->dbgfs->sram_offset + \
@@ -228,7 +234,6 @@ static ssize_t iwl_dbgfs_stations_read(struct file *file, char __user *user_buf,
 	ssize_t ret;
 	/* Add 30 for initial string */
 	const size_t bufsz = 30 + sizeof(char) * 500 * (priv->num_stations);
-	DECLARE_MAC_BUF(mac);
 
 	buf = kmalloc(bufsz, GFP_KERNEL);
 	if (!buf)
@@ -242,7 +247,6 @@ static ssize_t iwl_dbgfs_stations_read(struct file *file, char __user *user_buf,
 		if (station->used) {
 			pos += scnprintf(buf + pos, bufsz - pos,
 					"station %d:\ngeneral data:\n", i+1);
-			print_mac(mac, station->sta.sta.addr);
 			pos += scnprintf(buf + pos, bufsz - pos, "id: %u\n",
 					station->sta.sta.sta_id);
 			pos += scnprintf(buf + pos, bufsz - pos, "mode: %u\n",
@@ -302,14 +306,14 @@ static ssize_t iwl_dbgfs_eeprom_read(struct file *file,
 	buf_size = 4 * eeprom_len + 256;
 
 	if (eeprom_len % 16) {
-		IWL_ERROR("EEPROM size is not multiple of 16.\n");
+		IWL_ERR(priv, "EEPROM size is not multiple of 16.\n");
 		return -ENODATA;
 	}
 
 	/* 4 characters for byte 0xYY */
 	buf = kzalloc(buf_size, GFP_KERNEL);
 	if (!buf) {
-		IWL_ERROR("Can not allocate Buffer\n");
+		IWL_ERR(priv, "Can not allocate Buffer\n");
 		return -ENOMEM;
 	}
 
@@ -349,12 +353,136 @@ static ssize_t iwl_dbgfs_log_event_write(struct file *file,
 	return count;
 }
 
+
+
+static ssize_t iwl_dbgfs_channels_read(struct file *file, char __user *user_buf,
+				       size_t count, loff_t *ppos)
+{
+	struct iwl_priv *priv = (struct iwl_priv *)file->private_data;
+	struct ieee80211_channel *channels = NULL;
+	const struct ieee80211_supported_band *supp_band = NULL;
+	int pos = 0, i, bufsz = PAGE_SIZE;
+	char *buf;
+	ssize_t ret;
+
+	if (!test_bit(STATUS_GEO_CONFIGURED, &priv->status))
+		return -EAGAIN;
+
+	buf = kzalloc(bufsz, GFP_KERNEL);
+	if (!buf) {
+		IWL_ERR(priv, "Can not allocate Buffer\n");
+		return -ENOMEM;
+	}
+
+	supp_band = iwl_get_hw_mode(priv, IEEE80211_BAND_2GHZ);
+	channels = supp_band->channels;
+
+	pos += scnprintf(buf + pos, bufsz - pos,
+			"Displaying %d channels in 2.4GHz band 802.11bg):\n",
+			 supp_band->n_channels);
+
+	for (i = 0; i < supp_band->n_channels; i++)
+		pos += scnprintf(buf + pos, bufsz - pos,
+				"%d: %ddBm: BSS%s%s, %s.\n",
+				ieee80211_frequency_to_channel(
+				channels[i].center_freq),
+				channels[i].max_power,
+				channels[i].flags & IEEE80211_CHAN_RADAR ?
+				" (IEEE 802.11h required)" : "",
+				(!(channels[i].flags & IEEE80211_CHAN_NO_IBSS)
+				|| (channels[i].flags &
+				IEEE80211_CHAN_RADAR)) ? "" :
+				", IBSS",
+				channels[i].flags &
+				IEEE80211_CHAN_PASSIVE_SCAN ?
+				"passive only" : "active/passive");
+
+	supp_band = iwl_get_hw_mode(priv, IEEE80211_BAND_5GHZ);
+	channels = supp_band->channels;
+
+	pos += scnprintf(buf + pos, bufsz - pos,
+			"Displaying %d channels in 5.2GHz band (802.11a)\n",
+			supp_band->n_channels);
+
+	for (i = 0; i < supp_band->n_channels; i++)
+		pos += scnprintf(buf + pos, bufsz - pos,
+				"%d: %ddBm: BSS%s%s, %s.\n",
+				ieee80211_frequency_to_channel(
+				channels[i].center_freq),
+				channels[i].max_power,
+				channels[i].flags & IEEE80211_CHAN_RADAR ?
+				" (IEEE 802.11h required)" : "",
+				((channels[i].flags & IEEE80211_CHAN_NO_IBSS)
+				|| (channels[i].flags &
+				IEEE80211_CHAN_RADAR)) ? "" :
+				", IBSS",
+				channels[i].flags &
+				IEEE80211_CHAN_PASSIVE_SCAN ?
+				"passive only" : "active/passive");
+
+	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
+	kfree(buf);
+	return ret;
+}
+
+static ssize_t iwl_dbgfs_status_read(struct file *file,
+						char __user *user_buf,
+						size_t count, loff_t *ppos) {
+
+	struct iwl_priv *priv = (struct iwl_priv *)file->private_data;
+	char buf[512];
+	int pos = 0;
+	const size_t bufsz = sizeof(buf);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_HCMD_ACTIVE:\t %d\n",
+		test_bit(STATUS_HCMD_ACTIVE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_HCMD_SYNC_ACTIVE: %d\n",
+		test_bit(STATUS_HCMD_SYNC_ACTIVE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_INT_ENABLED:\t %d\n",
+		test_bit(STATUS_INT_ENABLED, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_RF_KILL_HW:\t %d\n",
+		test_bit(STATUS_RF_KILL_HW, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_RF_KILL_SW:\t %d\n",
+		test_bit(STATUS_RF_KILL_SW, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_INIT:\t\t %d\n",
+		test_bit(STATUS_INIT, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_ALIVE:\t\t %d\n",
+		test_bit(STATUS_ALIVE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_READY:\t\t %d\n",
+		test_bit(STATUS_READY, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_TEMPERATURE:\t %d\n",
+		test_bit(STATUS_TEMPERATURE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_GEO_CONFIGURED:\t %d\n",
+		test_bit(STATUS_GEO_CONFIGURED, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_EXIT_PENDING:\t %d\n",
+		test_bit(STATUS_EXIT_PENDING, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_IN_SUSPEND:\t %d\n",
+		test_bit(STATUS_IN_SUSPEND, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_STATISTICS:\t %d\n",
+		test_bit(STATUS_STATISTICS, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCANNING:\t %d\n",
+		test_bit(STATUS_SCANNING, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCAN_ABORTING:\t %d\n",
+		test_bit(STATUS_SCAN_ABORTING, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCAN_HW:\t\t %d\n",
+		test_bit(STATUS_SCAN_HW, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_POWER_PMI:\t %d\n",
+		test_bit(STATUS_POWER_PMI, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_FW_ERROR:\t %d\n",
+		test_bit(STATUS_FW_ERROR, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_MODE_PENDING:\t %d\n",
+		test_bit(STATUS_MODE_PENDING, &priv->status));
+	return simple_read_from_buffer(user_buf, count, ppos, buf, pos);
+}
+
 DEBUGFS_READ_WRITE_FILE_OPS(sram);
 DEBUGFS_WRITE_FILE_OPS(log_event);
 DEBUGFS_READ_FILE_OPS(eeprom);
 DEBUGFS_READ_FILE_OPS(stations);
 DEBUGFS_READ_FILE_OPS(rx_statistics);
 DEBUGFS_READ_FILE_OPS(tx_statistics);
+DEBUGFS_READ_FILE_OPS(channels);
+DEBUGFS_READ_FILE_OPS(status);
 
 /*
  * Create the debugfs files and directories
@@ -388,6 +516,8 @@ int iwl_dbgfs_register(struct iwl_priv *priv, const char *name)
 	DEBUGFS_ADD_FILE(stations, data);
 	DEBUGFS_ADD_FILE(rx_statistics, data);
 	DEBUGFS_ADD_FILE(tx_statistics, data);
+	DEBUGFS_ADD_FILE(channels, data);
+	DEBUGFS_ADD_FILE(status, data);
 	DEBUGFS_ADD_BOOL(disable_sensitivity, rf, &priv->disable_sens_cal);
 	DEBUGFS_ADD_BOOL(disable_chain_noise, rf,
 			 &priv->disable_chain_noise_cal);
@@ -395,7 +525,7 @@ int iwl_dbgfs_register(struct iwl_priv *priv, const char *name)
 	return 0;
 
 err:
-	IWL_ERROR("Can't open the debugfs directory\n");
+	IWL_ERR(priv, "Can't open the debugfs directory\n");
 	iwl_dbgfs_unregister(priv);
 	return ret;
 }
@@ -416,6 +546,8 @@ void iwl_dbgfs_unregister(struct iwl_priv *priv)
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_sram);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_log_event);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_stations);
+	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_channels);
+	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_status);
 	DEBUGFS_REMOVE(priv->dbgfs->dir_data);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_rf_files.file_disable_sensitivity);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_rf_files.file_disable_chain_noise);

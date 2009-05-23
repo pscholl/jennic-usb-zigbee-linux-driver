@@ -63,18 +63,37 @@ static struct rcu_ctrlblk rcu_ctrlblk = {
 	.completed = -300,
 	.pending = -300,
 	.lock = __SPIN_LOCK_UNLOCKED(&rcu_ctrlblk.lock),
-	.cpumask = CPU_MASK_NONE,
+	.cpumask = CPU_BITS_NONE,
 };
+
 static struct rcu_ctrlblk rcu_bh_ctrlblk = {
 	.cur = -300,
 	.completed = -300,
 	.pending = -300,
 	.lock = __SPIN_LOCK_UNLOCKED(&rcu_bh_ctrlblk.lock),
-	.cpumask = CPU_MASK_NONE,
+	.cpumask = CPU_BITS_NONE,
 };
 
-DEFINE_PER_CPU(struct rcu_data, rcu_data) = { 0L };
-DEFINE_PER_CPU(struct rcu_data, rcu_bh_data) = { 0L };
+static DEFINE_PER_CPU(struct rcu_data, rcu_data);
+static DEFINE_PER_CPU(struct rcu_data, rcu_bh_data);
+
+/*
+ * Increment the quiescent state counter.
+ * The counter is a bit degenerated: We do not need to know
+ * how many quiescent states passed, just if there was at least
+ * one since the start of the grace period. Thus just a flag.
+ */
+void rcu_qsctr_inc(int cpu)
+{
+	struct rcu_data *rdp = &per_cpu(rcu_data, cpu);
+	rdp->passed_quiesc = 1;
+}
+
+void rcu_bh_qsctr_inc(int cpu)
+{
+	struct rcu_data *rdp = &per_cpu(rcu_bh_data, cpu);
+	rdp->passed_quiesc = 1;
+}
 
 static int blimit = 10;
 static int qhimark = 10000;
@@ -85,7 +104,6 @@ static void force_quiescent_state(struct rcu_data *rdp,
 			struct rcu_ctrlblk *rcp)
 {
 	int cpu;
-	cpumask_t cpumask;
 	unsigned long flags;
 
 	set_need_resched();
@@ -96,10 +114,10 @@ static void force_quiescent_state(struct rcu_data *rdp,
 		 * Don't send IPI to itself. With irqs disabled,
 		 * rdp->cpu is the current cpu.
 		 *
-		 * cpu_online_map is updated by the _cpu_down()
+		 * cpu_online_mask is updated by the _cpu_down()
 		 * using __stop_machine(). Since we're in irqs disabled
 		 * section, __stop_machine() is not exectuting, hence
-		 * the cpu_online_map is stable.
+		 * the cpu_online_mask is stable.
 		 *
 		 * However,  a cpu might have been offlined _just_ before
 		 * we disabled irqs while entering here.
@@ -107,13 +125,14 @@ static void force_quiescent_state(struct rcu_data *rdp,
 		 * notification, leading to the offlined cpu's bit
 		 * being set in the rcp->cpumask.
 		 *
-		 * Hence cpumask = (rcp->cpumask & cpu_online_map) to prevent
+		 * Hence cpumask = (rcp->cpumask & cpu_online_mask) to prevent
 		 * sending smp_reschedule() to an offlined CPU.
 		 */
-		cpus_and(cpumask, rcp->cpumask, cpu_online_map);
-		cpu_clear(rdp->cpu, cpumask);
-		for_each_cpu_mask_nr(cpu, cpumask)
-			smp_send_reschedule(cpu);
+		for_each_cpu_and(cpu,
+				  to_cpumask(rcp->cpumask), cpu_online_mask) {
+			if (cpu != rdp->cpu)
+				smp_send_reschedule(cpu);
+		}
 	}
 	spin_unlock_irqrestore(&rcp->lock, flags);
 }
@@ -191,9 +210,9 @@ static void print_other_cpu_stall(struct rcu_ctrlblk *rcp)
 
 	/* OK, time to rat on our buddy... */
 
-	printk(KERN_ERR "RCU detected CPU stalls:");
+	printk(KERN_ERR "INFO: RCU detected CPU stalls:");
 	for_each_possible_cpu(cpu) {
-		if (cpu_isset(cpu, rcp->cpumask))
+		if (cpumask_test_cpu(cpu, to_cpumask(rcp->cpumask)))
 			printk(" %d", cpu);
 	}
 	printk(" (detected by %d, t=%ld jiffies)\n",
@@ -204,7 +223,7 @@ static void print_cpu_stall(struct rcu_ctrlblk *rcp)
 {
 	unsigned long flags;
 
-	printk(KERN_ERR "RCU detected CPU %d stall (t=%lu/%lu jiffies)\n",
+	printk(KERN_ERR "INFO: RCU detected CPU %d stall (t=%lu/%lu jiffies)\n",
 			smp_processor_id(), jiffies,
 			jiffies - rcp->gp_start);
 	dump_stack();
@@ -221,7 +240,8 @@ static void check_cpu_stall(struct rcu_ctrlblk *rcp)
 	long delta;
 
 	delta = jiffies - rcp->jiffies_stall;
-	if (cpu_isset(smp_processor_id(), rcp->cpumask) && delta >= 0) {
+	if (cpumask_test_cpu(smp_processor_id(), to_cpumask(rcp->cpumask)) &&
+		delta >= 0) {
 
 		/* We haven't checked in, so go dump stack. */
 		print_cpu_stall(rcp);
@@ -393,7 +413,8 @@ static void rcu_start_batch(struct rcu_ctrlblk *rcp)
 		 * unnecessarily.
 		 */
 		smp_mb();
-		cpus_andnot(rcp->cpumask, cpu_online_map, nohz_cpu_mask);
+		cpumask_andnot(to_cpumask(rcp->cpumask),
+			       cpu_online_mask, nohz_cpu_mask);
 
 		rcp->signaled = 0;
 	}
@@ -406,8 +427,8 @@ static void rcu_start_batch(struct rcu_ctrlblk *rcp)
  */
 static void cpu_quiet(int cpu, struct rcu_ctrlblk *rcp)
 {
-	cpu_clear(cpu, rcp->cpumask);
-	if (cpus_empty(rcp->cpumask)) {
+	cpumask_clear_cpu(cpu, to_cpumask(rcp->cpumask));
+	if (cpumask_empty(to_cpumask(rcp->cpumask))) {
 		/* batch completed ! */
 		rcp->completed = rcp->cur;
 		rcu_start_batch(rcp);
@@ -677,8 +698,8 @@ int rcu_needs_cpu(int cpu)
 void rcu_check_callbacks(int cpu, int user)
 {
 	if (user ||
-	    (idle_cpu(cpu) && !in_softirq() &&
-				hardirq_count() <= (1 << HARDIRQ_SHIFT))) {
+	    (idle_cpu(cpu) && rcu_scheduler_active &&
+	     !in_softirq() && hardirq_count() <= (1 << HARDIRQ_SHIFT))) {
 
 		/*
 		 * Get here if this CPU took its interrupt from user
@@ -714,7 +735,7 @@ void rcu_check_callbacks(int cpu, int user)
 	raise_rcu_softirq();
 }
 
-static void rcu_init_percpu_data(int cpu, struct rcu_ctrlblk *rcp,
+static void __cpuinit rcu_init_percpu_data(int cpu, struct rcu_ctrlblk *rcp,
 						struct rcu_data *rdp)
 {
 	unsigned long flags;

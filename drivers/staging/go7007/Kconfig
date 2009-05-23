@@ -10,7 +10,7 @@ config VIDEO_GO7007
 	select CRC32
 	default N
 	---help---
-	  This is a video4linux driver for some wierd device...
+	  This is a video4linux driver for some weird device...
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called go7007
@@ -20,8 +20,18 @@ config VIDEO_GO7007_USB
 	depends on VIDEO_GO7007 && USB
 	default N
 	---help---
-	  This is a video4linux driver for some wierd device...
+	  This is a video4linux driver for some weird device...
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called go7007-usb
+
+config VIDEO_GO7007_USB_S2250_BOARD
+	tristate "Sensoray 2250/2251 support"
+	depends on VIDEO_GO7007_USB && DVB_USB
+	default N
+	---help---
+	  This is a video4linux driver for the Sensoray 2250/2251 device
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called s2250-board
 

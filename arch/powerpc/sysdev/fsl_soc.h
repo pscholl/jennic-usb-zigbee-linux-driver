@@ -4,18 +4,20 @@
 
 #include <asm/mmu.h>
 
+struct spi_device;
+
 extern phys_addr_t get_immrbase(void);
+#if defined(CONFIG_CPM2) || defined(CONFIG_QUICC_ENGINE) || defined(CONFIG_8xx)
 extern u32 get_brgfreq(void);
 extern u32 get_baudrate(void);
+#else
+static inline u32 get_brgfreq(void) { return -1; }
+static inline u32 get_baudrate(void) { return -1; }
+#endif
 extern u32 fsl_get_sys_freq(void);
 
 struct spi_board_info;
 struct device_node;
-
-extern int fsl_spi_init(struct spi_board_info *board_infos,
-			unsigned int num_board_infos,
-			void (*activate_cs)(u8 cs, u8 polarity),
-			void (*deactivate_cs)(u8 cs, u8 polarity));
 
 extern void fsl_rstcr_restart(char *cmd);
 

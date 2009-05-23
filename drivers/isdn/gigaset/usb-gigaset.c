@@ -278,17 +278,17 @@ static int gigaset_set_line_ctrl(struct cardstate *cs, unsigned cflag)
 static int gigaset_set_modem_ctrl(struct cardstate *cs, unsigned old_state,
 				  unsigned new_state)
 {
-	return -EINVAL;
+	return -ENOTTY;
 }
 
 static int gigaset_set_line_ctrl(struct cardstate *cs, unsigned cflag)
 {
-	return -EINVAL;
+	return -ENOTTY;
 }
 
 static int gigaset_baud_rate(struct cardstate *cs, unsigned cflag)
 {
-	return -EINVAL;
+	return -ENOTTY;
 }
 #endif
 
@@ -407,7 +407,7 @@ static void gigaset_read_int_callback(struct urb *urb)
 	spin_lock_irqsave(&cs->lock, flags);
 	if (!cs->connected) {
 		spin_unlock_irqrestore(&cs->lock, flags);
-		err("%s: disconnected", __func__);
+		pr_err("%s: disconnected\n", __func__);
 		return;
 	}
 	r = usb_submit_urb(urb, GFP_ATOMIC);
@@ -440,7 +440,7 @@ static void gigaset_write_bulk_callback(struct urb *urb)
 
 	spin_lock_irqsave(&cs->lock, flags);
 	if (!cs->connected) {
-		err("%s: not connected", __func__);
+		pr_err("%s: disconnected\n", __func__);
 	} else {
 		cs->hw.usb->busy = 0;
 		tasklet_schedule(&cs->write_tasklet);
@@ -577,7 +577,7 @@ static int gigaset_brkchars(struct cardstate *cs, const unsigned char buf[6])
 	return usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x19, 0x41,
 			       0, 0, &buf, 6, 2000);
 #else
-	return -EINVAL;
+	return -ENOTTY;
 #endif
 }
 
@@ -612,8 +612,10 @@ static int gigaset_initcshw(struct cardstate *cs)
 
 	cs->hw.usb = ucs =
 		kmalloc(sizeof(struct usb_cardstate), GFP_KERNEL);
-	if (!ucs)
+	if (!ucs) {
+		pr_err("out of memory\n");
 		return 0;
+	}
 
 	ucs->bchars[0] = 0;
 	ucs->bchars[1] = 0;
@@ -936,13 +938,11 @@ static int __init usb_gigaset_init(void)
 	/* register this driver with the USB subsystem */
 	result = usb_register(&gigaset_usb_driver);
 	if (result < 0) {
-		err("usb_gigaset: usb_register failed (error %d)",
-		    -result);
+		pr_err("error %d registering USB driver\n", -result);
 		goto error;
 	}
 
-	info(DRIVER_AUTHOR);
-	info(DRIVER_DESC);
+	pr_info(DRIVER_DESC "\n");
 	return 0;
 
 error:

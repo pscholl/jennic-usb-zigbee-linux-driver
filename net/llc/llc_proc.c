@@ -27,8 +27,7 @@
 
 static void llc_ui_format_mac(struct seq_file *seq, u8 *addr)
 {
-	DECLARE_MAC_BUF(mac);
-	seq_printf(seq, "%s", print_mac(mac, addr));
+	seq_printf(seq, "%pM", addr);
 }
 
 static struct sock *llc_get_sk_idx(loff_t pos)
@@ -237,7 +236,6 @@ int __init llc_proc_init(void)
 	llc_proc_dir = proc_mkdir("llc", init_net.proc_net);
 	if (!llc_proc_dir)
 		goto out;
-	llc_proc_dir->owner = THIS_MODULE;
 
 	p = proc_create("socket", S_IRUGO, llc_proc_dir, &llc_seq_socket_fops);
 	if (!p)

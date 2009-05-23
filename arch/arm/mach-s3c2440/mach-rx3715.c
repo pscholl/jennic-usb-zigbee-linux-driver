@@ -42,7 +42,7 @@
 #include <mach/regs-lcd.h>
 
 #include <mach/h1940.h>
-#include <asm/plat-s3c/nand.h>
+#include <plat/nand.h>
 #include <mach/fb.h>
 
 #include <plat/clock.h>
@@ -179,7 +179,7 @@ static struct platform_device *rx3715_devices[] __initdata = {
 	&s3c_device_usb,
 	&s3c_device_lcd,
 	&s3c_device_wdt,
-	&s3c_device_i2c,
+	&s3c_device_i2c0,
 	&s3c_device_iis,
 	&s3c_device_nand,
 };
@@ -203,7 +203,7 @@ static void __init rx3715_init_machine(void)
 #ifdef CONFIG_PM_H1940
 	memcpy(phys_to_virt(H1940_SUSPEND_RESUMEAT), h1940_pm_return, 1024);
 #endif
-	s3c2410_pm_init();
+	s3c_pm_init();
 
 	s3c24xx_fb_set_platdata(&rx3715_fb_info);
 	platform_add_devices(rx3715_devices, ARRAY_SIZE(rx3715_devices));

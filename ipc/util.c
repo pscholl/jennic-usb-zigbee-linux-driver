@@ -47,15 +47,6 @@ struct ipc_proc_iface {
 	int (*show)(struct seq_file *, void *);
 };
 
-struct ipc_namespace init_ipc_ns = {
-	.kref = {
-		.refcount	= ATOMIC_INIT(2),
-	},
-};
-
-atomic_t nr_ipc_ns = ATOMIC_INIT(1);
-
-
 #ifdef CONFIG_MEMORY_HOTPLUG
 
 static void ipc_memory_notifier(struct work_struct *work)
@@ -258,6 +249,8 @@ int ipc_get_maxid(struct ipc_ids *ids)
  
 int ipc_addid(struct ipc_ids* ids, struct kern_ipc_perm* new, int size)
 {
+	uid_t euid;
+	gid_t egid;
 	int id, err;
 
 	if (size > IPCMNI)
@@ -280,8 +273,9 @@ int ipc_addid(struct ipc_ids* ids, struct kern_ipc_perm* new, int size)
 
 	ids->in_use++;
 
-	new->cuid = new->uid = current->euid;
-	new->gid = new->cgid = current->egid;
+	current_euid_egid(&euid, &egid);
+	new->cuid = new->uid = euid;
+	new->gid = new->cgid = egid;
 
 	new->seq = ids->seq++;
 	if(ids->seq > ids->seq_max)
@@ -620,13 +614,14 @@ void ipc_rcu_putref(void *ptr)
  
 int ipcperms (struct kern_ipc_perm *ipcp, short flag)
 {	/* flag will most probably be 0 or S_...UGO from <linux/stat.h> */
-	int requested_mode, granted_mode, err;
+	uid_t euid = current_euid();
+	int requested_mode, granted_mode;
 
-	if (unlikely((err = audit_ipc_obj(ipcp))))
-		return err;
+	audit_ipc_obj(ipcp);
 	requested_mode = (flag >> 6) | (flag >> 3) | flag;
 	granted_mode = ipcp->mode;
-	if (current->euid == ipcp->cuid || current->euid == ipcp->uid)
+	if (euid == ipcp->cuid ||
+	    euid == ipcp->uid)
 		granted_mode >>= 6;
 	else if (in_group_p(ipcp->cgid) || in_group_p(ipcp->gid))
 		granted_mode >>= 3;
@@ -788,6 +783,7 @@ struct kern_ipc_perm *ipcctl_pre_down(struct ipc_ids *ids, int id, int cmd,
 				      struct ipc64_perm *perm, int extra_perm)
 {
 	struct kern_ipc_perm *ipcp;
+	uid_t euid;
 	int err;
 
 	down_write(&ids->rw_mutex);
@@ -797,22 +793,17 @@ struct kern_ipc_perm *ipcctl_pre_down(struct ipc_ids *ids, int id, int cmd,
 		goto out_up;
 	}
 
-	err = audit_ipc_obj(ipcp);
-	if (err)
-		goto out_unlock;
-
-	if (cmd == IPC_SET) {
-		err = audit_ipc_set_perm(extra_perm, perm->uid,
+	audit_ipc_obj(ipcp);
+	if (cmd == IPC_SET)
+		audit_ipc_set_perm(extra_perm, perm->uid,
 					 perm->gid, perm->mode);
-		if (err)
-			goto out_unlock;
-	}
-	if (current->euid == ipcp->cuid ||
-	    current->euid == ipcp->uid || capable(CAP_SYS_ADMIN))
+
+	euid = current_euid();
+	if (euid == ipcp->cuid ||
+	    euid == ipcp->uid  || capable(CAP_SYS_ADMIN))
 		return ipcp;
 
 	err = -EPERM;
-out_unlock:
 	ipc_unlock(ipcp);
 out_up:
 	up_write(&ids->rw_mutex);

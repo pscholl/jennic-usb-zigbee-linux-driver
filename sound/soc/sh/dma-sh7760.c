@@ -103,7 +103,8 @@ static struct snd_pcm_hardware camelot_pcm_hardware = {
 	.info = (SNDRV_PCM_INFO_MMAP |
 		SNDRV_PCM_INFO_INTERLEAVED |
 		SNDRV_PCM_INFO_BLOCK_TRANSFER |
-		SNDRV_PCM_INFO_MMAP_VALID),
+		SNDRV_PCM_INFO_MMAP_VALID |
+		SNDRV_PCM_INFO_BATCH),
 	.formats =	DMABRG_FMTS,
 	.rates =	DMABRG_RATES,
 	.rate_min =		8000,
@@ -347,6 +348,18 @@ struct snd_soc_platform sh7760_soc_platform = {
 	.pcm_free	= camelot_pcm_free,
 };
 EXPORT_SYMBOL_GPL(sh7760_soc_platform);
+
+static int __init sh7760_soc_platform_init(void)
+{
+	return snd_soc_register_platform(&sh7760_soc_platform);
+}
+module_init(sh7760_soc_platform_init);
+
+static void __exit sh7760_soc_platform_exit(void)
+{
+	snd_soc_unregister_platform(&sh7760_soc_platform);
+}
+module_exit(sh7760_soc_platform_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("SH7760 Audio DMA (DMABRG) driver");

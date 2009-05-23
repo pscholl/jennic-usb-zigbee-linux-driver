@@ -21,6 +21,7 @@
 #include <linux/interrupt.h>
 #include <linux/init.h>
 #include <linux/delay.h>
+#include <linux/device.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
@@ -63,7 +64,9 @@ EXPORT_SYMBOL(mdiobus_alloc);
 static void mdiobus_release(struct device *d)
 {
 	struct mii_bus *bus = to_mii_bus(d);
-	BUG_ON(bus->state != MDIOBUS_RELEASED);
+	BUG_ON(bus->state != MDIOBUS_RELEASED &&
+	       /* for compatibility with error handling in drivers */
+	       bus->state != MDIOBUS_ALLOCATED);
 	kfree(bus);
 }
 
@@ -83,8 +86,7 @@ static struct class mdio_bus_class = {
  */
 int mdiobus_register(struct mii_bus *bus)
 {
-	int i;
-	int err = 0;
+	int i, err;
 
 	if (NULL == bus || NULL == bus->name ||
 			NULL == bus->read ||
@@ -97,7 +99,7 @@ int mdiobus_register(struct mii_bus *bus)
 	bus->dev.parent = bus->parent;
 	bus->dev.class = &mdio_bus_class;
 	bus->dev.groups = NULL;
-	memcpy(bus->dev.bus_id, bus->id, MII_BUS_ID_SIZE);
+	dev_set_name(&bus->dev, "%s", bus->id);
 
 	err = device_register(&bus->dev);
 	if (err) {
@@ -116,16 +118,23 @@ int mdiobus_register(struct mii_bus *bus)
 			struct phy_device *phydev;
 
 			phydev = mdiobus_scan(bus, i);
-			if (IS_ERR(phydev))
+			if (IS_ERR(phydev)) {
 				err = PTR_ERR(phydev);
+				goto error;
+			}
 		}
 	}
 
-	if (!err)
-		bus->state = MDIOBUS_REGISTERED;
-
+	bus->state = MDIOBUS_REGISTERED;
 	pr_info("%s: probed\n", bus->name);
+	return 0;
 
+error:
+	while (--i >= 0) {
+		if (bus->phy_map[i])
+			device_unregister(&bus->phy_map[i]->dev);
+	}
+	device_del(&bus->dev);
 	return err;
 }
 EXPORT_SYMBOL(mdiobus_register);
@@ -192,7 +201,7 @@ struct phy_device *mdiobus_scan(struct mii_bus *bus, int addr)
 
 	phydev->dev.parent = bus->parent;
 	phydev->dev.bus = &mdio_bus_type;
-	snprintf(phydev->dev.bus_id, BUS_ID_SIZE, PHY_ID_FMT, bus->id, addr);
+	dev_set_name(&phydev->dev, PHY_ID_FMT, bus->id, addr);
 
 	phydev->bus = bus;
 
@@ -278,29 +287,58 @@ static int mdio_bus_match(struct device *dev, struct device_driver *drv)
 		(phydev->phy_id & phydrv->phy_id_mask));
 }
 
+static bool mdio_bus_phy_may_suspend(struct phy_device *phydev)
+{
+	struct device_driver *drv = phydev->dev.driver;
+	struct phy_driver *phydrv = to_phy_driver(drv);
+	struct net_device *netdev = phydev->attached_dev;
+
+	if (!drv || !phydrv->suspend)
+		return false;
+
+	/* PHY not attached? May suspend. */
+	if (!netdev)
+		return true;
+
+	/*
+	 * Don't suspend PHY if the attched netdev parent may wakeup.
+	 * The parent may point to a PCI device, as in tg3 driver.
+	 */
+	if (netdev->dev.parent && device_may_wakeup(netdev->dev.parent))
+		return false;
+
+	/*
+	 * Also don't suspend PHY if the netdev itself may wakeup. This
+	 * is the case for devices w/o underlaying pwr. mgmt. aware bus,
+	 * e.g. SoC devices.
+	 */
+	if (device_may_wakeup(&netdev->dev))
+		return false;
+
+	return true;
+}
+
 /* Suspend and resume.  Copied from platform_suspend and
  * platform_resume
  */
 static int mdio_bus_suspend(struct device * dev, pm_message_t state)
 {
-	int ret = 0;
-	struct device_driver *drv = dev->driver;
+	struct phy_driver *phydrv = to_phy_driver(dev->driver);
+	struct phy_device *phydev = to_phy_device(dev);
 
-	if (drv && drv->suspend)
-		ret = drv->suspend(dev, state);
-
-	return ret;
+	if (!mdio_bus_phy_may_suspend(phydev))
+		return 0;
+	return phydrv->suspend(phydev);
 }
 
 static int mdio_bus_resume(struct device * dev)
 {
-	int ret = 0;
-	struct device_driver *drv = dev->driver;
+	struct phy_driver *phydrv = to_phy_driver(dev->driver);
+	struct phy_device *phydev = to_phy_device(dev);
 
-	if (drv && drv->resume)
-		ret = drv->resume(dev);
-
-	return ret;
+	if (!mdio_bus_phy_may_suspend(phydev))
+		return 0;
+	return phydrv->resume(phydev);
 }
 
 struct bus_type mdio_bus_type = {

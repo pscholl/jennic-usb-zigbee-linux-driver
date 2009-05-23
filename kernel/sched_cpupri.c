@@ -55,7 +55,7 @@ static int convert_prio(int prio)
  * cpupri_find - find the best (lowest-pri) CPU in the system
  * @cp: The cpupri context
  * @p: The task
- * @lowest_mask: A mask to fill in with selected CPUs
+ * @lowest_mask: A mask to fill in with selected CPUs (or NULL)
  *
  * Note: This function returns the recommended CPUs as calculated during the
  * current invokation.  By the time the call returns, the CPUs may have in
@@ -67,24 +67,22 @@ static int convert_prio(int prio)
  * Returns: (int)bool - CPUs were found
  */
 int cpupri_find(struct cpupri *cp, struct task_struct *p,
-		cpumask_t *lowest_mask)
+		struct cpumask *lowest_mask)
 {
 	int                  idx      = 0;
 	int                  task_pri = convert_prio(p->prio);
 
 	for_each_cpupri_active(cp->pri_active, idx) {
 		struct cpupri_vec *vec  = &cp->pri_to_cpu[idx];
-		cpumask_t mask;
 
 		if (idx >= task_pri)
 			break;
 
-		cpus_and(mask, p->cpus_allowed, vec->mask);
-
-		if (cpus_empty(mask))
+		if (cpumask_any_and(&p->cpus_allowed, vec->mask) >= nr_cpu_ids)
 			continue;
 
-		*lowest_mask = mask;
+		if (lowest_mask)
+			cpumask_and(lowest_mask, &p->cpus_allowed, vec->mask);
 		return 1;
 	}
 
@@ -126,7 +124,7 @@ void cpupri_set(struct cpupri *cp, int cpu, int newpri)
 		vec->count--;
 		if (!vec->count)
 			clear_bit(oldpri, cp->pri_active);
-		cpu_clear(cpu, vec->mask);
+		cpumask_clear_cpu(cpu, vec->mask);
 
 		spin_unlock_irqrestore(&vec->lock, flags);
 	}
@@ -136,7 +134,7 @@ void cpupri_set(struct cpupri *cp, int cpu, int newpri)
 
 		spin_lock_irqsave(&vec->lock, flags);
 
-		cpu_set(cpu, vec->mask);
+		cpumask_set_cpu(cpu, vec->mask);
 		vec->count++;
 		if (vec->count == 1)
 			set_bit(newpri, cp->pri_active);
@@ -150,10 +148,11 @@ void cpupri_set(struct cpupri *cp, int cpu, int newpri)
 /**
  * cpupri_init - initialize the cpupri structure
  * @cp: The cpupri context
+ * @bootmem: true if allocations need to use bootmem
  *
- * Returns: (void)
+ * Returns: -ENOMEM if memory fails.
  */
-void cpupri_init(struct cpupri *cp)
+int __init_refok cpupri_init(struct cpupri *cp, bool bootmem)
 {
 	int i;
 
@@ -164,11 +163,30 @@ void cpupri_init(struct cpupri *cp)
 
 		spin_lock_init(&vec->lock);
 		vec->count = 0;
-		cpus_clear(vec->mask);
+		if (bootmem)
+			alloc_bootmem_cpumask_var(&vec->mask);
+		else if (!alloc_cpumask_var(&vec->mask, GFP_KERNEL))
+			goto cleanup;
 	}
 
 	for_each_possible_cpu(i)
 		cp->cpu_to_pri[i] = CPUPRI_INVALID;
+	return 0;
+
+cleanup:
+	for (i--; i >= 0; i--)
+		free_cpumask_var(cp->pri_to_cpu[i].mask);
+	return -ENOMEM;
 }
 
+/**
+ * cpupri_cleanup - clean up the cpupri structure
+ * @cp: The cpupri context
+ */
+void cpupri_cleanup(struct cpupri *cp)
+{
+	int i;
 
+	for (i = 0; i < CPUPRI_NR_PRIORITIES; i++)
+		free_cpumask_var(cp->pri_to_cpu[i].mask);
+}

@@ -33,7 +33,6 @@
 #include <asm/irq.h>
 #include <mach/hardware.h>
 #include <mach/ssp.h>
-#include <mach/pxa-regs.h>
 #include <mach/regs-ssp.h>
 
 #define TIMEOUT 100000
@@ -356,7 +355,7 @@ static int __devinit ssp_probe(struct platform_device *pdev, int type)
 	}
 	ssp->pdev = pdev;
 
-	ssp->clk = clk_get(&pdev->dev, "SSPCLK");
+	ssp->clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(ssp->clk)) {
 		ret = PTR_ERR(ssp->clk);
 		goto err_free;

@@ -184,12 +184,19 @@
 #else
 
 #define PM_4K		0x00000000
+#define PM_8K		0x00002000
 #define PM_16K		0x00006000
+#define PM_32K		0x0000e000
 #define PM_64K		0x0001e000
+#define PM_128K		0x0003e000
 #define PM_256K		0x0007e000
+#define PM_512K		0x000fe000
 #define PM_1M		0x001fe000
+#define PM_2M		0x003fe000
 #define PM_4M		0x007fe000
+#define PM_8M		0x00ffe000
 #define PM_16M		0x01ffe000
+#define PM_32M		0x03ffe000
 #define PM_64M		0x07ffe000
 #define PM_256M		0x1fffe000
 #define PM_1G		0x7fffe000
@@ -201,8 +208,12 @@
  */
 #ifdef CONFIG_PAGE_SIZE_4KB
 #define PM_DEFAULT_MASK	PM_4K
+#elif defined(CONFIG_PAGE_SIZE_8KB)
+#define PM_DEFAULT_MASK	PM_8K
 #elif defined(CONFIG_PAGE_SIZE_16KB)
 #define PM_DEFAULT_MASK	PM_16K
+#elif defined(CONFIG_PAGE_SIZE_32KB)
+#define PM_DEFAULT_MASK	PM_32K
 #elif defined(CONFIG_PAGE_SIZE_64KB)
 #define PM_DEFAULT_MASK	PM_64K
 #else
@@ -717,8 +728,8 @@ do {									\
 			".set\tmips64\n\t"				\
 			"dmfc0\t%M0, " #source "\n\t"			\
 			"dsll\t%L0, %M0, 32\n\t"			\
-			"dsrl\t%M0, %M0, 32\n\t"			\
-			"dsrl\t%L0, %L0, 32\n\t"			\
+			"dsra\t%M0, %M0, 32\n\t"			\
+			"dsra\t%L0, %L0, 32\n\t"			\
 			".set\tmips0"					\
 			: "=r" (__val));				\
 	else								\
@@ -726,8 +737,8 @@ do {									\
 			".set\tmips64\n\t"				\
 			"dmfc0\t%M0, " #source ", " #sel "\n\t"		\
 			"dsll\t%L0, %M0, 32\n\t"			\
-			"dsrl\t%M0, %M0, 32\n\t"			\
-			"dsrl\t%L0, %L0, 32\n\t"			\
+			"dsra\t%M0, %M0, 32\n\t"			\
+			"dsra\t%L0, %L0, 32\n\t"			\
 			".set\tmips0"					\
 			: "=r" (__val));				\
 	local_irq_restore(__flags);					\
@@ -1000,6 +1011,26 @@ do {									\
 #define read_c0_ebase()		__read_32bit_c0_register($15, 1)
 #define write_c0_ebase(val)	__write_32bit_c0_register($15, 1, val)
 
+
+/* Cavium OCTEON (cnMIPS) */
+#define read_c0_cvmcount()	__read_ulong_c0_register($9, 6)
+#define write_c0_cvmcount(val)	__write_ulong_c0_register($9, 6, val)
+
+#define read_c0_cvmctl()	__read_64bit_c0_register($9, 7)
+#define write_c0_cvmctl(val)	__write_64bit_c0_register($9, 7, val)
+
+#define read_c0_cvmmemctl()	__read_64bit_c0_register($11, 7)
+#define write_c0_cvmmemctl(val)	__write_64bit_c0_register($11, 7, val)
+/*
+ * The cacheerr registers are not standardized.  On OCTEON, they are
+ * 64 bits wide.
+ */
+#define read_octeon_c0_icacheerr()	__read_64bit_c0_register($27, 0)
+#define write_octeon_c0_icacheerr(val)	__write_64bit_c0_register($27, 0, val)
+
+#define read_octeon_c0_dcacheerr()	__read_64bit_c0_register($27, 1)
+#define write_octeon_c0_dcacheerr(val)	__write_64bit_c0_register($27, 1, val)
+
 /*
  * Macros to access the floating point coprocessor control registers
  */
@@ -1008,6 +1039,8 @@ do {									\
 	__asm__ __volatile__(                                   \
 	".set\tpush\n\t"					\
 	".set\treorder\n\t"					\
+	/* gas fails to assemble cfc1 for some archs (octeon).*/ \
+	".set\tmips1\n\t"					\
         "cfc1\t%0,"STR(source)"\n\t"                            \
 	".set\tpop"						\
         : "=r" (__res));                                        \
@@ -1369,11 +1402,11 @@ static inline void tlb_write_random(void)
 static inline unsigned int					\
 set_c0_##name(unsigned int set)					\
 {								\
-	unsigned int res;					\
+	unsigned int res, new;					\
 								\
 	res = read_c0_##name();					\
-	res |= set;						\
-	write_c0_##name(res);					\
+	new = res | set;					\
+	write_c0_##name(new);					\
 								\
 	return res;						\
 }								\
@@ -1381,24 +1414,24 @@ set_c0_##name(unsigned int set)					\
 static inline unsigned int					\
 clear_c0_##name(unsigned int clear)				\
 {								\
-	unsigned int res;					\
+	unsigned int res, new;					\
 								\
 	res = read_c0_##name();					\
-	res &= ~clear;						\
-	write_c0_##name(res);					\
+	new = res & ~clear;					\
+	write_c0_##name(new);					\
 								\
 	return res;						\
 }								\
 								\
 static inline unsigned int					\
-change_c0_##name(unsigned int change, unsigned int new)		\
+change_c0_##name(unsigned int change, unsigned int val)		\
 {								\
-	unsigned int res;					\
+	unsigned int res, new;					\
 								\
 	res = read_c0_##name();					\
-	res &= ~change;						\
-	res |= (new & change);					\
-	write_c0_##name(res);					\
+	new = res & ~change;					\
+	new |= (val & change);					\
+	write_c0_##name(new);					\
 								\
 	return res;						\
 }
@@ -1462,14 +1495,15 @@ static inline unsigned int					\
 set_c0_##name(unsigned int set)					\
 {								\
 	unsigned int res;					\
+	unsigned int new;					\
 	unsigned int omt;					\
 	unsigned long flags;					\
 								\
 	local_irq_save(flags);					\
 	omt = __dmt();						\
 	res = read_c0_##name();					\
-	res |= set;						\
-	write_c0_##name(res);					\
+	new = res | set;					\
+	write_c0_##name(new);					\
 	__emt(omt);						\
 	local_irq_restore(flags);				\
 								\
@@ -1480,14 +1514,15 @@ static inline unsigned int					\
 clear_c0_##name(unsigned int clear)				\
 {								\
 	unsigned int res;					\
+	unsigned int new;					\
 	unsigned int omt;					\
 	unsigned long flags;					\
 								\
 	local_irq_save(flags);					\
 	omt = __dmt();						\
 	res = read_c0_##name();					\
-	res &= ~clear;						\
-	write_c0_##name(res);					\
+	new = res & ~clear;					\
+	write_c0_##name(new);					\
 	__emt(omt);						\
 	local_irq_restore(flags);				\
 								\
@@ -1495,9 +1530,10 @@ clear_c0_##name(unsigned int clear)				\
 }								\
 								\
 static inline unsigned int					\
-change_c0_##name(unsigned int change, unsigned int new)		\
+change_c0_##name(unsigned int change, unsigned int newbits)	\
 {								\
 	unsigned int res;					\
+	unsigned int new;					\
 	unsigned int omt;					\
 	unsigned long flags;					\
 								\
@@ -1505,9 +1541,9 @@ change_c0_##name(unsigned int change, unsigned int new)		\
 								\
 	omt = __dmt();						\
 	res = read_c0_##name();					\
-	res &= ~change;						\
-	res |= (new & change);					\
-	write_c0_##name(res);					\
+	new = res & ~change;					\
+	new |= (newbits & change);				\
+	write_c0_##name(new);					\
 	__emt(omt);						\
 	local_irq_restore(flags);				\
 								\

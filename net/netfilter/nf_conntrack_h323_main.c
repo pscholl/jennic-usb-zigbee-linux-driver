@@ -850,10 +850,8 @@ static int process_setup(struct sk_buff *skb, struct nf_conn *ct,
 	    get_h225_addr(ct, *data, &setup->destCallSignalAddress,
 			  &addr, &port) &&
 	    memcmp(&addr, &ct->tuplehash[!dir].tuple.src.u3, sizeof(addr))) {
-		pr_debug("nf_ct_q931: set destCallSignalAddress "
-			 NIP6_FMT ":%hu->" NIP6_FMT ":%hu\n",
-			 NIP6(*(struct in6_addr *)&addr), ntohs(port),
-			 NIP6(*(struct in6_addr *)&ct->tuplehash[!dir].tuple.src.u3),
+		pr_debug("nf_ct_q931: set destCallSignalAddress %pI6:%hu->%pI6:%hu\n",
+			 &addr, ntohs(port), &ct->tuplehash[!dir].tuple.src.u3,
 			 ntohs(ct->tuplehash[!dir].tuple.src.u.tcp.port));
 		ret = set_h225_addr(skb, data, dataoff,
 				    &setup->destCallSignalAddress,
@@ -868,10 +866,8 @@ static int process_setup(struct sk_buff *skb, struct nf_conn *ct,
 	    get_h225_addr(ct, *data, &setup->sourceCallSignalAddress,
 			  &addr, &port) &&
 	    memcmp(&addr, &ct->tuplehash[!dir].tuple.dst.u3, sizeof(addr))) {
-		pr_debug("nf_ct_q931: set sourceCallSignalAddress "
-			 NIP6_FMT ":%hu->" NIP6_FMT ":%hu\n",
-			 NIP6(*(struct in6_addr *)&addr), ntohs(port),
-			 NIP6(*(struct in6_addr *)&ct->tuplehash[!dir].tuple.dst.u3),
+		pr_debug("nf_ct_q931: set sourceCallSignalAddress %pI6:%hu->%pI6:%hu\n",
+			 &addr, ntohs(port), &ct->tuplehash[!dir].tuple.dst.u3,
 			 ntohs(ct->tuplehash[!dir].tuple.dst.u.tcp.port));
 		ret = set_h225_addr(skb, data, dataoff,
 				    &setup->sourceCallSignalAddress,
@@ -1171,7 +1167,7 @@ static struct nf_conntrack_helper nf_conntrack_helper_q931[] __read_mostly = {
 		.name			= "Q.931",
 		.me			= THIS_MODULE,
 		.tuple.src.l3num	= AF_INET,
-		.tuple.src.u.tcp.port	= __constant_htons(Q931_PORT),
+		.tuple.src.u.tcp.port	= cpu_to_be16(Q931_PORT),
 		.tuple.dst.protonum	= IPPROTO_TCP,
 		.help			= q931_help,
 		.expect_policy		= &q931_exp_policy,
@@ -1180,7 +1176,7 @@ static struct nf_conntrack_helper nf_conntrack_helper_q931[] __read_mostly = {
 		.name			= "Q.931",
 		.me			= THIS_MODULE,
 		.tuple.src.l3num	= AF_INET6,
-		.tuple.src.u.tcp.port	= __constant_htons(Q931_PORT),
+		.tuple.src.u.tcp.port	= cpu_to_be16(Q931_PORT),
 		.tuple.dst.protonum	= IPPROTO_TCP,
 		.help			= q931_help,
 		.expect_policy		= &q931_exp_policy,
@@ -1745,7 +1741,7 @@ static struct nf_conntrack_helper nf_conntrack_helper_ras[] __read_mostly = {
 		.name			= "RAS",
 		.me			= THIS_MODULE,
 		.tuple.src.l3num	= AF_INET,
-		.tuple.src.u.udp.port	= __constant_htons(RAS_PORT),
+		.tuple.src.u.udp.port	= cpu_to_be16(RAS_PORT),
 		.tuple.dst.protonum	= IPPROTO_UDP,
 		.help			= ras_help,
 		.expect_policy		= &ras_exp_policy,
@@ -1754,7 +1750,7 @@ static struct nf_conntrack_helper nf_conntrack_helper_ras[] __read_mostly = {
 		.name			= "RAS",
 		.me			= THIS_MODULE,
 		.tuple.src.l3num	= AF_INET6,
-		.tuple.src.u.udp.port	= __constant_htons(RAS_PORT),
+		.tuple.src.u.udp.port	= cpu_to_be16(RAS_PORT),
 		.tuple.dst.protonum	= IPPROTO_UDP,
 		.help			= ras_help,
 		.expect_policy		= &ras_exp_policy,
@@ -1831,3 +1827,4 @@ MODULE_AUTHOR("Jing Min Zhao <zhaojingmin@users.sourceforge.net>");
 MODULE_DESCRIPTION("H.323 connection tracking helper");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("ip_conntrack_h323");
+MODULE_ALIAS_NFCT_HELPER("h323");

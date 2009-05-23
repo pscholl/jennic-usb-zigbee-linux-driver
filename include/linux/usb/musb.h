@@ -7,6 +7,9 @@
  * key configuration differences between boards.
  */
 
+#ifndef __LINUX_USB_MUSB_H
+#define __LINUX_USB_MUSB_H
+
 /* The USB role is defined by the connector used on the board, so long as
  * standards are being followed.  (Developer boards sometimes won't.)
  */
@@ -47,6 +50,11 @@ struct musb_hdrc_config {
 	u8		ram_bits;	/* ram address size */
 
 	struct musb_hdrc_eps_bits *eps_bits;
+#ifdef CONFIG_BLACKFIN
+        /* A GPIO controlling VRSEL in Blackfin */
+        unsigned int    gpio_vrsel;
+#endif
+
 };
 
 struct musb_hdrc_platform_data {
@@ -96,3 +104,5 @@ extern int __init tusb6010_setup_interface(
 extern int tusb6010_platform_retime(unsigned is_refclk);
 
 #endif	/* OMAP2 */
+
+#endif /* __LINUX_USB_MUSB_H */

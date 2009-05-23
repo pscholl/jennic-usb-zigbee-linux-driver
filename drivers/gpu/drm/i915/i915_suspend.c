@@ -119,11 +119,6 @@ static void i915_save_vga(struct drm_device *dev)
 
 	/* VGA color palette registers */
 	dev_priv->saveDACMASK = I915_READ8(VGA_DACMASK);
-	/* DACCRX automatically increments during read */
-	I915_WRITE8(VGA_DACRX, 0);
-	/* Read 3 bytes of color data from each index */
-	for (i = 0; i < 256 * 3; i++)
-		dev_priv->saveDACDATA[i] = I915_READ8(VGA_DACDATA);
 
 	/* MSR bits */
 	dev_priv->saveMSR = I915_READ8(VGA_MSR_READ);
@@ -225,12 +220,6 @@ static void i915_restore_vga(struct drm_device *dev)
 
 	/* VGA color palette registers */
 	I915_WRITE8(VGA_DACMASK, dev_priv->saveDACMASK);
-	/* DACCRX automatically increments during read */
-	I915_WRITE8(VGA_DACWX, 0);
-	/* Read 3 bytes of color data from each index */
-	for (i = 0; i < 256 * 3; i++)
-		I915_WRITE8(VGA_DACDATA, dev_priv->saveDACDATA[i]);
-
 }
 
 int i915_save_state(struct drm_device *dev)
@@ -360,6 +349,18 @@ int i915_save_state(struct drm_device *dev)
 	for (i = 0; i < 3; i++)
 		dev_priv->saveSWF2[i] = I915_READ(SWF30 + (i << 2));
 
+	/* Fences */
+	if (IS_I965G(dev)) {
+		for (i = 0; i < 16; i++)
+			dev_priv->saveFENCE[i] = I915_READ64(FENCE_REG_965_0 + (i * 8));
+	} else {
+		for (i = 0; i < 8; i++)
+			dev_priv->saveFENCE[i] = I915_READ(FENCE_REG_830_0 + (i * 4));
+
+		if (IS_I945G(dev) || IS_I945GM(dev) || IS_G33(dev))
+			for (i = 0; i < 8; i++)
+				dev_priv->saveFENCE[i+8] = I915_READ(FENCE_REG_945_8 + (i * 4));
+	}
 	i915_save_vga(dev);
 
 	return 0;
@@ -381,6 +382,18 @@ int i915_restore_state(struct drm_device *dev)
 
 	/* Display arbitration */
 	I915_WRITE(DSPARB, dev_priv->saveDSPARB);
+
+	/* Fences */
+	if (IS_I965G(dev)) {
+		for (i = 0; i < 16; i++)
+			I915_WRITE64(FENCE_REG_965_0 + (i * 8), dev_priv->saveFENCE[i]);
+	} else {
+		for (i = 0; i < 8; i++)
+			I915_WRITE(FENCE_REG_830_0 + (i * 4), dev_priv->saveFENCE[i]);
+		if (IS_I945G(dev) || IS_I945GM(dev) || IS_G33(dev))
+			for (i = 0; i < 8; i++)
+				I915_WRITE(FENCE_REG_945_8 + (i * 4), dev_priv->saveFENCE[i+8]);
+	}
 
 	/* Pipe & plane A info */
 	/* Prime the clock */

@@ -39,11 +39,6 @@
 #include <net/bluetooth/hci_core.h>
 #include <net/bluetooth/rfcomm.h>
 
-#ifndef CONFIG_BT_RFCOMM_DEBUG
-#undef  BT_DBG
-#define BT_DBG(D...)
-#endif
-
 #define RFCOMM_TTY_MAGIC 0x6d02		/* magic number for rfcomm struct */
 #define RFCOMM_TTY_PORTS RFCOMM_MAX_DEV	/* whole lotta rfcomm devices */
 #define RFCOMM_TTY_MAJOR 216		/* device node major id of the usb/bluetooth.c driver */
@@ -58,7 +53,7 @@ struct rfcomm_dev {
 	char			name[12];
 	int			id;
 	unsigned long		flags;
-	int			opened;
+	atomic_t		opened;
 	int			err;
 
 	bdaddr_t		src;
@@ -261,6 +256,8 @@ static int rfcomm_dev_add(struct rfcomm_dev_req *req, struct rfcomm_dlc *dlc)
 	dev->flags = req->flags &
 		((1 << RFCOMM_RELEASE_ONHUP) | (1 << RFCOMM_REUSE_DLC));
 
+	atomic_set(&dev->opened, 0);
+
 	init_waitqueue_head(&dev->wait);
 	tasklet_init(&dev->wakeup_task, rfcomm_tty_wakeup, (unsigned long) dev);
 
@@ -301,18 +298,15 @@ static int rfcomm_dev_add(struct rfcomm_dev_req *req, struct rfcomm_dlc *dlc)
 out:
 	write_unlock_bh(&rfcomm_dev_lock);
 
-	if (err < 0) {
-		kfree(dev);
-		return err;
-	}
+	if (err < 0)
+		goto free;
 
 	dev->tty_dev = tty_register_device(rfcomm_tty_driver, dev->id, NULL);
 
 	if (IS_ERR(dev->tty_dev)) {
 		err = PTR_ERR(dev->tty_dev);
 		list_del(&dev->list);
-		kfree(dev);
-		return err;
+		goto free;
 	}
 
 	dev_set_drvdata(dev->tty_dev, dev);
@@ -324,16 +318,20 @@ out:
 		BT_ERR("Failed to create channel attribute");
 
 	return dev->id;
+
+free:
+	kfree(dev);
+	return err;
 }
 
 static void rfcomm_dev_del(struct rfcomm_dev *dev)
 {
 	BT_DBG("dev %p", dev);
 
-	if (test_bit(RFCOMM_TTY_RELEASED, &dev->flags))
-		BUG_ON(1);
-	else
-		set_bit(RFCOMM_TTY_RELEASED, &dev->flags);
+	BUG_ON(test_and_set_bit(RFCOMM_TTY_RELEASED, &dev->flags));
+
+	if (atomic_read(&dev->opened) > 0)
+		return;
 
 	write_lock_bh(&rfcomm_dev_lock);
 	list_del_init(&dev->list);
@@ -689,9 +687,10 @@ static int rfcomm_tty_open(struct tty_struct *tty, struct file *filp)
 	if (!dev)
 		return -ENODEV;
 
-	BT_DBG("dev %p dst %s channel %d opened %d", dev, batostr(&dev->dst), dev->channel, dev->opened);
+	BT_DBG("dev %p dst %s channel %d opened %d", dev, batostr(&dev->dst),
+				dev->channel, atomic_read(&dev->opened));
 
-	if (dev->opened++ != 0)
+	if (atomic_inc_return(&dev->opened) > 1)
 		return 0;
 
 	dlc = dev->dlc;
@@ -732,7 +731,8 @@ static int rfcomm_tty_open(struct tty_struct *tty, struct file *filp)
 	remove_wait_queue(&dev->wait, &wait);
 
 	if (err == 0)
-		device_move(dev->tty_dev, rfcomm_get_device(dev));
+		device_move(dev->tty_dev, rfcomm_get_device(dev),
+			    DPM_ORDER_DEV_AFTER_PARENT);
 
 	rfcomm_tty_copy_pending(dev);
 
@@ -747,11 +747,12 @@ static void rfcomm_tty_close(struct tty_struct *tty, struct file *filp)
 	if (!dev)
 		return;
 
-	BT_DBG("tty %p dev %p dlc %p opened %d", tty, dev, dev->dlc, dev->opened);
+	BT_DBG("tty %p dev %p dlc %p opened %d", tty, dev, dev->dlc,
+						atomic_read(&dev->opened));
 
-	if (--dev->opened == 0) {
+	if (atomic_dec_and_test(&dev->opened)) {
 		if (dev->tty_dev->parent)
-			device_move(dev->tty_dev, NULL);
+			device_move(dev->tty_dev, NULL, DPM_ORDER_DEV_LAST);
 
 		/* Close DLC and dettach TTY */
 		rfcomm_dlc_close(dev->dlc, 0);
@@ -763,6 +764,14 @@ static void rfcomm_tty_close(struct tty_struct *tty, struct file *filp)
 		tty->driver_data = NULL;
 		dev->tty = NULL;
 		rfcomm_dlc_unlock(dev->dlc);
+
+		if (test_bit(RFCOMM_TTY_RELEASED, &dev->flags)) {
+			write_lock_bh(&rfcomm_dev_lock);
+			list_del_init(&dev->list);
+			write_unlock_bh(&rfcomm_dev_lock);
+
+			rfcomm_dev_put(dev);
+		}
 	}
 
 	rfcomm_dev_put(dev);
@@ -1084,11 +1093,6 @@ static void rfcomm_tty_hangup(struct tty_struct *tty)
 	}
 }
 
-static int rfcomm_tty_read_proc(char *buf, char **start, off_t offset, int len, int *eof, void *unused)
-{
-	return 0;
-}
-
 static int rfcomm_tty_tiocmget(struct tty_struct *tty, struct file *filp)
 {
 	struct rfcomm_dev *dev = (struct rfcomm_dev *) tty->driver_data;
@@ -1147,7 +1151,6 @@ static const struct tty_operations rfcomm_ops = {
 	.send_xchar		= rfcomm_tty_send_xchar,
 	.hangup			= rfcomm_tty_hangup,
 	.wait_until_sent	= rfcomm_tty_wait_until_sent,
-	.read_proc		= rfcomm_tty_read_proc,
 	.tiocmget		= rfcomm_tty_tiocmget,
 	.tiocmset		= rfcomm_tty_tiocmset,
 };

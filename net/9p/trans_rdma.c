@@ -295,6 +295,7 @@ handle_recv(struct p9_client *client, struct p9_trans_rdma *rdma,
 		goto err_out;
 
 	req->rc = c->rc;
+	req->status = REQ_STATUS_RCVD;
 	p9_client_cb(client, req);
 
 	return;
@@ -528,8 +529,6 @@ static void rdma_close(struct p9_client *client)
 
 /**
  * alloc_rdma - Allocate and initialize the rdma transport structure
- * @msize: MTU
- * @dotu: Extension attribute
  * @opts: Mount options structure
  */
 static struct p9_trans_rdma *alloc_rdma(struct p9_rdma_opts *opts)

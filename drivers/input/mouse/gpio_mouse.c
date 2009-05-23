@@ -18,7 +18,7 @@
 
 /*
  * Timer function which is run every scan_ms ms when the device is opened.
- * The dev input varaible is set to the the input_dev pointer.
+ * The dev input variable is set to the the input_dev pointer.
  */
 static void gpio_mouse_scan(struct input_polled_dev *dev)
 {
@@ -173,7 +173,7 @@ static int __devexit gpio_mouse_remove(struct platform_device *pdev)
 /* work with hotplug and coldplug */
 MODULE_ALIAS("platform:gpio_mouse");
 
-struct platform_driver gpio_mouse_device_driver = {
+static struct platform_driver gpio_mouse_device_driver = {
 	.remove		= __devexit_p(gpio_mouse_remove),
 	.driver		= {
 		.name	= "gpio_mouse",

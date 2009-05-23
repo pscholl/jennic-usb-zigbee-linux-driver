@@ -55,8 +55,8 @@ static u16 generate_cookie(struct b43_pio_txqueue *q,
 }
 
 static
-struct b43_pio_txqueue * parse_cookie(struct b43_wldev *dev,
-				      u16 cookie,
+struct b43_pio_txqueue *parse_cookie(struct b43_wldev *dev,
+				     u16 cookie,
 				      struct b43_pio_txpacket **pack)
 {
 	struct b43_pio *pio = &dev->pio;
@@ -134,8 +134,8 @@ static u16 pio_rxqueue_offset(struct b43_wldev *dev)
 	return 8;
 }
 
-static struct b43_pio_txqueue * b43_setup_pioqueue_tx(struct b43_wldev *dev,
-						      unsigned int index)
+static struct b43_pio_txqueue *b43_setup_pioqueue_tx(struct b43_wldev *dev,
+						     unsigned int index)
 {
 	struct b43_pio_txqueue *q;
 	struct b43_pio_txpacket *p;
@@ -171,8 +171,8 @@ static struct b43_pio_txqueue * b43_setup_pioqueue_tx(struct b43_wldev *dev,
 	return q;
 }
 
-static struct b43_pio_rxqueue * b43_setup_pioqueue_rx(struct b43_wldev *dev,
-						      unsigned int index)
+static struct b43_pio_rxqueue *b43_setup_pioqueue_rx(struct b43_wldev *dev,
+						     unsigned int index)
 {
 	struct b43_pio_rxqueue *q;
 
@@ -308,8 +308,8 @@ err_destroy_bk:
 }
 
 /* Static mapping of mac80211's queues (priorities) to b43 PIO queues. */
-static struct b43_pio_txqueue * select_queue_by_priority(struct b43_wldev *dev,
-							 u8 queue_prio)
+static struct b43_pio_txqueue *select_queue_by_priority(struct b43_wldev *dev,
+							u8 queue_prio)
 {
 	struct b43_pio_txqueue *q;
 
@@ -587,9 +587,8 @@ void b43_pio_handle_txstatus(struct b43_wldev *dev,
 	spin_lock(&q->lock); /* IRQs are already disabled. */
 
 	info = IEEE80211_SKB_CB(pack->skb);
-	memset(&info->status, 0, sizeof(info->status));
 
-	b43_fill_txstatus_report(info, status);
+	b43_fill_txstatus_report(dev, info, status);
 
 	total_len = pack->skb->len + b43_txhdr_size(dev);
 	total_len = roundup(total_len, 4);

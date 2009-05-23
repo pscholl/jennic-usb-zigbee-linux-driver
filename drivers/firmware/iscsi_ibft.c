@@ -284,15 +284,12 @@ static ssize_t sprintf_ipaddr(char *buf, u8 *ip)
 		/*
 		 * IPV4
 		 */
-		str += sprintf(buf, NIPQUAD_FMT, ip[12],
-			       ip[13], ip[14], ip[15]);
+		str += sprintf(buf, "%pI4", ip + 12);
 	} else {
 		/*
 		 * IPv6
 		 */
-		str += sprintf(str, NIP6_FMT, ntohs(ip[0]), ntohs(ip[1]),
-			       ntohs(ip[2]), ntohs(ip[3]), ntohs(ip[4]),
-			       ntohs(ip[5]), ntohs(ip[6]), ntohs(ip[7]));
+		str += sprintf(str, "%pI6", ip);
 	}
 	str += sprintf(str, "\n");
 	return str - buf;
@@ -757,11 +754,11 @@ static int __init ibft_check_nic_for(struct ibft_nic *nic, int entry)
 		rc = 1;
 		break;
 	case ibft_eth_ip_addr:
-		if (!memcmp(nic->dhcp, nulls, sizeof(nic->dhcp)))
+		if (memcmp(nic->ip_addr, nulls, sizeof(nic->ip_addr)))
 			rc = 1;
 		break;
 	case ibft_eth_subnet_mask:
-		if (!memcmp(nic->dhcp, nulls, sizeof(nic->dhcp)))
+		if (nic->subnet_mask_prefix)
 			rc = 1;
 		break;
 	case ibft_eth_origin:
@@ -941,8 +938,8 @@ static int __init ibft_init(void)
 		return -ENOMEM;
 
 	if (ibft_addr) {
-		printk(KERN_INFO "iBFT detected at 0x%lx.\n",
-		       virt_to_phys((void *)ibft_addr));
+		printk(KERN_INFO "iBFT detected at 0x%llx.\n",
+		       (u64)virt_to_phys((void *)ibft_addr));
 
 		rc = ibft_check_device();
 		if (rc)

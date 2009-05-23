@@ -1585,7 +1585,7 @@ static int ipath_query_port(struct ib_device *ibdev,
 	u64 ibcstat;
 
 	memset(props, 0, sizeof(*props));
-	props->lid = lid ? lid : __constant_be16_to_cpu(IB_LID_PERMISSIVE);
+	props->lid = lid ? lid : be16_to_cpu(IB_LID_PERMISSIVE);
 	props->lmc = dd->ipath_lmc;
 	props->sm_lid = dev->sm_lid;
 	props->sm_sl = dev->sm_sl;
@@ -1852,7 +1852,7 @@ unsigned ipath_get_npkeys(struct ipath_devdata *dd)
 }
 
 /**
- * ipath_get_pkey - return the indexed PKEY from the port 0 PKEY table
+ * ipath_get_pkey - return the indexed PKEY from the port PKEY table
  * @dd: the infinipath device
  * @index: the PKEY index
  */
@@ -1860,6 +1860,7 @@ unsigned ipath_get_pkey(struct ipath_devdata *dd, unsigned index)
 {
 	unsigned ret;
 
+	/* always a kernel port, no locking needed */
 	if (index >= ARRAY_SIZE(dd->ipath_pd[0]->port_pkeys))
 		ret = 0;
 	else

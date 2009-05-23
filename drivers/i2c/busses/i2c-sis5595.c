@@ -256,7 +256,7 @@ static int sis5595_transaction(struct i2c_adapter *adap)
 	} while (!(temp & 0x40) && (timeout++ < MAX_TIMEOUT));
 
 	/* If the SMBus is still busy, we give up */
-	if (timeout >= MAX_TIMEOUT) {
+	if (timeout > MAX_TIMEOUT) {
 		dev_dbg(&adap->dev, "SMBus Timeout!\n");
 		result = -ETIMEDOUT;
 	}
@@ -365,7 +365,6 @@ static const struct i2c_algorithm smbus_algorithm = {
 
 static struct i2c_adapter sis5595_adapter = {
 	.owner		= THIS_MODULE,
-	.id		= I2C_HW_SMBUS_SIS5595,
 	.class          = I2C_CLASS_HWMON | I2C_CLASS_SPD,
 	.algo		= &smbus_algorithm,
 };
@@ -389,8 +388,8 @@ static int __devinit sis5595_probe(struct pci_dev *dev, const struct pci_device_
 	/* set up the sysfs linkage to our parent device */
 	sis5595_adapter.dev.parent = &dev->dev;
 
-	sprintf(sis5595_adapter.name, "SMBus SIS5595 adapter at %04x",
-		sis5595_base + SMB_INDEX);
+	snprintf(sis5595_adapter.name, sizeof(sis5595_adapter.name),
+		 "SMBus SIS5595 adapter at %04x", sis5595_base + SMB_INDEX);
 	err = i2c_add_adapter(&sis5595_adapter);
 	if (err) {
 		release_region(sis5595_base + SMB_INDEX, 2);

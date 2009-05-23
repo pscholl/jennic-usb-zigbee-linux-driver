@@ -88,7 +88,7 @@ static card_t **new_card = &first_card;
 /* EDA address register must be set in EDAL, EDAH order - 8 bit ISA bus */
 #define sca_outw(value, reg, card) do { \
 	writeb(value & 0xFF, (card)->win0base + C101_SCA + (reg)); \
-	writeb((value >> 8 ) & 0xFF, (card)->win0base + C101_SCA + (reg+1));\
+	writeb((value >> 8 ) & 0xFF, (card)->win0base + C101_SCA + (reg + 1));\
 } while(0)
 
 #define port_to_card(port)	   (port)
@@ -113,7 +113,7 @@ static inline void openwin(card_t *card, u8 page)
 }
 
 
-#include "hd6457x.c"
+#include "hd64570.c"
 
 
 static inline void set_carrier(port_t *port)
@@ -296,7 +296,13 @@ static void c101_destroy_card(card_t *card)
 	kfree(card);
 }
 
-
+static const struct net_device_ops c101_ops = {
+	.ndo_open       = c101_open,
+	.ndo_stop       = c101_close,
+	.ndo_change_mtu = hdlc_change_mtu,
+	.ndo_start_xmit = hdlc_start_xmit,
+	.ndo_do_ioctl   = c101_ioctl,
+};
 
 static int __init c101_run(unsigned long irq, unsigned long winbase)
 {
@@ -367,9 +373,7 @@ static int __init c101_run(unsigned long irq, unsigned long winbase)
 	dev->mem_start = winbase;
 	dev->mem_end = winbase + C101_MAPPED_RAM_SIZE - 1;
 	dev->tx_queue_len = 50;
-	dev->do_ioctl = c101_ioctl;
-	dev->open = c101_open;
-	dev->stop = c101_close;
+	dev->netdev_ops = &c101_ops;
 	hdlc->attach = sca_attach;
 	hdlc->xmit = sca_xmit;
 	card->settings.clock_type = CLOCK_EXT;
@@ -381,7 +385,7 @@ static int __init c101_run(unsigned long irq, unsigned long winbase)
 		return result;
 	}
 
-	sca_init_sync_port(card); /* Set up C101 memory */
+	sca_init_port(card); /* Set up C101 memory */
 	set_carrier(card);
 
 	printk(KERN_INFO "%s: Moxa C101 on IRQ%u,"

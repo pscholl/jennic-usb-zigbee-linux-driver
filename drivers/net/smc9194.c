@@ -764,7 +764,7 @@ out:
  . interrupt, so an auto-detect routine can detect it, and find the IRQ,
  ------------------------------------------------------------------------
 */
-int __init smc_findirq( int ioaddr )
+static int __init smc_findirq(int ioaddr)
 {
 #ifndef NO_AUTOPROBE
 	int	timeout = 20;
@@ -831,6 +831,17 @@ int __init smc_findirq( int ioaddr )
 #endif
 }
 
+static const struct net_device_ops smc_netdev_ops = {
+	.ndo_open		 = smc_open,
+	.ndo_stop		= smc_close,
+	.ndo_start_xmit    	= smc_wait_to_send_packet,
+	.ndo_tx_timeout	    	= smc_timeout,
+	.ndo_set_multicast_list	= smc_set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /*----------------------------------------------------------------------
  . Function: smc_probe( int ioaddr )
  .
@@ -875,8 +886,6 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 	word configuration_register;
 	word memory_info_register;
 	word memory_cfg_register;
-
-	DECLARE_MAC_BUF(mac);
 
 	/* Grab the region so that no one else tries to probe our ioports. */
 	if (!request_region(ioaddr, SMC_IO_EXTENT, DRV_NAME))
@@ -1033,10 +1042,10 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 	/*
 	 . Print the Ethernet address
 	*/
-	printk("ADDR: %s\n", print_mac(mac, dev->dev_addr));
+	printk("ADDR: %pM\n", dev->dev_addr);
 
 	/* set the private data to zero by default */
-	memset(dev->priv, 0, sizeof(struct smc_local));
+	memset(netdev_priv(dev), 0, sizeof(struct smc_local));
 
 	/* Grab the IRQ */
       	retval = request_irq(dev->irq, &smc_interrupt, 0, DRV_NAME, dev);
@@ -1046,12 +1055,8 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
   	  	goto err_out;
       	}
 
-	dev->open		        = smc_open;
-	dev->stop		        = smc_close;
-	dev->hard_start_xmit    	= smc_wait_to_send_packet;
-	dev->tx_timeout		    	= smc_timeout;
+	dev->netdev_ops			= &smc_netdev_ops;
 	dev->watchdog_timeo		= HZ/20;
-	dev->set_multicast_list 	= smc_set_multicast_list;
 
 	return 0;
 
@@ -1110,7 +1115,7 @@ static int smc_open(struct net_device *dev)
 	int	i;	/* used to set hw ethernet address */
 
 	/* clear out all the junk that was put here before... */
-	memset(dev->priv, 0, sizeof(struct smc_local));
+	memset(netdev_priv(dev), 0, sizeof(struct smc_local));
 
 	/* reset the hardware */
 
@@ -1166,7 +1171,7 @@ static void smc_timeout(struct net_device *dev)
 	smc_enable( dev->base_addr );
 	dev->trans_start = jiffies;
 	/* clear anything saved */
-	((struct smc_local *)dev->priv)->saved_skb = NULL;
+	((struct smc_local *)netdev_priv(dev))->saved_skb = NULL;
 	netif_wake_queue(dev);
 }
 
@@ -1272,7 +1277,6 @@ static void smc_rcv(struct net_device *dev)
 
 		skb->protocol = eth_type_trans(skb, dev );
 		netif_rx(skb);
-		dev->last_rx = jiffies;
 		dev->stats.rx_packets++;
 		dev->stats.rx_bytes += packet_length;
 	} else {

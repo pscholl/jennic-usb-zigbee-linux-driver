@@ -2196,7 +2196,7 @@ pfmfs_delete_dentry(struct dentry *dentry)
 	return 1;
 }
 
-static struct dentry_operations pfmfs_dentry_operations = {
+static const struct dentry_operations pfmfs_dentry_operations = {
 	.d_delete = pfmfs_delete_dentry,
 };
 
@@ -2220,8 +2220,8 @@ pfm_alloc_file(pfm_context_t *ctx)
 	DPRINT(("new inode ino=%ld @%p\n", inode->i_ino, inode));
 
 	inode->i_mode = S_IFCHR|S_IRUGO;
-	inode->i_uid  = current->fsuid;
-	inode->i_gid  = current->fsgid;
+	inode->i_uid  = current_fsuid();
+	inode->i_gid  = current_fsgid();
 
 	sprintf(name, "[%lu]", inode->i_ino);
 	this.name = name;
@@ -2399,22 +2399,33 @@ error_kmem:
 static int
 pfm_bad_permissions(struct task_struct *task)
 {
+	const struct cred *tcred;
+	uid_t uid = current_uid();
+	gid_t gid = current_gid();
+	int ret;
+
+	rcu_read_lock();
+	tcred = __task_cred(task);
+
 	/* inspired by ptrace_attach() */
 	DPRINT(("cur: uid=%d gid=%d task: euid=%d suid=%d uid=%d egid=%d sgid=%d\n",
-		current->uid,
-		current->gid,
-		task->euid,
-		task->suid,
-		task->uid,
-		task->egid,
-		task->sgid));
+		uid,
+		gid,
+		tcred->euid,
+		tcred->suid,
+		tcred->uid,
+		tcred->egid,
+		tcred->sgid));
 
-	return ((current->uid != task->euid)
-	    || (current->uid != task->suid)
-	    || (current->uid != task->uid)
-	    || (current->gid != task->egid)
-	    || (current->gid != task->sgid)
-	    || (current->gid != task->gid)) && !capable(CAP_SYS_PTRACE);
+	ret = ((uid != tcred->euid)
+	       || (uid != tcred->suid)
+	       || (uid != tcred->uid)
+	       || (gid != tcred->egid)
+	       || (gid != tcred->sgid)
+	       || (gid != tcred->gid)) && !capable(CAP_SYS_PTRACE);
+
+	rcu_read_unlock();
+	return ret;
 }
 
 static int
@@ -5592,7 +5603,7 @@ pfm_interrupt_handler(int irq, void *arg)
  * /proc/perfmon interface, for debug only
  */
 
-#define PFM_PROC_SHOW_HEADER	((void *)NR_CPUS+1)
+#define PFM_PROC_SHOW_HEADER	((void *)nr_cpu_ids+1)
 
 static void *
 pfm_proc_start(struct seq_file *m, loff_t *pos)
@@ -5601,7 +5612,7 @@ pfm_proc_start(struct seq_file *m, loff_t *pos)
 		return PFM_PROC_SHOW_HEADER;
 	}
 
-	while (*pos <= NR_CPUS) {
+	while (*pos <= nr_cpu_ids) {
 		if (cpu_online(*pos - 1)) {
 			return (void *)*pos;
 		}

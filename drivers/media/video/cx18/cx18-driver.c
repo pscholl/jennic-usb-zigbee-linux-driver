@@ -39,22 +39,12 @@
 
 #include <media/tveeprom.h>
 
-
-/* var to keep track of the number of array elements in use */
-int cx18_cards_active;
-
 /* If you have already X v4l cards, then set this to X. This way
    the device numbers stay matched. Example: you have a WinTV card
    without radio and a Compro H900 with. Normally this would give a
    video1 device together with a radio0 device for the Compro. By
    setting this to 1 you ensure that radio0 is now also radio1. */
 int cx18_first_minor;
-
-/* Master variable for all cx18 info */
-struct cx18 *cx18_cards[CX18_MAX_CARDS];
-
-/* Protects cx18_cards_active */
-DEFINE_SPINLOCK(cx18_cards_lock);
 
 /* add your revision and whatnot here */
 static struct pci_device_id cx18_pci_tbl[] __devinitdata = {
@@ -64,6 +54,8 @@ static struct pci_device_id cx18_pci_tbl[] __devinitdata = {
 };
 
 MODULE_DEVICE_TABLE(pci, cx18_pci_tbl);
+
+static atomic_t cx18_instance = ATOMIC_INIT(0);
 
 /* Parameter declarations */
 static int cardtype[CX18_MAX_CARDS];
@@ -75,47 +67,75 @@ static int radio[CX18_MAX_CARDS] = { -1, -1, -1, -1, -1, -1, -1, -1,
 				     -1, -1, -1, -1, -1, -1, -1, -1,
 				     -1, -1, -1, -1, -1, -1, -1, -1,
 				     -1, -1, -1, -1, -1, -1, -1, -1 };
-static int mmio_ndelay[CX18_MAX_CARDS] = { -1, -1, -1, -1, -1, -1, -1, -1,
-					   -1, -1, -1, -1, -1, -1, -1, -1,
-					   -1, -1, -1, -1, -1, -1, -1, -1,
-					   -1, -1, -1, -1, -1, -1, -1, -1 };
 static unsigned cardtype_c = 1;
 static unsigned tuner_c = 1;
 static unsigned radio_c = 1;
-static unsigned mmio_ndelay_c = 1;
 static char pal[] = "--";
 static char secam[] = "--";
 static char ntsc[] = "-";
 
 /* Buffers */
-static int enc_mpg_buffers = CX18_DEFAULT_ENC_MPG_BUFFERS;
 static int enc_ts_buffers = CX18_DEFAULT_ENC_TS_BUFFERS;
+static int enc_mpg_buffers = CX18_DEFAULT_ENC_MPG_BUFFERS;
+static int enc_idx_buffers = CX18_DEFAULT_ENC_IDX_BUFFERS;
 static int enc_yuv_buffers = CX18_DEFAULT_ENC_YUV_BUFFERS;
 static int enc_vbi_buffers = CX18_DEFAULT_ENC_VBI_BUFFERS;
 static int enc_pcm_buffers = CX18_DEFAULT_ENC_PCM_BUFFERS;
 
+static int enc_ts_bufsize = CX18_DEFAULT_ENC_TS_BUFSIZE;
+static int enc_mpg_bufsize = CX18_DEFAULT_ENC_MPG_BUFSIZE;
+static int enc_idx_bufsize = CX18_DEFAULT_ENC_IDX_BUFSIZE;
+static int enc_yuv_bufsize = CX18_DEFAULT_ENC_YUV_BUFSIZE;
+/* VBI bufsize based on standards supported by card tuner for now */
+static int enc_pcm_bufsize = CX18_DEFAULT_ENC_PCM_BUFSIZE;
+
+static int enc_ts_bufs = -1;
+static int enc_mpg_bufs = -1;
+static int enc_idx_bufs = -1;
+static int enc_yuv_bufs = -1;
+static int enc_vbi_bufs = -1;
+static int enc_pcm_bufs = -1;
+
+
 static int cx18_pci_latency = 1;
 
-int cx18_retry_mmio = 1;
+static int mmio_ndelay;
+static int retry_mmio = 1;
+
 int cx18_debug;
 
 module_param_array(tuner, int, &tuner_c, 0644);
 module_param_array(radio, bool, &radio_c, 0644);
 module_param_array(cardtype, int, &cardtype_c, 0644);
-module_param_array(mmio_ndelay, int, &mmio_ndelay_c, 0644);
 module_param_string(pal, pal, sizeof(pal), 0644);
 module_param_string(secam, secam, sizeof(secam), 0644);
 module_param_string(ntsc, ntsc, sizeof(ntsc), 0644);
 module_param_named(debug, cx18_debug, int, 0644);
-module_param_named(retry_mmio, cx18_retry_mmio, int, 0644);
+module_param(mmio_ndelay, int, 0644);
+module_param(retry_mmio, int, 0644);
 module_param(cx18_pci_latency, int, 0644);
 module_param(cx18_first_minor, int, 0644);
 
-module_param(enc_mpg_buffers, int, 0644);
 module_param(enc_ts_buffers, int, 0644);
+module_param(enc_mpg_buffers, int, 0644);
+module_param(enc_idx_buffers, int, 0644);
 module_param(enc_yuv_buffers, int, 0644);
 module_param(enc_vbi_buffers, int, 0644);
 module_param(enc_pcm_buffers, int, 0644);
+
+module_param(enc_ts_bufsize, int, 0644);
+module_param(enc_mpg_bufsize, int, 0644);
+module_param(enc_idx_bufsize, int, 0644);
+module_param(enc_yuv_bufsize, int, 0644);
+/* VBI bufsize based on standards supported by card tuner for now */
+module_param(enc_pcm_bufsize, int, 0644);
+
+module_param(enc_ts_bufs, int, 0644);
+module_param(enc_mpg_bufs, int, 0644);
+module_param(enc_idx_bufs, int, 0644);
+module_param(enc_yuv_bufs, int, 0644);
+module_param(enc_vbi_bufs, int, 0644);
+module_param(enc_pcm_bufs, int, 0644);
 
 MODULE_PARM_DESC(tuner, "Tuner type selection,\n"
 			"\t\t\tsee tuner.h for values");
@@ -131,7 +151,7 @@ MODULE_PARM_DESC(cardtype,
 		 "\t\t\t 4 = Yuan MPC718\n"
 		 "\t\t\t 5 = Conexant Raptor PAL/SECAM\n"
 		 "\t\t\t 6 = Toshiba Qosmio DVB-T/Analog\n"
-		 "\t\t\t 7 = Leadtek WinFast PVR2100\n"
+		 "\t\t\t 7 = Leadtek WinFast PVR2100/DVR3100 H\n"
 		 "\t\t\t 0 = Autodetect (default)\n"
 		 "\t\t\t-1 = Ignore this card\n\t\t");
 MODULE_PARM_DESC(pal, "Set PAL standard: B, G, H, D, K, I, M, N, Nc, 60");
@@ -152,28 +172,62 @@ MODULE_PARM_DESC(cx18_pci_latency,
 		 "Change the PCI latency to 64 if lower: 0 = No, 1 = Yes,\n"
 		 "\t\t\tDefault: Yes");
 MODULE_PARM_DESC(retry_mmio,
-		 "Check and retry memory mapped IO accesses\n"
-		 "\t\t\tDefault: 1 [Yes]");
+		 "(Deprecated) MMIO writes are now always checked and retried\n"
+		 "\t\t\tEffectively: 1 [Yes]");
 MODULE_PARM_DESC(mmio_ndelay,
-		 "Delay (ns) for each CX23418 memory mapped IO access.\n"
-		 "\t\t\tTry larger values that are close to a multiple of the\n"
-		 "\t\t\tPCI clock period, 30.3 ns, if your card doesn't work.\n"
-		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_MMIO_NDELAY));
-MODULE_PARM_DESC(enc_mpg_buffers,
-		 "Encoder MPG Buffers (in MB)\n"
-		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_MPG_BUFFERS));
+		 "(Deprecated) MMIO accesses are now never purposely delayed\n"
+		 "\t\t\tEffectively: 0 ns");
 MODULE_PARM_DESC(enc_ts_buffers,
-		 "Encoder TS Buffers (in MB)\n"
+		 "Encoder TS buffer memory (MB). (enc_ts_bufs can override)\n"
 		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_TS_BUFFERS));
+MODULE_PARM_DESC(enc_ts_bufsize,
+		 "Size of an encoder TS buffer (kB)\n"
+		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_TS_BUFSIZE));
+MODULE_PARM_DESC(enc_ts_bufs,
+		 "Number of encoder TS buffers\n"
+		 "\t\t\tDefault is computed from other enc_ts_* parameters");
+MODULE_PARM_DESC(enc_mpg_buffers,
+		 "Encoder MPG buffer memory (MB). (enc_mpg_bufs can override)\n"
+		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_MPG_BUFFERS));
+MODULE_PARM_DESC(enc_mpg_bufsize,
+		 "Size of an encoder MPG buffer (kB)\n"
+		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_MPG_BUFSIZE));
+MODULE_PARM_DESC(enc_mpg_bufs,
+		 "Number of encoder MPG buffers\n"
+		 "\t\t\tDefault is computed from other enc_mpg_* parameters");
+MODULE_PARM_DESC(enc_idx_buffers,
+		 "Encoder IDX buffer memory (MB). (enc_idx_bufs can override)\n"
+		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_IDX_BUFFERS));
+MODULE_PARM_DESC(enc_idx_bufsize,
+		 "Size of an encoder IDX buffer (kB)\n"
+		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_IDX_BUFSIZE));
+MODULE_PARM_DESC(enc_idx_bufs,
+		 "Number of encoder IDX buffers\n"
+		 "\t\t\tDefault is computed from other enc_idx_* parameters");
 MODULE_PARM_DESC(enc_yuv_buffers,
-		 "Encoder YUV Buffers (in MB)\n"
+		 "Encoder YUV buffer memory (MB). (enc_yuv_bufs can override)\n"
 		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_YUV_BUFFERS));
+MODULE_PARM_DESC(enc_yuv_bufsize,
+		 "Size of an encoder YUV buffer (kB)\n"
+		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_YUV_BUFSIZE));
+MODULE_PARM_DESC(enc_yuv_bufs,
+		 "Number of encoder YUV buffers\n"
+		 "\t\t\tDefault is computed from other enc_yuv_* parameters");
 MODULE_PARM_DESC(enc_vbi_buffers,
-		 "Encoder VBI Buffers (in MB)\n"
+		 "Encoder VBI buffer memory (MB). (enc_vbi_bufs can override)\n"
 		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_VBI_BUFFERS));
+MODULE_PARM_DESC(enc_vbi_bufs,
+		 "Number of encoder VBI buffers\n"
+		 "\t\t\tDefault is computed from enc_vbi_buffers & tuner std");
 MODULE_PARM_DESC(enc_pcm_buffers,
-		 "Encoder PCM buffers (in MB)\n"
+		 "Encoder PCM buffer memory (MB). (enc_pcm_bufs can override)\n"
 		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_PCM_BUFFERS));
+MODULE_PARM_DESC(enc_pcm_bufsize,
+		 "Size of an encoder PCM buffer (kB)\n"
+		 "\t\t\tDefault: " __stringify(CX18_DEFAULT_ENC_PCM_BUFSIZE));
+MODULE_PARM_DESC(enc_pcm_bufs,
+		 "Number of encoder PCM buffers\n"
+		 "\t\t\tDefault is computed from other enc_pcm_* parameters");
 
 MODULE_PARM_DESC(cx18_first_minor, "Set kernel number assigned to first card");
 
@@ -187,7 +241,7 @@ MODULE_VERSION(CX18_VERSION);
 /* Generic utility functions */
 int cx18_msleep_timeout(unsigned int msecs, int intr)
 {
-	int timeout = msecs_to_jiffies(msecs);
+	long int timeout = msecs_to_jiffies(msecs);
 	int sig;
 
 	do {
@@ -215,11 +269,16 @@ static void cx18_iounmap(struct cx18 *cx)
 /* Hauppauge card? get values from tveeprom */
 void cx18_read_eeprom(struct cx18 *cx, struct tveeprom *tv)
 {
+	struct i2c_client c;
 	u8 eedata[256];
 
-	cx->i2c_client[0].addr = 0xA0 >> 1;
-	tveeprom_read(&cx->i2c_client[0], eedata, sizeof(eedata));
-	tveeprom_hauppauge_analog(&cx->i2c_client[0], tv, eedata);
+	memset(&c, 0, sizeof(c));
+	strlcpy(c.name, "cx18 tveeprom tmp", sizeof(c.name));
+	c.adapter = &cx->i2c_adap[0];
+	c.addr = 0xA0 >> 1;
+
+	tveeprom_read(&c, eedata, sizeof(eedata));
+	tveeprom_hauppauge_analog(&c, tv, eedata);
 }
 
 static void cx18_process_eeprom(struct cx18 *cx)
@@ -366,19 +425,72 @@ static void cx18_process_options(struct cx18 *cx)
 {
 	int i, j;
 
-	cx->options.megabytes[CX18_ENC_STREAM_TYPE_MPG] = enc_mpg_buffers;
 	cx->options.megabytes[CX18_ENC_STREAM_TYPE_TS] = enc_ts_buffers;
+	cx->options.megabytes[CX18_ENC_STREAM_TYPE_MPG] = enc_mpg_buffers;
+	cx->options.megabytes[CX18_ENC_STREAM_TYPE_IDX] = enc_idx_buffers;
 	cx->options.megabytes[CX18_ENC_STREAM_TYPE_YUV] = enc_yuv_buffers;
 	cx->options.megabytes[CX18_ENC_STREAM_TYPE_VBI] = enc_vbi_buffers;
 	cx->options.megabytes[CX18_ENC_STREAM_TYPE_PCM] = enc_pcm_buffers;
-	cx->options.cardtype = cardtype[cx->num];
-	cx->options.tuner = tuner[cx->num];
-	cx->options.radio = radio[cx->num];
+	cx->options.megabytes[CX18_ENC_STREAM_TYPE_RAD] = 0; /* control only */
 
-	if (mmio_ndelay[cx->num] < 0)
-		cx->options.mmio_ndelay = CX18_DEFAULT_MMIO_NDELAY;
-	else
-		cx->options.mmio_ndelay = mmio_ndelay[cx->num];
+	cx->stream_buffers[CX18_ENC_STREAM_TYPE_TS] = enc_ts_bufs;
+	cx->stream_buffers[CX18_ENC_STREAM_TYPE_MPG] = enc_mpg_bufs;
+	cx->stream_buffers[CX18_ENC_STREAM_TYPE_IDX] = enc_idx_bufs;
+	cx->stream_buffers[CX18_ENC_STREAM_TYPE_YUV] = enc_yuv_bufs;
+	cx->stream_buffers[CX18_ENC_STREAM_TYPE_VBI] = enc_vbi_bufs;
+	cx->stream_buffers[CX18_ENC_STREAM_TYPE_PCM] = enc_pcm_bufs;
+	cx->stream_buffers[CX18_ENC_STREAM_TYPE_RAD] = 0; /* control, no data */
+
+	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_TS] = enc_ts_bufsize;
+	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_MPG] = enc_mpg_bufsize;
+	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_IDX] = enc_idx_bufsize;
+	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_YUV] = enc_yuv_bufsize;
+	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_VBI] = vbi_active_samples * 36;
+	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_PCM] = enc_pcm_bufsize;
+	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_RAD] = 0; /* control no data */
+
+	/* Ensure stream_buffers & stream_buf_size are valid */
+	for (i = 0; i < CX18_MAX_STREAMS; i++) {
+		if (cx->stream_buffers[i] == 0 ||     /* User said 0 buffers */
+		    cx->options.megabytes[i] <= 0 ||  /* User said 0 MB total */
+		    cx->stream_buf_size[i] <= 0) {    /* User said buf size 0 */
+			cx->options.megabytes[i] = 0;
+			cx->stream_buffers[i] = 0;
+			cx->stream_buf_size[i] = 0;
+			continue;
+		}
+		/*
+		 * VBI is a special case where the stream_buf_size is fixed
+		 * and already in bytes
+		 */
+		if (i == CX18_ENC_STREAM_TYPE_VBI) {
+			if (cx->stream_buffers[i] < 0) {
+				cx->stream_buffers[i] =
+					cx->options.megabytes[i] * 1024 * 1024
+					/ cx->stream_buf_size[i];
+			} else {
+				/* N.B. This might round down to 0 */
+				cx->options.megabytes[i] =
+					cx->stream_buffers[i]
+					* cx->stream_buf_size[i]/(1024 * 1024);
+			}
+			continue;
+		}
+		/* All other streams have stream_buf_size in kB at this point */
+		if (cx->stream_buffers[i] < 0) {
+			cx->stream_buffers[i] = cx->options.megabytes[i] * 1024
+						/ cx->stream_buf_size[i];
+		} else {
+			/* N.B. This might round down to 0 */
+			cx->options.megabytes[i] =
+			  cx->stream_buffers[i] * cx->stream_buf_size[i] / 1024;
+		}
+		cx->stream_buf_size[i] *= 1024; /* convert from kB to bytes */
+	}
+
+	cx->options.cardtype = cardtype[cx->instance];
+	cx->options.tuner = tuner[cx->instance];
+	cx->options.radio = radio[cx->instance];
 
 	cx->std = cx18_parse_std(cx);
 	if (cx->options.cardtype == -1) {
@@ -391,7 +503,7 @@ static void cx18_process_options(struct cx18 *cx)
 	else if (cx->options.cardtype != 0)
 		CX18_ERR("Unknown user specified type, trying to autodetect card\n");
 	if (cx->card == NULL) {
-		if (cx->dev->subsystem_vendor == CX18_PCI_ID_HAUPPAUGE) {
+		if (cx->pci_dev->subsystem_vendor == CX18_PCI_ID_HAUPPAUGE) {
 			cx->card = cx18_get_card(CX18_CARD_HVR_1600_ESMT);
 			CX18_INFO("Autodetected Hauppauge card\n");
 		}
@@ -401,13 +513,13 @@ static void cx18_process_options(struct cx18 *cx)
 			if (cx->card->pci_list == NULL)
 				continue;
 			for (j = 0; cx->card->pci_list[j].device; j++) {
-				if (cx->dev->device !=
+				if (cx->pci_dev->device !=
 				    cx->card->pci_list[j].device)
 					continue;
-				if (cx->dev->subsystem_vendor !=
+				if (cx->pci_dev->subsystem_vendor !=
 				    cx->card->pci_list[j].subsystem_vendor)
 					continue;
-				if (cx->dev->subsystem_device !=
+				if (cx->pci_dev->subsystem_device !=
 				    cx->card->pci_list[j].subsystem_device)
 					continue;
 				CX18_INFO("Autodetected %s card\n", cx->card->name);
@@ -420,9 +532,10 @@ done:
 	if (cx->card == NULL) {
 		cx->card = cx18_get_card(CX18_CARD_HVR_1600_ESMT);
 		CX18_ERR("Unknown card: vendor/device: [%04x:%04x]\n",
-		     cx->dev->vendor, cx->dev->device);
+			 cx->pci_dev->vendor, cx->pci_dev->device);
 		CX18_ERR("              subsystem vendor/device: [%04x:%04x]\n",
-		     cx->dev->subsystem_vendor, cx->dev->subsystem_device);
+			 cx->pci_dev->subsystem_vendor,
+			 cx->pci_dev->subsystem_device);
 		CX18_ERR("Defaulting to %s card\n", cx->card->name);
 		CX18_ERR("Please mail the vendor/device and subsystem vendor/device IDs and what kind of\n");
 		CX18_ERR("card you have to the ivtv-devel mailinglist (www.ivtvdriver.org)\n");
@@ -434,28 +547,32 @@ done:
 }
 
 /* Precondition: the cx18 structure has been memset to 0. Only
-   the dev and num fields have been filled in.
+   the dev and instance fields have been filled in.
    No assumptions on the card type may be made here (see cx18_init_struct2
    for that).
  */
 static int __devinit cx18_init_struct1(struct cx18 *cx)
 {
-	cx->base_addr = pci_resource_start(cx->dev, 0);
+	int i;
+
+	cx->base_addr = pci_resource_start(cx->pci_dev, 0);
 
 	mutex_init(&cx->serialize_lock);
-	mutex_init(&cx->i2c_bus_lock[0]);
-	mutex_init(&cx->i2c_bus_lock[1]);
 	mutex_init(&cx->gpio_lock);
+	mutex_init(&cx->epu2apu_mb_lock);
+	mutex_init(&cx->epu2cpu_mb_lock);
 
-	spin_lock_init(&cx->lock);
-
-	cx->work_queue = create_singlethread_workqueue(cx->name);
+	cx->work_queue = create_singlethread_workqueue(cx->v4l2_dev.name);
 	if (cx->work_queue == NULL) {
-		CX18_ERR("Could not create work queue\n");
-		return -1;
+		CX18_ERR("Unable to create work hander thread\n");
+		return -ENOMEM;
 	}
 
-	INIT_WORK(&cx->work, cx18_work_handler);
+	for (i = 0; i < CX18_MAX_EPU_WORK_ORDERS; i++) {
+		cx->epu_work_order[i].cx = cx;
+		cx->epu_work_order[i].str = cx->epu_debug_str;
+		INIT_WORK(&cx->epu_work_order[i].work, cx18_epu_work_handler);
+	}
 
 	/* start counting open_id at 1 */
 	cx->open_id = 1;
@@ -468,24 +585,17 @@ static int __devinit cx18_init_struct1(struct cx18 *cx)
 		(cx->params.video_temporal_filter_mode << 1) |
 		(cx->params.video_median_filter_type << 2);
 	cx->params.port = CX2341X_PORT_MEMORY;
-	cx->params.capabilities = CX2341X_CAP_HAS_TS;
+	cx->params.capabilities =
+				CX2341X_CAP_HAS_TS | CX2341X_CAP_HAS_SLICED_VBI;
 	init_waitqueue_head(&cx->cap_w);
 	init_waitqueue_head(&cx->mb_apu_waitq);
 	init_waitqueue_head(&cx->mb_cpu_waitq);
-	init_waitqueue_head(&cx->mb_epu_waitq);
-	init_waitqueue_head(&cx->mb_hpu_waitq);
 	init_waitqueue_head(&cx->dma_waitq);
 
 	/* VBI */
-	cx->vbi.in.type = V4L2_BUF_TYPE_SLICED_VBI_CAPTURE;
+	cx->vbi.in.type = V4L2_BUF_TYPE_VBI_CAPTURE;
 	cx->vbi.sliced_in = &cx->vbi.in.fmt.sliced;
-	cx->vbi.raw_size = 1456;
-	cx->vbi.raw_decoder_line_size = 1456;
-	cx->vbi.raw_decoder_sav_odd_field = 0x20;
-	cx->vbi.raw_decoder_sav_even_field = 0x60;
-	cx->vbi.sliced_decoder_line_size = 272;
-	cx->vbi.sliced_decoder_sav_odd_field = 0xB0;
-	cx->vbi.sliced_decoder_sav_even_field = 0xF0;
+
 	return 0;
 }
 
@@ -514,14 +624,9 @@ static void __devinit cx18_init_struct2(struct cx18 *cx)
 		i = 0;
 	cx->active_input = i;
 	cx->audio_input = cx->card->video_inputs[i].audio_index;
-	cx->av_state.vid_input = CX18_AV_COMPOSITE7;
-	cx->av_state.aud_input = CX18_AV_AUDIO8;
-	cx->av_state.audclk_freq = 48000;
-	cx->av_state.audmode = V4L2_TUNER_MODE_LANG1;
-	cx->av_state.vbi_line_offset = 8;
 }
 
-static int cx18_setup_pci(struct cx18 *cx, struct pci_dev *dev,
+static int cx18_setup_pci(struct cx18 *cx, struct pci_dev *pci_dev,
 			  const struct pci_device_id *pci_id)
 {
 	u16 cmd;
@@ -529,124 +634,125 @@ static int cx18_setup_pci(struct cx18 *cx, struct pci_dev *dev,
 
 	CX18_DEBUG_INFO("Enabling pci device\n");
 
-	if (pci_enable_device(dev)) {
-		CX18_ERR("Can't enable device %d!\n", cx->num);
+	if (pci_enable_device(pci_dev)) {
+		CX18_ERR("Can't enable device %d!\n", cx->instance);
 		return -EIO;
 	}
-	if (pci_set_dma_mask(dev, 0xffffffff)) {
-		CX18_ERR("No suitable DMA available on card %d.\n", cx->num);
+	if (pci_set_dma_mask(pci_dev, 0xffffffff)) {
+		CX18_ERR("No suitable DMA available, card %d\n", cx->instance);
 		return -EIO;
 	}
 	if (!request_mem_region(cx->base_addr, CX18_MEM_SIZE, "cx18 encoder")) {
-		CX18_ERR("Cannot request encoder memory region on card %d.\n", cx->num);
+		CX18_ERR("Cannot request encoder memory region, card %d\n",
+			 cx->instance);
 		return -EIO;
 	}
 
 	/* Enable bus mastering and memory mapped IO for the CX23418 */
-	pci_read_config_word(dev, PCI_COMMAND, &cmd);
+	pci_read_config_word(pci_dev, PCI_COMMAND, &cmd);
 	cmd |= PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER;
-	pci_write_config_word(dev, PCI_COMMAND, cmd);
+	pci_write_config_word(pci_dev, PCI_COMMAND, cmd);
 
-	pci_read_config_byte(dev, PCI_CLASS_REVISION, &cx->card_rev);
-	pci_read_config_byte(dev, PCI_LATENCY_TIMER, &pci_latency);
+	pci_read_config_byte(pci_dev, PCI_CLASS_REVISION, &cx->card_rev);
+	pci_read_config_byte(pci_dev, PCI_LATENCY_TIMER, &pci_latency);
 
 	if (pci_latency < 64 && cx18_pci_latency) {
 		CX18_INFO("Unreasonably low latency timer, "
 			       "setting to 64 (was %d)\n", pci_latency);
-		pci_write_config_byte(dev, PCI_LATENCY_TIMER, 64);
-		pci_read_config_byte(dev, PCI_LATENCY_TIMER, &pci_latency);
+		pci_write_config_byte(pci_dev, PCI_LATENCY_TIMER, 64);
+		pci_read_config_byte(pci_dev, PCI_LATENCY_TIMER, &pci_latency);
 	}
 
 	CX18_DEBUG_INFO("cx%d (rev %d) at %02x:%02x.%x, "
 		   "irq: %d, latency: %d, memory: 0x%lx\n",
-		   cx->dev->device, cx->card_rev, dev->bus->number,
-		   PCI_SLOT(dev->devfn), PCI_FUNC(dev->devfn),
-		   cx->dev->irq, pci_latency, (unsigned long)cx->base_addr);
+		   cx->pci_dev->device, cx->card_rev, pci_dev->bus->number,
+		   PCI_SLOT(pci_dev->devfn), PCI_FUNC(pci_dev->devfn),
+		   cx->pci_dev->irq, pci_latency, (unsigned long)cx->base_addr);
 
 	return 0;
 }
 
-#ifdef MODULE
-static u32 cx18_request_module(struct cx18 *cx, u32 hw,
-		const char *name, u32 id)
-{
-	if ((hw & id) == 0)
-		return hw;
-	if (request_module(name) != 0) {
-		CX18_ERR("Failed to load module %s\n", name);
-		return hw & ~id;
-	}
-	CX18_DEBUG_INFO("Loaded module %s\n", name);
-	return hw;
-}
-#endif
-
-static void cx18_load_and_init_modules(struct cx18 *cx)
+static void cx18_init_subdevs(struct cx18 *cx)
 {
 	u32 hw = cx->card->hw_all;
+	u32 device;
 	int i;
 
-#ifdef MODULE
-	/* load modules */
-#ifdef CONFIG_MEDIA_TUNER_MODULE
-	hw = cx18_request_module(cx, hw, "tuner", CX18_HW_TUNER);
-#endif
-#ifdef CONFIG_VIDEO_CS5345_MODULE
-	hw = cx18_request_module(cx, hw, "cs5345", CX18_HW_CS5345);
-#endif
-#endif
-
-	/* check which i2c devices are actually found */
-	for (i = 0; i < 32; i++) {
-		u32 device = 1 << i;
+	for (i = 0, device = 1; i < 32; i++, device <<= 1) {
 
 		if (!(device & hw))
 			continue;
-		if (device == CX18_HW_GPIO || device == CX18_HW_TVEEPROM ||
-		    device == CX18_HW_CX23418 || device == CX18_HW_DVB) {
-			/* These 'devices' do not use i2c probing */
+
+		switch (device) {
+		case CX18_HW_DVB:
+		case CX18_HW_TVEEPROM:
+			/* These subordinate devices do not use probing */
 			cx->hw_flags |= device;
-			continue;
+			break;
+		case CX18_HW_418_AV:
+			/* The A/V decoder gets probed earlier to set PLLs */
+			/* Just note that the card uses it (i.e. has analog) */
+			cx->hw_flags |= device;
+			break;
+		case CX18_HW_GPIO_RESET_CTRL:
+			/*
+			 * The Reset Controller gets probed and added to
+			 * hw_flags earlier for i2c adapter/bus initialization
+			 */
+			break;
+		case CX18_HW_GPIO_MUX:
+			if (cx18_gpio_register(cx, device) == 0)
+				cx->hw_flags |= device;
+			break;
+		default:
+			if (cx18_i2c_register(cx, i) == 0)
+				cx->hw_flags |= device;
+			break;
 		}
-		cx18_i2c_register(cx, i);
-		if (cx18_i2c_hw_addr(cx, device) > 0)
-			cx->hw_flags |= device;
 	}
 
-	hw = cx->hw_flags;
+	if (cx->hw_flags & CX18_HW_418_AV)
+		cx->sd_av = cx18_find_hw(cx, CX18_HW_418_AV);
+
+	if (cx->card->hw_muxer != 0)
+		cx->sd_extmux = cx18_find_hw(cx, cx->card->hw_muxer);
 }
 
-static int __devinit cx18_probe(struct pci_dev *dev,
+static int __devinit cx18_probe(struct pci_dev *pci_dev,
 				const struct pci_device_id *pci_id)
 {
 	int retval = 0;
 	int i;
-	int vbi_buf_size;
 	u32 devtype;
 	struct cx18 *cx;
 
-	spin_lock(&cx18_cards_lock);
-
-	/* Make sure we've got a place for this card */
-	if (cx18_cards_active == CX18_MAX_CARDS) {
-		printk(KERN_ERR "cx18:  Maximum number of cards detected (%d).\n",
-			      cx18_cards_active);
-		spin_unlock(&cx18_cards_lock);
+	/* FIXME - module parameter arrays constrain max instances */
+	i = atomic_inc_return(&cx18_instance) - 1;
+	if (i >= CX18_MAX_CARDS) {
+		printk(KERN_ERR "cx18: cannot manage card %d, driver has a "
+		       "limit of 0 - %d\n", i, CX18_MAX_CARDS - 1);
 		return -ENOMEM;
 	}
 
 	cx = kzalloc(sizeof(struct cx18), GFP_ATOMIC);
-	if (!cx) {
-		spin_unlock(&cx18_cards_lock);
+	if (cx == NULL) {
+		printk(KERN_ERR "cx18: cannot manage card %d, out of memory\n",
+		       i);
 		return -ENOMEM;
 	}
-	cx18_cards[cx18_cards_active] = cx;
-	cx->dev = dev;
-	cx->num = cx18_cards_active++;
-	snprintf(cx->name, sizeof(cx->name), "cx18-%d", cx->num);
-	CX18_INFO("Initializing card #%d\n", cx->num);
+	cx->pci_dev = pci_dev;
+	cx->instance = i;
 
-	spin_unlock(&cx18_cards_lock);
+	retval = v4l2_device_register(&pci_dev->dev, &cx->v4l2_dev);
+	if (retval) {
+		printk(KERN_ERR "cx18: v4l2_device_register of card %d failed"
+		       "\n", cx->instance);
+		kfree(cx);
+		return retval;
+	}
+	snprintf(cx->v4l2_dev.name, sizeof(cx->v4l2_dev.name), "cx18-%d",
+		 cx->instance);
+	CX18_INFO("Initializing card %d\n", cx->instance);
 
 	cx18_process_options(cx);
 	if (cx->options.cardtype == -1) {
@@ -661,15 +767,9 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 	CX18_DEBUG_INFO("base addr: 0x%08x\n", cx->base_addr);
 
 	/* PCI Device Setup */
-	retval = cx18_setup_pci(cx, dev, pci_id);
-	if (retval != 0) {
-		if (retval == -EIO)
-			goto free_workqueue;
-		else if (retval == -ENXIO)
-			goto free_mem;
-	}
-	/* save cx in the pci struct for later use */
-	pci_set_drvdata(dev, cx);
+	retval = cx18_setup_pci(cx, pci_dev, pci_id);
+	if (retval != 0)
+		goto free_workqueue;
 
 	/* map io memory */
 	CX18_DEBUG_INFO("attempting ioremap at 0x%08x len 0x%08x\n",
@@ -704,6 +804,23 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 
 	cx18_gpio_init(cx);
 
+	/* Initialize integrated A/V decoder early to set PLLs, just in case */
+	retval = cx18_av_probe(cx);
+	if (retval) {
+		CX18_ERR("Could not register A/V decoder subdevice\n");
+		goto free_map;
+	}
+	cx18_call_hw(cx, CX18_HW_418_AV, core, init, 0);
+
+	/* Initialize GPIO Reset Controller to do chip resets during i2c init */
+	if (cx->card->hw_all & CX18_HW_GPIO_RESET_CTRL) {
+		if (cx18_gpio_register(cx, CX18_HW_GPIO_RESET_CTRL) != 0)
+			CX18_WARN("Could not register GPIO reset controller"
+				  "subdevice; proceeding anyway.\n");
+		else
+			cx->hw_flags |= CX18_HW_GPIO_RESET_CTRL;
+	}
+
 	/* active i2c  */
 	CX18_DEBUG_INFO("activating i2c...\n");
 	retval = init_cx18_i2c(cx);
@@ -711,8 +828,6 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 		CX18_ERR("Could not initialize i2c\n");
 		goto free_map;
 	}
-
-	CX18_DEBUG_INFO("Active card count: %d.\n", cx18_cards_active);
 
 	if (cx->card->hw_all & CX18_HW_TVEEPROM) {
 		/* Based on the model number the cardtype may be changed.
@@ -726,10 +841,12 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 		goto free_i2c;
 	}
 	cx18_init_memory(cx);
+	cx18_init_scb(cx);
 
 	/* Register IRQ */
-	retval = request_irq(cx->dev->irq, cx18_irq_handler,
-			     IRQF_SHARED | IRQF_DISABLED, cx->name, (void *)cx);
+	retval = request_irq(cx->pci_dev->irq, cx18_irq_handler,
+			     IRQF_SHARED | IRQF_DISABLED,
+			     cx->v4l2_dev.name, (void *)cx);
 	if (retval) {
 		CX18_ERR("Failed to register irq %d\n", retval);
 		goto free_i2c;
@@ -739,8 +856,6 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 		cx->std = V4L2_STD_NTSC_M;
 
 	if (cx->options.tuner == -1) {
-		int i;
-
 		for (i = 0; i < CX18_CARD_MAX_TUNERS; i++) {
 			if ((cx->std & cx->card->tuners[i].std) == 0)
 				continue;
@@ -766,23 +881,14 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 	   initialization. */
 	cx18_init_struct2(cx);
 
-	cx18_load_and_init_modules(cx);
+	cx18_init_subdevs(cx);
 
-	if (cx->std & V4L2_STD_525_60) {
+	if (cx->std & V4L2_STD_525_60)
 		cx->is_60hz = 1;
-		cx->is_out_60hz = 1;
-	} else {
+	else
 		cx->is_50hz = 1;
-		cx->is_out_50hz = 1;
-	}
-	cx->params.video_gop_size = cx->is_60hz ? 15 : 12;
 
-	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_MPG] = 0x08000;
-	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_TS] = 0x08000;
-	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_PCM] = 0x01200;
-	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_YUV] = 0x20000;
-	vbi_buf_size = cx->vbi.raw_size * (cx->is_60hz ? 24 : 36) / 2;
-	cx->stream_buf_size[CX18_ENC_STREAM_TYPE_VBI] = vbi_buf_size;
+	cx->params.video_gop_size = cx->is_60hz ? 15 : 12;
 
 	if (cx->options.radio > 0)
 		cx->v4l2_cap |= V4L2_CAP_RADIO;
@@ -795,7 +901,7 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 		setup.mode_mask = T_ANALOG_TV;  /* matches TV tuners */
 		setup.tuner_callback = (setup.type == TUNER_XC2028) ?
 			cx18_reset_tuner_gpio : NULL;
-		cx18_call_i2c_clients(cx, TUNER_SET_TYPE_ADDR, &setup);
+		cx18_call_all(cx, tuner, s_type_addr, &setup);
 		if (setup.type == TUNER_XC2028) {
 			static struct xc2028_ctrl ctrl = {
 				.fname = XC2028_DEFAULT_FIRMWARE,
@@ -805,7 +911,7 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 				.tuner = cx->options.tuner,
 				.priv = &ctrl,
 			};
-			cx18_call_i2c_clients(cx, TUNER_SET_CONFIG, &cfg);
+			cx18_call_all(cx, tuner, s_config, &cfg);
 		}
 	}
 
@@ -824,14 +930,13 @@ static int __devinit cx18_probe(struct pci_dev *dev,
 		goto free_streams;
 	}
 
-	CX18_INFO("Initialized card #%d: %s\n", cx->num, cx->card_name);
-
+	CX18_INFO("Initialized card: %s\n", cx->card_name);
 	return 0;
 
 free_streams:
 	cx18_streams_cleanup(cx, 1);
 free_irq:
-	free_irq(cx->dev->irq, (void *)cx);
+	free_irq(cx->pci_dev->irq, (void *)cx);
 free_i2c:
 	exit_cx18_i2c(cx);
 free_map:
@@ -844,13 +949,9 @@ err:
 	if (retval == 0)
 		retval = -ENODEV;
 	CX18_ERR("Error %d on initialization\n", retval);
-	cx18_log_statistics(cx);
 
-	i = cx->num;
-	spin_lock(&cx18_cards_lock);
-	kfree(cx18_cards[i]);
-	cx18_cards[i] = NULL;
-	spin_unlock(&cx18_cards_lock);
+	v4l2_device_unregister(&cx->v4l2_dev);
+	kfree(cx);
 	return retval;
 }
 
@@ -883,8 +984,21 @@ int cx18_init_on_first_open(struct cx18 *cx)
 	}
 	set_bit(CX18_F_I_LOADED_FW, &cx->i_flags);
 
-	/* Init the firmware twice to work around a silicon bug
-	 * transport related. */
+	/*
+	 * Init the firmware twice to work around a silicon bug
+	 * with the digital TS.
+	 *
+	 * The second firmware load requires us to normalize the APU state,
+	 * or the audio for the first analog capture will be badly incorrect.
+	 *
+	 * I can't seem to call APU_RESETAI and have it succeed without the
+	 * APU capturing audio, so we start and stop it here to do the reset
+	 */
+
+	/* MPEG Encoding, 224 kbps, MPEG Layer II, 48 ksps */
+	cx18_vapi(cx, CX18_APU_START, 2, CX18_APU_ENCODING_METHOD_MPEG|0xb9, 0);
+	cx18_vapi(cx, CX18_APU_RESETAI, 0);
+	cx18_vapi(cx, CX18_APU_STOP, 1, CX18_APU_ENCODING_METHOD_MPEG);
 
 	fw_retry_count = 3;
 	while (--fw_retry_count > 0) {
@@ -899,6 +1013,22 @@ int cx18_init_on_first_open(struct cx18 *cx)
 		set_bit(CX18_F_I_FAILED, &cx->i_flags);
 		return -ENXIO;
 	}
+
+	/*
+	 * The second firmware load requires us to normalize the APU state,
+	 * or the audio for the first analog capture will be badly incorrect.
+	 *
+	 * I can't seem to call APU_RESETAI and have it succeed without the
+	 * APU capturing audio, so we start and stop it here to do the reset
+	 */
+
+	/* MPEG Encoding, 224 kbps, MPEG Layer II, 48 ksps */
+	cx18_vapi(cx, CX18_APU_START, 2, CX18_APU_ENCODING_METHOD_MPEG|0xb9, 0);
+	cx18_vapi(cx, CX18_APU_RESETAI, 0);
+	cx18_vapi(cx, CX18_APU_STOP, 1, CX18_APU_ENCODING_METHOD_MPEG);
+
+	/* Init the A/V decoder, if it hasn't been already */
+	v4l2_subdev_call(cx->sd_av, core, load_fw);
 
 	vf.tuner = 0;
 	vf.type = V4L2_TUNER_ANALOG_TV;
@@ -923,11 +1053,20 @@ int cx18_init_on_first_open(struct cx18 *cx)
 	return 0;
 }
 
+static void cx18_cancel_epu_work_orders(struct cx18 *cx)
+{
+	int i;
+	for (i = 0; i < CX18_MAX_EPU_WORK_ORDERS; i++)
+		cancel_work_sync(&cx->epu_work_order[i].work);
+}
+
 static void cx18_remove(struct pci_dev *pci_dev)
 {
-	struct cx18 *cx = pci_get_drvdata(pci_dev);
+	struct v4l2_device *v4l2_dev = pci_get_drvdata(pci_dev);
+	struct cx18 *cx = to_cx18(v4l2_dev);
+	int i;
 
-	CX18_DEBUG_INFO("Removing Card #%d\n", cx->num);
+	CX18_DEBUG_INFO("Removing Card\n");
 
 	/* Stop all captures */
 	CX18_DEBUG_INFO("Stopping all streams\n");
@@ -940,23 +1079,30 @@ static void cx18_remove(struct pci_dev *pci_dev)
 
 	cx18_halt_firmware(cx);
 
-	flush_workqueue(cx->work_queue);
+	cx18_cancel_epu_work_orders(cx);
+
 	destroy_workqueue(cx->work_queue);
 
 	cx18_streams_cleanup(cx, 1);
 
 	exit_cx18_i2c(cx);
 
-	free_irq(cx->dev->irq, (void *)cx);
+	free_irq(cx->pci_dev->irq, (void *)cx);
 
 	cx18_iounmap(cx);
 
 	release_mem_region(cx->base_addr, CX18_MEM_SIZE);
 
-	pci_disable_device(cx->dev);
+	pci_disable_device(cx->pci_dev);
 
-	cx18_log_statistics(cx);
-	CX18_INFO("Removed %s, card #%d\n", cx->card_name, cx->num);
+	if (cx->vbi.sliced_mpeg_data[0] != NULL)
+		for (i = 0; i < CX18_VBI_FRAMES; i++)
+			kfree(cx->vbi.sliced_mpeg_data[i]);
+
+	CX18_INFO("Removed %s\n", cx->card_name);
+
+	v4l2_device_unregister(v4l2_dev);
+	kfree(cx);
 }
 
 /* define a pci_driver for card detection */
@@ -970,8 +1116,6 @@ static struct pci_driver cx18_pci_driver = {
 static int module_start(void)
 {
 	printk(KERN_INFO "cx18:  Start initialization, version %s\n", CX18_VERSION);
-
-	memset(cx18_cards, 0, sizeof(cx18_cards));
 
 	/* Validate parameters */
 	if (cx18_first_minor < 0 || cx18_first_minor >= CX18_MAX_CARDS) {
@@ -995,15 +1139,7 @@ static int module_start(void)
 
 static void module_cleanup(void)
 {
-	int i;
-
 	pci_unregister_driver(&cx18_pci_driver);
-
-	for (i = 0; i < cx18_cards_active; i++) {
-		if (cx18_cards[i] == NULL)
-			continue;
-		kfree(cx18_cards[i]);
-	}
 }
 
 module_init(module_start);

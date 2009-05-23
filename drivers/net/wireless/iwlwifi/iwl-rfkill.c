@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2003 - 2008 Intel Corporation. All rights reserved.
+ * Copyright(c) 2003 - 2009 Intel Corporation. All rights reserved.
  *
  * Portions of this file are derived from the ipw3945 project, as well
  * as portions of the ieee80211 subsystem header files.
@@ -22,7 +22,7 @@
  * file called LICENSE.
  *
  * Contact Information:
- * James P. Ketrenos <ipw2100-admin@linux.intel.com>
+ *  Intel Linux Wireless <ilw@linux.intel.com>
  * Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
  *****************************************************************************/
 #include <linux/kernel.h>
@@ -34,8 +34,6 @@
 #include "iwl-eeprom.h"
 #include "iwl-dev.h"
 #include "iwl-core.h"
-#include "iwl-helpers.h"
-
 
 /* software rf-kill from user */
 static int iwl_rfkill_soft_rf_kill(void *data, enum rfkill_state state)
@@ -49,7 +47,7 @@ static int iwl_rfkill_soft_rf_kill(void *data, enum rfkill_state state)
 	if (test_bit(STATUS_EXIT_PENDING, &priv->status))
 		return 0;
 
-	IWL_DEBUG_RF_KILL("we received soft RFKILL set to state %d\n", state);
+	IWL_DEBUG_RF_KILL(priv, "we received soft RFKILL set to state %d\n", state);
 	mutex_lock(&priv->mutex);
 
 	switch (state) {
@@ -64,7 +62,8 @@ static int iwl_rfkill_soft_rf_kill(void *data, enum rfkill_state state)
 		iwl_radio_kill_sw_disable_radio(priv);
 		break;
 	default:
-		IWL_WARNING("we recieved unexpected RFKILL state %d\n", state);
+		IWL_WARN(priv, "we received unexpected RFKILL state %d\n",
+			state);
 		break;
 	}
 out_unlock:
@@ -80,10 +79,10 @@ int iwl_rfkill_init(struct iwl_priv *priv)
 
 	BUG_ON(device == NULL);
 
-	IWL_DEBUG_RF_KILL("Initializing RFKILL.\n");
+	IWL_DEBUG_RF_KILL(priv, "Initializing RFKILL.\n");
 	priv->rfkill = rfkill_allocate(device, RFKILL_TYPE_WLAN);
 	if (!priv->rfkill) {
-		IWL_ERROR("Unable to allocate rfkill device.\n");
+		IWL_ERR(priv, "Unable to allocate RFKILL device.\n");
 		ret = -ENOMEM;
 		goto error;
 	}
@@ -99,11 +98,11 @@ int iwl_rfkill_init(struct iwl_priv *priv)
 
 	ret = rfkill_register(priv->rfkill);
 	if (ret) {
-		IWL_ERROR("Unable to register rfkill: %d\n", ret);
+		IWL_ERR(priv, "Unable to register RFKILL: %d\n", ret);
 		goto free_rfkill;
 	}
 
-	IWL_DEBUG_RF_KILL("RFKILL initialization complete.\n");
+	IWL_DEBUG_RF_KILL(priv, "RFKILL initialization complete.\n");
 	return ret;
 
 free_rfkill:
@@ -112,7 +111,7 @@ free_rfkill:
 	priv->rfkill = NULL;
 
 error:
-	IWL_DEBUG_RF_KILL("RFKILL initialization complete.\n");
+	IWL_DEBUG_RF_KILL(priv, "RFKILL initialization complete.\n");
 	return ret;
 }
 EXPORT_SYMBOL(iwl_rfkill_init);
@@ -127,7 +126,7 @@ void iwl_rfkill_unregister(struct iwl_priv *priv)
 }
 EXPORT_SYMBOL(iwl_rfkill_unregister);
 
-/* set rf-kill to the right state. */
+/* set RFKILL to the right state. */
 void iwl_rfkill_set_hw_state(struct iwl_priv *priv)
 {
 	if (!priv->rfkill)

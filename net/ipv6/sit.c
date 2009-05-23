@@ -62,8 +62,8 @@
 #define HASH_SIZE  16
 #define HASH(addr) (((__force u32)addr^((__force u32)addr>>4))&0xF)
 
-static int ipip6_fb_tunnel_init(struct net_device *dev);
-static int ipip6_tunnel_init(struct net_device *dev);
+static void ipip6_fb_tunnel_init(struct net_device *dev);
+static void ipip6_tunnel_init(struct net_device *dev);
 static void ipip6_tunnel_setup(struct net_device *dev);
 
 static int sit_net_id;
@@ -188,8 +188,9 @@ static struct ip_tunnel * ipip6_tunnel_locate(struct net *net,
 	}
 
 	nt = netdev_priv(dev);
-	dev->init = ipip6_tunnel_init;
+
 	nt->parms = *parms;
+	ipip6_tunnel_init(dev);
 
 	if (parms->i_flags & SIT_ISATAP)
 		dev->priv_flags |= IFF_ISATAP;
@@ -453,7 +454,7 @@ static int ipip6_err(struct sk_buff *skb, u32 info)
 	if (t->parms.iph.ttl == 0 && type == ICMP_TIME_EXCEEDED)
 		goto out;
 
-	if (jiffies - t->err_time < IPTUNNEL_ERR_TIMEO)
+	if (time_before(jiffies, t->err_time + IPTUNNEL_ERR_TIMEO))
 		t->err_count++;
 	else
 		t->err_count = 1;
@@ -657,7 +658,8 @@ static int ipip6_tunnel_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	if (tunnel->err_count > 0) {
-		if (jiffies - tunnel->err_time < IPTUNNEL_ERR_TIMEO) {
+		if (time_before(jiffies,
+				tunnel->err_time + IPTUNNEL_ERR_TIMEO)) {
 			tunnel->err_count--;
 			dst_link_failure(skb);
 		} else
@@ -926,13 +928,17 @@ static int ipip6_tunnel_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+static const struct net_device_ops ipip6_netdev_ops = {
+	.ndo_uninit	= ipip6_tunnel_uninit,
+	.ndo_start_xmit	= ipip6_tunnel_xmit,
+	.ndo_do_ioctl	= ipip6_tunnel_ioctl,
+	.ndo_change_mtu	= ipip6_tunnel_change_mtu,
+};
+
 static void ipip6_tunnel_setup(struct net_device *dev)
 {
-	dev->uninit		= ipip6_tunnel_uninit;
+	dev->netdev_ops		= &ipip6_netdev_ops;
 	dev->destructor 	= free_netdev;
-	dev->hard_start_xmit	= ipip6_tunnel_xmit;
-	dev->do_ioctl		= ipip6_tunnel_ioctl;
-	dev->change_mtu		= ipip6_tunnel_change_mtu;
 
 	dev->type		= ARPHRD_SIT;
 	dev->hard_header_len 	= LL_MAX_HEADER + sizeof(struct iphdr);
@@ -943,11 +949,9 @@ static void ipip6_tunnel_setup(struct net_device *dev)
 	dev->features		|= NETIF_F_NETNS_LOCAL;
 }
 
-static int ipip6_tunnel_init(struct net_device *dev)
+static void ipip6_tunnel_init(struct net_device *dev)
 {
-	struct ip_tunnel *tunnel;
-
-	tunnel = netdev_priv(dev);
+	struct ip_tunnel *tunnel = netdev_priv(dev);
 
 	tunnel->dev = dev;
 	strcpy(tunnel->parms.name, dev->name);
@@ -956,11 +960,9 @@ static int ipip6_tunnel_init(struct net_device *dev)
 	memcpy(dev->broadcast, &tunnel->parms.iph.daddr, 4);
 
 	ipip6_tunnel_bind_dev(dev);
-
-	return 0;
 }
 
-static int ipip6_fb_tunnel_init(struct net_device *dev)
+static void ipip6_fb_tunnel_init(struct net_device *dev)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
 	struct iphdr *iph = &tunnel->parms.iph;
@@ -977,7 +979,6 @@ static int ipip6_fb_tunnel_init(struct net_device *dev)
 
 	dev_hold(dev);
 	sitn->tunnels_wc[0]	= tunnel;
-	return 0;
 }
 
 static struct xfrm_tunnel sit_handler = {
@@ -1025,9 +1026,9 @@ static int sit_init_net(struct net *net)
 		err = -ENOMEM;
 		goto err_alloc_dev;
 	}
-
-	sitn->fb_tunnel_dev->init = ipip6_fb_tunnel_init;
 	dev_net_set(sitn->fb_tunnel_dev, net);
+
+	ipip6_fb_tunnel_init(sitn->fb_tunnel_dev);
 
 	if ((err = register_netdev(sitn->fb_tunnel_dev)))
 		goto err_reg_dev;
@@ -1035,6 +1036,7 @@ static int sit_init_net(struct net *net)
 	return 0;
 
 err_reg_dev:
+	dev_put(sitn->fb_tunnel_dev);
 	free_netdev(sitn->fb_tunnel_dev);
 err_alloc_dev:
 	/* nothing */

@@ -197,6 +197,12 @@ static struct rpc_clnt * rpc_new_client(const struct rpc_create_args *args, stru
 
 	clnt->cl_rtt = &clnt->cl_rtt_default;
 	rpc_init_rtt(&clnt->cl_rtt_default, clnt->cl_timeout->to_initval);
+	clnt->cl_principal = NULL;
+	if (args->client_name) {
+		clnt->cl_principal = kstrdup(args->client_name, GFP_KERNEL);
+		if (!clnt->cl_principal)
+			goto out_no_principal;
+	}
 
 	kref_init(&clnt->cl_kref);
 
@@ -226,6 +232,8 @@ out_no_auth:
 		rpc_put_mount();
 	}
 out_no_path:
+	kfree(clnt->cl_principal);
+out_no_principal:
 	rpc_free_iostats(clnt->cl_metrics);
 out_no_stats:
 	if (clnt->cl_server != clnt->cl_inline_name)
@@ -271,15 +279,15 @@ struct rpc_clnt *rpc_create(struct rpc_create_args *args)
 		case AF_INET: {
 			struct sockaddr_in *sin =
 					(struct sockaddr_in *)args->address;
-			snprintf(servername, sizeof(servername), NIPQUAD_FMT,
-				 NIPQUAD(sin->sin_addr.s_addr));
+			snprintf(servername, sizeof(servername), "%pI4",
+				 &sin->sin_addr.s_addr);
 			break;
 		}
 		case AF_INET6: {
 			struct sockaddr_in6 *sin =
 					(struct sockaddr_in6 *)args->address;
-			snprintf(servername, sizeof(servername), NIP6_FMT,
-				 NIP6(sin->sin6_addr));
+			snprintf(servername, sizeof(servername), "%pI6",
+				 &sin->sin6_addr);
 			break;
 		}
 		default:
@@ -354,6 +362,11 @@ rpc_clone_client(struct rpc_clnt *clnt)
 	new->cl_metrics = rpc_alloc_iostats(clnt);
 	if (new->cl_metrics == NULL)
 		goto out_no_stats;
+	if (clnt->cl_principal) {
+		new->cl_principal = kstrdup(clnt->cl_principal, GFP_KERNEL);
+		if (new->cl_principal == NULL)
+			goto out_no_principal;
+	}
 	kref_init(&new->cl_kref);
 	err = rpc_setup_pipedir(new, clnt->cl_program->pipe_dir_name);
 	if (err != 0)
@@ -366,6 +379,8 @@ rpc_clone_client(struct rpc_clnt *clnt)
 	rpciod_up();
 	return new;
 out_no_path:
+	kfree(new->cl_principal);
+out_no_principal:
 	rpc_free_iostats(new->cl_metrics);
 out_no_stats:
 	kfree(new);
@@ -417,6 +432,7 @@ rpc_free_client(struct kref *kref)
 out_free:
 	rpc_unregister_client(clnt);
 	rpc_free_iostats(clnt->cl_metrics);
+	kfree(clnt->cl_principal);
 	clnt->cl_metrics = NULL;
 	xprt_put(clnt->cl_xprt);
 	rpciod_down();
@@ -1016,27 +1032,20 @@ call_connect_status(struct rpc_task *task)
 	dprint_status(task);
 
 	task->tk_status = 0;
-	if (status >= 0) {
+	if (status >= 0 || status == -EAGAIN) {
 		clnt->cl_stats->netreconn++;
 		task->tk_action = call_transmit;
 		return;
 	}
 
-	/* Something failed: remote service port may have changed */
-	rpc_force_rebind(clnt);
-
 	switch (status) {
-	case -ENOTCONN:
-	case -EAGAIN:
-		task->tk_action = call_bind;
-		if (!RPC_IS_SOFT(task))
-			return;
 		/* if soft mounted, test if we've timed out */
 	case -ETIMEDOUT:
 		task->tk_action = call_timeout;
-		return;
+		break;
+	default:
+		rpc_exit(task, -EIO);
 	}
-	rpc_exit(task, -EIO);
 }
 
 /*
@@ -1089,14 +1098,26 @@ static void
 call_transmit_status(struct rpc_task *task)
 {
 	task->tk_action = call_status;
-	/*
-	 * Special case: if we've been waiting on the socket's write_space()
-	 * callback, then don't call xprt_end_transmit().
-	 */
-	if (task->tk_status == -EAGAIN)
-		return;
-	xprt_end_transmit(task);
-	rpc_task_force_reencode(task);
+	switch (task->tk_status) {
+	case -EAGAIN:
+		break;
+	default:
+		xprt_end_transmit(task);
+		/*
+		 * Special cases: if we've been waiting on the
+		 * socket's write_space() callback, or if the
+		 * socket just returned a connection error,
+		 * then hold onto the transport lock.
+		 */
+	case -ECONNREFUSED:
+	case -ECONNRESET:
+	case -ENOTCONN:
+	case -EHOSTDOWN:
+	case -EHOSTUNREACH:
+	case -ENETUNREACH:
+	case -EPIPE:
+		rpc_task_force_reencode(task);
+	}
 }
 
 /*
@@ -1136,9 +1157,12 @@ call_status(struct rpc_task *task)
 			xprt_conditional_disconnect(task->tk_xprt,
 					req->rq_connect_cookie);
 		break;
+	case -ECONNRESET:
 	case -ECONNREFUSED:
-	case -ENOTCONN:
 		rpc_force_rebind(clnt);
+		rpc_delay(task, 3*HZ);
+	case -EPIPE:
+	case -ENOTCONN:
 		task->tk_action = call_bind;
 		break;
 	case -EAGAIN:

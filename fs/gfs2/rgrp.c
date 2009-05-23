@@ -13,8 +13,8 @@
 #include <linux/buffer_head.h>
 #include <linux/fs.h>
 #include <linux/gfs2_ondisk.h>
-#include <linux/lm_interface.h>
 #include <linux/prefetch.h>
+#include <linux/blkdev.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -132,81 +132,89 @@ static inline unsigned char gfs2_testbit(struct gfs2_rgrpd *rgd,
 }
 
 /**
+ * gfs2_bit_search
+ * @ptr: Pointer to bitmap data
+ * @mask: Mask to use (normally 0x55555.... but adjusted for search start)
+ * @state: The state we are searching for
+ *
+ * We xor the bitmap data with a patter which is the bitwise opposite
+ * of what we are looking for, this gives rise to a pattern of ones
+ * wherever there is a match. Since we have two bits per entry, we
+ * take this pattern, shift it down by one place and then and it with
+ * the original. All the even bit positions (0,2,4, etc) then represent
+ * successful matches, so we mask with 0x55555..... to remove the unwanted
+ * odd bit positions.
+ *
+ * This allows searching of a whole u64 at once (32 blocks) with a
+ * single test (on 64 bit arches).
+ */
+
+static inline u64 gfs2_bit_search(const __le64 *ptr, u64 mask, u8 state)
+{
+	u64 tmp;
+	static const u64 search[] = {
+		[0] = 0xffffffffffffffffULL,
+		[1] = 0xaaaaaaaaaaaaaaaaULL,
+		[2] = 0x5555555555555555ULL,
+		[3] = 0x0000000000000000ULL,
+	};
+	tmp = le64_to_cpu(*ptr) ^ search[state];
+	tmp &= (tmp >> 1);
+	tmp &= mask;
+	return tmp;
+}
+
+/**
  * gfs2_bitfit - Search an rgrp's bitmap buffer to find a bit-pair representing
  *       a block in a given allocation state.
  * @buffer: the buffer that holds the bitmaps
- * @buflen: the length (in bytes) of the buffer
+ * @len: the length (in bytes) of the buffer
  * @goal: start search at this block's bit-pair (within @buffer)
- * @old_state: GFS2_BLKST_XXX the state of the block we're looking for.
+ * @state: GFS2_BLKST_XXX the state of the block we're looking for.
  *
  * Scope of @goal and returned block number is only within this bitmap buffer,
  * not entire rgrp or filesystem.  @buffer will be offset from the actual
- * beginning of a bitmap block buffer, skipping any header structures.
+ * beginning of a bitmap block buffer, skipping any header structures, but
+ * headers are always a multiple of 64 bits long so that the buffer is
+ * always aligned to a 64 bit boundary.
+ *
+ * The size of the buffer is in bytes, but is it assumed that it is
+ * always ok to to read a complete multiple of 64 bits at the end
+ * of the block in case the end is no aligned to a natural boundary.
  *
  * Return: the block number (bitmap buffer scope) that was found
  */
 
-static u32 gfs2_bitfit(const u8 *buffer, unsigned int buflen, u32 goal,
-		       u8 old_state)
+static u32 gfs2_bitfit(const u8 *buf, const unsigned int len,
+		       u32 goal, u8 state)
 {
-	const u8 *byte, *start, *end;
-	int bit, startbit;
-	u32 g1, g2, misaligned;
-	unsigned long *plong;
-	unsigned long lskipval;
+	u32 spoint = (goal << 1) & ((8*sizeof(u64)) - 1);
+	const __le64 *ptr = ((__le64 *)buf) + (goal >> 5);
+	const __le64 *end = (__le64 *)(buf + ALIGN(len, sizeof(u64)));
+	u64 tmp;
+	u64 mask = 0x5555555555555555ULL;
+	u32 bit;
 
-	lskipval = (old_state & GFS2_BLKST_USED) ? LBITSKIP00 : LBITSKIP55;
-	g1 = (goal / GFS2_NBBY);
-	start = buffer + g1;
-	byte = start;
-        end = buffer + buflen;
-	g2 = ALIGN(g1, sizeof(unsigned long));
-	plong = (unsigned long *)(buffer + g2);
-	startbit = bit = (goal % GFS2_NBBY) * GFS2_BIT_SIZE;
-	misaligned = g2 - g1;
-	if (!misaligned)
-		goto ulong_aligned;
-/* parse the bitmap a byte at a time */
-misaligned:
-	while (byte < end) {
-		if (((*byte >> bit) & GFS2_BIT_MASK) == old_state) {
-			return goal +
-				(((byte - start) * GFS2_NBBY) +
-				 ((bit - startbit) >> 1));
-		}
-		bit += GFS2_BIT_SIZE;
-		if (bit >= GFS2_NBBY * GFS2_BIT_SIZE) {
-			bit = 0;
-			byte++;
-			misaligned--;
-			if (!misaligned) {
-				plong = (unsigned long *)byte;
-				goto ulong_aligned;
-			}
-		}
-	}
-	return BFITNOENT;
+	BUG_ON(state > 3);
 
-/* parse the bitmap a unsigned long at a time */
-ulong_aligned:
-	/* Stop at "end - 1" or else prefetch can go past the end and segfault.
-	   We could "if" it but we'd lose some of the performance gained.
-	   This way will only slow down searching the very last 4/8 bytes
-	   depending on architecture.  I've experimented with several ways
-	   of writing this section such as using an else before the goto
-	   but this one seems to be the fastest. */
-	while ((unsigned char *)plong < end - sizeof(unsigned long)) {
-		prefetch(plong + 1);
-		if (((*plong) & LBITMASK) != lskipval)
-			break;
-		plong++;
+	/* Mask off bits we don't care about at the start of the search */
+	mask <<= spoint;
+	tmp = gfs2_bit_search(ptr, mask, state);
+	ptr++;
+	while(tmp == 0 && ptr < end) {
+		tmp = gfs2_bit_search(ptr, 0x5555555555555555ULL, state);
+		ptr++;
 	}
-	if ((unsigned char *)plong < end) {
-		byte = (const u8 *)plong;
-		misaligned += sizeof(unsigned long) - 1;
-		goto misaligned;
-	}
-	return BFITNOENT;
+	/* Mask off any bits which are more than len bytes from the start */
+	if (ptr == end && (len & (sizeof(u64) - 1)))
+		tmp &= (((u64)~0) >> (64 - 8*(len & (sizeof(u64) - 1))));
+	/* Didn't find anything, so return */
+	if (tmp == 0)
+		return BFITNOENT;
+	ptr--;
+	bit = __ffs64(tmp);
+	bit /= 2;	/* two bits per entry in the bitmap */
+	return (((const unsigned char *)ptr - buf) * GFS2_NBBY) + bit;
 }
 
 /**
@@ -269,16 +277,14 @@ void gfs2_rgrp_verify(struct gfs2_rgrpd *rgd)
 						  bi->bi_len, x);
 	}
 
-	if (count[0] != rgd->rd_rg.rg_free) {
+	if (count[0] != rgd->rd_free) {
 		if (gfs2_consist_rgrpd(rgd))
 			fs_err(sdp, "free data mismatch:  %u != %u\n",
-			       count[0], rgd->rd_rg.rg_free);
+			       count[0], rgd->rd_free);
 		return;
 	}
 
-	tmp = rgd->rd_data -
-		rgd->rd_rg.rg_free -
-		rgd->rd_rg.rg_dinodes;
+	tmp = rgd->rd_data - rgd->rd_free - rgd->rd_dinodes;
 	if (count[1] + count[2] != tmp) {
 		if (gfs2_consist_rgrpd(rgd))
 			fs_err(sdp, "used data mismatch:  %u != %u\n",
@@ -286,10 +292,10 @@ void gfs2_rgrp_verify(struct gfs2_rgrpd *rgd)
 		return;
 	}
 
-	if (count[3] != rgd->rd_rg.rg_dinodes) {
+	if (count[3] != rgd->rd_dinodes) {
 		if (gfs2_consist_rgrpd(rgd))
 			fs_err(sdp, "used metadata mismatch:  %u != %u\n",
-			       count[3], rgd->rd_rg.rg_dinodes);
+			       count[3], rgd->rd_dinodes);
 		return;
 	}
 
@@ -501,7 +507,7 @@ u64 gfs2_ri_total(struct gfs2_sbd *sdp)
 	for (rgrps = 0;; rgrps++) {
 		loff_t pos = rgrps * sizeof(struct gfs2_rindex);
 
-		if (pos + sizeof(struct gfs2_rindex) >= ip->i_di.di_size)
+		if (pos + sizeof(struct gfs2_rindex) >= ip->i_disksize)
 			break;
 		error = gfs2_internal_read(ip, &ra_state, buf, &pos,
 					   sizeof(struct gfs2_rindex));
@@ -590,7 +596,7 @@ static int gfs2_ri_update(struct gfs2_inode *ip)
 	struct gfs2_sbd *sdp = GFS2_SB(&ip->i_inode);
 	struct inode *inode = &ip->i_inode;
 	struct file_ra_state ra_state;
-	u64 rgrp_count = ip->i_di.di_size;
+	u64 rgrp_count = ip->i_disksize;
 	int error;
 
 	if (do_div(rgrp_count, sizeof(struct gfs2_rindex))) {
@@ -634,7 +640,7 @@ static int gfs2_ri_update_special(struct gfs2_inode *ip)
 	for (sdp->sd_rgrps = 0;; sdp->sd_rgrps++) {
 		/* Ignore partials */
 		if ((sdp->sd_rgrps + 1) * sizeof(struct gfs2_rindex) >
-		    ip->i_di.di_size)
+		    ip->i_disksize)
 			break;
 		error = read_rindex_entry(ip, &ra_state);
 		if (error) {
@@ -692,7 +698,6 @@ int gfs2_rindex_hold(struct gfs2_sbd *sdp, struct gfs2_holder *ri_gh)
 static void gfs2_rgrp_in(struct gfs2_rgrpd *rgd, const void *buf)
 {
 	const struct gfs2_rgrp *str = buf;
-	struct gfs2_rgrp_host *rg = &rgd->rd_rg;
 	u32 rg_flags;
 
 	rg_flags = be32_to_cpu(str->rg_flags);
@@ -700,24 +705,23 @@ static void gfs2_rgrp_in(struct gfs2_rgrpd *rgd, const void *buf)
 		rgd->rd_flags |= GFS2_RDF_NOALLOC;
 	else
 		rgd->rd_flags &= ~GFS2_RDF_NOALLOC;
-	rg->rg_free = be32_to_cpu(str->rg_free);
-	rg->rg_dinodes = be32_to_cpu(str->rg_dinodes);
-	rg->rg_igeneration = be64_to_cpu(str->rg_igeneration);
+	rgd->rd_free = be32_to_cpu(str->rg_free);
+	rgd->rd_dinodes = be32_to_cpu(str->rg_dinodes);
+	rgd->rd_igeneration = be64_to_cpu(str->rg_igeneration);
 }
 
 static void gfs2_rgrp_out(struct gfs2_rgrpd *rgd, void *buf)
 {
 	struct gfs2_rgrp *str = buf;
-	struct gfs2_rgrp_host *rg = &rgd->rd_rg;
 	u32 rg_flags = 0;
 
 	if (rgd->rd_flags & GFS2_RDF_NOALLOC)
 		rg_flags |= GFS2_RGF_NOALLOC;
 	str->rg_flags = cpu_to_be32(rg_flags);
-	str->rg_free = cpu_to_be32(rg->rg_free);
-	str->rg_dinodes = cpu_to_be32(rg->rg_dinodes);
+	str->rg_free = cpu_to_be32(rgd->rd_free);
+	str->rg_dinodes = cpu_to_be32(rgd->rd_dinodes);
 	str->__pad = cpu_to_be32(0);
-	str->rg_igeneration = cpu_to_be64(rg->rg_igeneration);
+	str->rg_igeneration = cpu_to_be64(rgd->rd_igeneration);
 	memset(&str->rg_reserved, 0, sizeof(str->rg_reserved));
 }
 
@@ -776,7 +780,7 @@ int gfs2_rgrp_bh_get(struct gfs2_rgrpd *rgd)
 	}
 
 	spin_lock(&sdp->sd_rindex_spin);
-	rgd->rd_free_clone = rgd->rd_rg.rg_free;
+	rgd->rd_free_clone = rgd->rd_free;
 	rgd->rd_bh_count++;
 	spin_unlock(&sdp->sd_rindex_spin);
 
@@ -835,6 +839,58 @@ void gfs2_rgrp_bh_put(struct gfs2_rgrpd *rgd)
 	spin_unlock(&sdp->sd_rindex_spin);
 }
 
+static void gfs2_rgrp_send_discards(struct gfs2_sbd *sdp, u64 offset,
+				    const struct gfs2_bitmap *bi)
+{
+	struct super_block *sb = sdp->sd_vfs;
+	struct block_device *bdev = sb->s_bdev;
+	const unsigned int sects_per_blk = sdp->sd_sb.sb_bsize /
+					   bdev_hardsect_size(sb->s_bdev);
+	u64 blk;
+	sector_t start = 0;
+	sector_t nr_sects = 0;
+	int rv;
+	unsigned int x;
+
+	for (x = 0; x < bi->bi_len; x++) {
+		const u8 *orig = bi->bi_bh->b_data + bi->bi_offset + x;
+		const u8 *clone = bi->bi_clone + bi->bi_offset + x;
+		u8 diff = ~(*orig | (*orig >> 1)) & (*clone | (*clone >> 1));
+		diff &= 0x55;
+		if (diff == 0)
+			continue;
+		blk = offset + ((bi->bi_start + x) * GFS2_NBBY);
+		blk *= sects_per_blk; /* convert to sectors */
+		while(diff) {
+			if (diff & 1) {
+				if (nr_sects == 0)
+					goto start_new_extent;
+				if ((start + nr_sects) != blk) {
+					rv = blkdev_issue_discard(bdev, start,
+							    nr_sects, GFP_NOFS);
+					if (rv)
+						goto fail;
+					nr_sects = 0;
+start_new_extent:
+					start = blk;
+				}
+				nr_sects += sects_per_blk;
+			}
+			diff >>= 2;
+			blk += sects_per_blk;
+		}
+	}
+	if (nr_sects) {
+		rv = blkdev_issue_discard(bdev, start, nr_sects, GFP_NOFS);
+		if (rv)
+			goto fail;
+	}
+	return;
+fail:
+	fs_warn(sdp, "error %d on discard request, turning discards off for this filesystem", rv);
+	sdp->sd_args.ar_discard = 0;
+}
+
 void gfs2_rgrp_repolish_clones(struct gfs2_rgrpd *rgd)
 {
 	struct gfs2_sbd *sdp = rgd->rd_sbd;
@@ -845,12 +901,14 @@ void gfs2_rgrp_repolish_clones(struct gfs2_rgrpd *rgd)
 		struct gfs2_bitmap *bi = rgd->rd_bits + x;
 		if (!bi->bi_clone)
 			continue;
+		if (sdp->sd_args.ar_discard)
+			gfs2_rgrp_send_discards(sdp, rgd->rd_data0, bi);
 		memcpy(bi->bi_clone + bi->bi_offset,
 		       bi->bi_bh->b_data + bi->bi_offset, bi->bi_len);
 	}
 
 	spin_lock(&sdp->sd_rindex_spin);
-	rgd->rd_free_clone = rgd->rd_rg.rg_free;
+	rgd->rd_free_clone = rgd->rd_free;
 	spin_unlock(&sdp->sd_rindex_spin);
 }
 
@@ -1386,10 +1444,12 @@ static struct gfs2_rgrpd *rgblk_free(struct gfs2_sbd *sdp, u64 bstart,
 u64 gfs2_alloc_block(struct gfs2_inode *ip, unsigned int *n)
 {
 	struct gfs2_sbd *sdp = GFS2_SB(&ip->i_inode);
+	struct buffer_head *dibh;
 	struct gfs2_alloc *al = ip->i_alloc;
 	struct gfs2_rgrpd *rgd = al->al_rgd;
 	u32 goal, blk;
 	u64 block;
+	int error;
 
 	if (rgrp_contains_block(rgd, ip->i_goal))
 		goal = ip->i_goal - rgd->rd_data0;
@@ -1402,9 +1462,15 @@ u64 gfs2_alloc_block(struct gfs2_inode *ip, unsigned int *n)
 	rgd->rd_last_alloc = blk;
 	block = rgd->rd_data0 + blk;
 	ip->i_goal = block;
-
-	gfs2_assert_withdraw(sdp, rgd->rd_rg.rg_free >= *n);
-	rgd->rd_rg.rg_free -= *n;
+	error = gfs2_meta_inode_buffer(ip, &dibh);
+	if (error == 0) {
+		struct gfs2_dinode *di = (struct gfs2_dinode *)dibh->b_data;
+		gfs2_trans_add_bh(ip->i_gl, dibh, 1);
+		di->di_goal_meta = di->di_goal_data = cpu_to_be64(ip->i_goal);
+		brelse(dibh);
+	}
+	gfs2_assert_withdraw(sdp, rgd->rd_free >= *n);
+	rgd->rd_free -= *n;
 
 	gfs2_trans_add_bh(rgd->rd_gl, rgd->rd_bits[0].bi_bh, 1);
 	gfs2_rgrp_out(rgd, rgd->rd_bits[0].bi_bh->b_data);
@@ -1445,10 +1511,10 @@ u64 gfs2_alloc_di(struct gfs2_inode *dip, u64 *generation)
 
 	block = rgd->rd_data0 + blk;
 
-	gfs2_assert_withdraw(sdp, rgd->rd_rg.rg_free);
-	rgd->rd_rg.rg_free--;
-	rgd->rd_rg.rg_dinodes++;
-	*generation = rgd->rd_rg.rg_igeneration++;
+	gfs2_assert_withdraw(sdp, rgd->rd_free);
+	rgd->rd_free--;
+	rgd->rd_dinodes++;
+	*generation = rgd->rd_igeneration++;
 	gfs2_trans_add_bh(rgd->rd_gl, rgd->rd_bits[0].bi_bh, 1);
 	gfs2_rgrp_out(rgd, rgd->rd_bits[0].bi_bh->b_data);
 
@@ -1481,7 +1547,7 @@ void gfs2_free_data(struct gfs2_inode *ip, u64 bstart, u32 blen)
 	if (!rgd)
 		return;
 
-	rgd->rd_rg.rg_free += blen;
+	rgd->rd_free += blen;
 
 	gfs2_trans_add_bh(rgd->rd_gl, rgd->rd_bits[0].bi_bh, 1);
 	gfs2_rgrp_out(rgd, rgd->rd_bits[0].bi_bh->b_data);
@@ -1509,7 +1575,7 @@ void gfs2_free_meta(struct gfs2_inode *ip, u64 bstart, u32 blen)
 	if (!rgd)
 		return;
 
-	rgd->rd_rg.rg_free += blen;
+	rgd->rd_free += blen;
 
 	gfs2_trans_add_bh(rgd->rd_gl, rgd->rd_bits[0].bi_bh, 1);
 	gfs2_rgrp_out(rgd, rgd->rd_bits[0].bi_bh->b_data);
@@ -1546,10 +1612,10 @@ static void gfs2_free_uninit_di(struct gfs2_rgrpd *rgd, u64 blkno)
 		return;
 	gfs2_assert_withdraw(sdp, rgd == tmp_rgd);
 
-	if (!rgd->rd_rg.rg_dinodes)
+	if (!rgd->rd_dinodes)
 		gfs2_consist_rgrpd(rgd);
-	rgd->rd_rg.rg_dinodes--;
-	rgd->rd_rg.rg_free++;
+	rgd->rd_dinodes--;
+	rgd->rd_free++;
 
 	gfs2_trans_add_bh(rgd->rd_gl, rgd->rd_bits[0].bi_bh, 1);
 	gfs2_rgrp_out(rgd, rgd->rd_bits[0].bi_bh->b_data);

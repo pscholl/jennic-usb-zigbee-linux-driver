@@ -156,7 +156,7 @@ void dlm_dir_remove_entry(struct dlm_ls *ls, int nodeid, char *name, int namelen
 
 	bucket = dir_hash(ls, name, namelen);
 
-	write_lock(&ls->ls_dirtbl[bucket].lock);
+	spin_lock(&ls->ls_dirtbl[bucket].lock);
 
 	de = search_bucket(ls, name, namelen, bucket);
 
@@ -173,7 +173,7 @@ void dlm_dir_remove_entry(struct dlm_ls *ls, int nodeid, char *name, int namelen
 	list_del(&de->list);
 	kfree(de);
  out:
-	write_unlock(&ls->ls_dirtbl[bucket].lock);
+	spin_unlock(&ls->ls_dirtbl[bucket].lock);
 }
 
 void dlm_dir_clear(struct dlm_ls *ls)
@@ -185,14 +185,14 @@ void dlm_dir_clear(struct dlm_ls *ls)
 	DLM_ASSERT(list_empty(&ls->ls_recover_list), );
 
 	for (i = 0; i < ls->ls_dirtbl_size; i++) {
-		write_lock(&ls->ls_dirtbl[i].lock);
+		spin_lock(&ls->ls_dirtbl[i].lock);
 		head = &ls->ls_dirtbl[i].list;
 		while (!list_empty(head)) {
 			de = list_entry(head->next, struct dlm_direntry, list);
 			list_del(&de->list);
 			put_free_de(ls, de);
 		}
-		write_unlock(&ls->ls_dirtbl[i].lock);
+		spin_unlock(&ls->ls_dirtbl[i].lock);
 	}
 }
 
@@ -307,17 +307,17 @@ static int get_entry(struct dlm_ls *ls, int nodeid, char *name,
 
 	bucket = dir_hash(ls, name, namelen);
 
-	write_lock(&ls->ls_dirtbl[bucket].lock);
+	spin_lock(&ls->ls_dirtbl[bucket].lock);
 	de = search_bucket(ls, name, namelen, bucket);
 	if (de) {
 		*r_nodeid = de->master_nodeid;
-		write_unlock(&ls->ls_dirtbl[bucket].lock);
+		spin_unlock(&ls->ls_dirtbl[bucket].lock);
 		if (*r_nodeid == nodeid)
 			return -EEXIST;
 		return 0;
 	}
 
-	write_unlock(&ls->ls_dirtbl[bucket].lock);
+	spin_unlock(&ls->ls_dirtbl[bucket].lock);
 
 	if (namelen > DLM_RESNAME_MAXLEN)
 		return -EINVAL;
@@ -330,7 +330,7 @@ static int get_entry(struct dlm_ls *ls, int nodeid, char *name,
 	de->length = namelen;
 	memcpy(de->name, name, namelen);
 
-	write_lock(&ls->ls_dirtbl[bucket].lock);
+	spin_lock(&ls->ls_dirtbl[bucket].lock);
 	tmp = search_bucket(ls, name, namelen, bucket);
 	if (tmp) {
 		kfree(de);
@@ -339,7 +339,7 @@ static int get_entry(struct dlm_ls *ls, int nodeid, char *name,
 		list_add_tail(&de->list, &ls->ls_dirtbl[bucket].list);
 	}
 	*r_nodeid = de->master_nodeid;
-	write_unlock(&ls->ls_dirtbl[bucket].lock);
+	spin_unlock(&ls->ls_dirtbl[bucket].lock);
 	return 0;
 }
 
@@ -374,7 +374,7 @@ void dlm_copy_master_names(struct dlm_ls *ls, char *inbuf, int inlen,
 	struct list_head *list;
 	struct dlm_rsb *r;
 	int offset = 0, dir_nodeid;
-	uint16_t be_namelen;
+	__be16 be_namelen;
 
 	down_read(&ls->ls_root_sem);
 
@@ -410,15 +410,15 @@ void dlm_copy_master_names(struct dlm_ls *ls, char *inbuf, int inlen,
 
 		if (offset + sizeof(uint16_t)*2 + r->res_length > outlen) {
 			/* Write end-of-block record */
-			be_namelen = 0;
-			memcpy(outbuf + offset, &be_namelen, sizeof(uint16_t));
-			offset += sizeof(uint16_t);
+			be_namelen = cpu_to_be16(0);
+			memcpy(outbuf + offset, &be_namelen, sizeof(__be16));
+			offset += sizeof(__be16);
 			goto out;
 		}
 
 		be_namelen = cpu_to_be16(r->res_length);
-		memcpy(outbuf + offset, &be_namelen, sizeof(uint16_t));
-		offset += sizeof(uint16_t);
+		memcpy(outbuf + offset, &be_namelen, sizeof(__be16));
+		offset += sizeof(__be16);
 		memcpy(outbuf + offset, r->res_name, r->res_length);
 		offset += r->res_length;
 	}
@@ -430,9 +430,9 @@ void dlm_copy_master_names(struct dlm_ls *ls, char *inbuf, int inlen,
 
 	if ((list == &ls->ls_root_list) &&
 	    (offset + sizeof(uint16_t) <= outlen)) {
-		be_namelen = 0xFFFF;
-		memcpy(outbuf + offset, &be_namelen, sizeof(uint16_t));
-		offset += sizeof(uint16_t);
+		be_namelen = cpu_to_be16(0xFFFF);
+		memcpy(outbuf + offset, &be_namelen, sizeof(__be16));
+		offset += sizeof(__be16);
 	}
 
  out:

@@ -18,7 +18,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 
-#include <asm/dma.h>
+#include <mach/dma.h>
 #include <asm/system.h>
 
 #include "mcp.h"
@@ -214,7 +214,7 @@ EXPORT_SYMBOL(mcp_host_alloc);
 
 int mcp_host_register(struct mcp *mcp)
 {
-	strcpy(mcp->attached_device.bus_id, "mcp0");
+	dev_set_name(&mcp->attached_device, "mcp0");
 	return device_register(&mcp->attached_device);
 }
 EXPORT_SYMBOL(mcp_host_register);

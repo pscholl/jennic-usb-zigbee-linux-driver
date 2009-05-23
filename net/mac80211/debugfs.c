@@ -40,6 +40,10 @@ static const struct file_operations name## _ops = {			\
 	local->debugfs.name = debugfs_create_file(#name, 0400, phyd,	\
 						  local, &name## _ops);
 
+#define DEBUGFS_ADD_MODE(name, mode)					\
+	local->debugfs.name = debugfs_create_file(#name, mode, phyd,	\
+						  local, &name## _ops);
+
 #define DEBUGFS_DEL(name)						\
 	debugfs_remove(local->debugfs.name);				\
 	local->debugfs.name = NULL;
@@ -47,24 +51,89 @@ static const struct file_operations name## _ops = {			\
 
 DEBUGFS_READONLY_FILE(frequency, 20, "%d",
 		      local->hw.conf.channel->center_freq);
-DEBUGFS_READONLY_FILE(antenna_sel_tx, 20, "%d",
-		      local->hw.conf.antenna_sel_tx);
-DEBUGFS_READONLY_FILE(antenna_sel_rx, 20, "%d",
-		      local->hw.conf.antenna_sel_rx);
 DEBUGFS_READONLY_FILE(rts_threshold, 20, "%d",
 		      local->rts_threshold);
 DEBUGFS_READONLY_FILE(fragmentation_threshold, 20, "%d",
 		      local->fragmentation_threshold);
 DEBUGFS_READONLY_FILE(short_retry_limit, 20, "%d",
-		      local->short_retry_limit);
+		      local->hw.conf.short_frame_max_tx_count);
 DEBUGFS_READONLY_FILE(long_retry_limit, 20, "%d",
-		      local->long_retry_limit);
+		      local->hw.conf.long_frame_max_tx_count);
 DEBUGFS_READONLY_FILE(total_ps_buffered, 20, "%d",
 		      local->total_ps_buffered);
-DEBUGFS_READONLY_FILE(wep_iv, 20, "%#06x",
+DEBUGFS_READONLY_FILE(wep_iv, 20, "%#08x",
 		      local->wep_iv & 0xffffff);
 DEBUGFS_READONLY_FILE(rate_ctrl_alg, 100, "%s",
 		      local->rate_ctrl ? local->rate_ctrl->ops->name : "<unset>");
+
+static ssize_t tsf_read(struct file *file, char __user *user_buf,
+			     size_t count, loff_t *ppos)
+{
+	struct ieee80211_local *local = file->private_data;
+	u64 tsf = 0;
+	char buf[100];
+
+	if (local->ops->get_tsf)
+		tsf = local->ops->get_tsf(local_to_hw(local));
+
+	snprintf(buf, sizeof(buf), "0x%016llx\n", (unsigned long long) tsf);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, 19);
+}
+
+static ssize_t tsf_write(struct file *file,
+                         const char __user *user_buf,
+                         size_t count, loff_t *ppos)
+{
+	struct ieee80211_local *local = file->private_data;
+	unsigned long long tsf;
+	char buf[100];
+	size_t len;
+
+	len = min(count, sizeof(buf) - 1);
+	if (copy_from_user(buf, user_buf, len))
+		return -EFAULT;
+	buf[len] = '\0';
+
+	if (strncmp(buf, "reset", 5) == 0) {
+		if (local->ops->reset_tsf) {
+			local->ops->reset_tsf(local_to_hw(local));
+			printk(KERN_INFO "%s: debugfs reset TSF\n", wiphy_name(local->hw.wiphy));
+		}
+	} else {
+		tsf = simple_strtoul(buf, NULL, 0);
+		if (local->ops->set_tsf) {
+			local->ops->set_tsf(local_to_hw(local), tsf);
+			printk(KERN_INFO "%s: debugfs set TSF to %#018llx\n", wiphy_name(local->hw.wiphy), tsf);
+		}
+	}
+
+	return count;
+}
+
+static const struct file_operations tsf_ops = {
+	.read = tsf_read,
+	.write = tsf_write,
+	.open = mac80211_open_file_generic
+};
+
+static ssize_t reset_write(struct file *file, const char __user *user_buf,
+			   size_t count, loff_t *ppos)
+{
+	struct ieee80211_local *local = file->private_data;
+
+	rtnl_lock();
+	__ieee80211_suspend(&local->hw);
+	__ieee80211_resume(&local->hw);
+	rtnl_unlock();
+
+	return count;
+}
+
+static const struct file_operations reset_ops = {
+	.write = reset_write,
+	.open = mac80211_open_file_generic,
+};
 
 /* statistics stuff */
 
@@ -140,8 +209,6 @@ DEBUGFS_STATS_FILE(multicast_received_frame_count, 20, "%u",
 		   local->dot11MulticastReceivedFrameCount);
 DEBUGFS_STATS_FILE(transmitted_frame_count, 20, "%u",
 		   local->dot11TransmittedFrameCount);
-DEBUGFS_STATS_FILE(wep_undecryptable_count, 20, "%u",
-		   local->dot11WEPUndecryptableCount);
 #ifdef CONFIG_MAC80211_DEBUG_COUNTERS
 DEBUGFS_STATS_FILE(tx_handlers_drop, 20, "%u",
 		   local->tx_handlers_drop);
@@ -202,14 +269,14 @@ void debugfs_hw_add(struct ieee80211_local *local)
 	local->debugfs.keys = debugfs_create_dir("keys", phyd);
 
 	DEBUGFS_ADD(frequency);
-	DEBUGFS_ADD(antenna_sel_tx);
-	DEBUGFS_ADD(antenna_sel_rx);
 	DEBUGFS_ADD(rts_threshold);
 	DEBUGFS_ADD(fragmentation_threshold);
 	DEBUGFS_ADD(short_retry_limit);
 	DEBUGFS_ADD(long_retry_limit);
 	DEBUGFS_ADD(total_ps_buffered);
 	DEBUGFS_ADD(wep_iv);
+	DEBUGFS_ADD(tsf);
+	DEBUGFS_ADD_MODE(reset, 0200);
 
 	statsd = debugfs_create_dir("statistics", phyd);
 	local->debugfs.statistics = statsd;
@@ -227,7 +294,6 @@ void debugfs_hw_add(struct ieee80211_local *local)
 	DEBUGFS_STATS_ADD(received_fragment_count);
 	DEBUGFS_STATS_ADD(multicast_received_frame_count);
 	DEBUGFS_STATS_ADD(transmitted_frame_count);
-	DEBUGFS_STATS_ADD(wep_undecryptable_count);
 #ifdef CONFIG_MAC80211_DEBUG_COUNTERS
 	DEBUGFS_STATS_ADD(tx_handlers_drop);
 	DEBUGFS_STATS_ADD(tx_handlers_queued);
@@ -258,14 +324,14 @@ void debugfs_hw_add(struct ieee80211_local *local)
 void debugfs_hw_del(struct ieee80211_local *local)
 {
 	DEBUGFS_DEL(frequency);
-	DEBUGFS_DEL(antenna_sel_tx);
-	DEBUGFS_DEL(antenna_sel_rx);
 	DEBUGFS_DEL(rts_threshold);
 	DEBUGFS_DEL(fragmentation_threshold);
 	DEBUGFS_DEL(short_retry_limit);
 	DEBUGFS_DEL(long_retry_limit);
 	DEBUGFS_DEL(total_ps_buffered);
 	DEBUGFS_DEL(wep_iv);
+	DEBUGFS_DEL(tsf);
+	DEBUGFS_DEL(reset);
 
 	DEBUGFS_STATS_DEL(transmitted_fragment_count);
 	DEBUGFS_STATS_DEL(multicast_transmitted_frame_count);
@@ -276,7 +342,6 @@ void debugfs_hw_del(struct ieee80211_local *local)
 	DEBUGFS_STATS_DEL(received_fragment_count);
 	DEBUGFS_STATS_DEL(multicast_received_frame_count);
 	DEBUGFS_STATS_DEL(transmitted_frame_count);
-	DEBUGFS_STATS_DEL(wep_undecryptable_count);
 	DEBUGFS_STATS_DEL(num_scans);
 #ifdef CONFIG_MAC80211_DEBUG_COUNTERS
 	DEBUGFS_STATS_DEL(tx_handlers_drop);

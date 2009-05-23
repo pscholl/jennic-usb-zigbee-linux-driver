@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -104,22 +104,25 @@ enum skb_frame_desc_flags {
  *
  * @flags: Frame flags, see &enum skb_frame_desc_flags.
  * @desc_len: Length of the frame descriptor.
+ * @tx_rate_idx: the index of the TX rate, used for TX status reporting
+ * @tx_rate_flags: the TX rate flags, used for TX status reporting
  * @desc: Pointer to descriptor part of the frame.
  *	Note that this pointer could point to something outside
  *	of the scope of the skb->data pointer.
- * @iv: IV data used during encryption/decryption.
- * @eiv: EIV data used during encryption/decryption.
+ * @iv: IV/EIV data used during encryption/decryption.
  * @skb_dma: (PCI-only) the DMA address associated with the sk buffer.
  * @entry: The entry to which this sk buffer belongs.
  */
 struct skb_frame_desc {
-	unsigned int flags;
+	u8 flags;
 
-	unsigned int desc_len;
+	u8 desc_len;
+	u8 tx_rate_idx;
+	u8 tx_rate_flags;
+
 	void *desc;
 
-	__le32 iv;
-	__le32 eiv;
+	__le32 iv[2];
 
 	dma_addr_t skb_dma;
 
@@ -143,12 +146,24 @@ static inline struct skb_frame_desc* get_skb_frame_desc(struct sk_buff *skb)
  * @RXDONE_SIGNAL_PLCP: Signal field contains the plcp value.
  * @RXDONE_SIGNAL_BITRATE: Signal field contains the bitrate value.
  * @RXDONE_MY_BSS: Does this frame originate from device's BSS.
+ * @RXDONE_CRYPTO_IV: Driver provided IV/EIV data.
+ * @RXDONE_CRYPTO_ICV: Driver provided ICV data.
  */
 enum rxdone_entry_desc_flags {
 	RXDONE_SIGNAL_PLCP = 1 << 0,
 	RXDONE_SIGNAL_BITRATE = 1 << 1,
 	RXDONE_MY_BSS = 1 << 2,
+	RXDONE_CRYPTO_IV = 1 << 3,
+	RXDONE_CRYPTO_ICV = 1 << 4,
 };
+
+/**
+ * RXDONE_SIGNAL_MASK - Define to mask off all &rxdone_entry_desc_flags flags
+ * except for the RXDONE_SIGNAL_* flags. This is useful to convert the dev_flags
+ * from &rxdone_entry_desc to a signal value type.
+ */
+#define RXDONE_SIGNAL_MASK \
+       ( RXDONE_SIGNAL_PLCP | RXDONE_SIGNAL_BITRATE )
 
 /**
  * struct rxdone_entry_desc: RX Entry descriptor
@@ -158,27 +173,27 @@ enum rxdone_entry_desc_flags {
  * @timestamp: RX Timestamp
  * @signal: Signal of the received frame.
  * @rssi: RSSI of the received frame.
+ * @noise: Measured noise during frame reception.
  * @size: Data size of the received frame.
  * @flags: MAC80211 receive flags (See &enum mac80211_rx_flags).
  * @dev_flags: Ralink receive flags (See &enum rxdone_entry_desc_flags).
  * @cipher: Cipher type used during decryption.
  * @cipher_status: Decryption status.
- * @iv: IV data used during decryption.
- * @eiv: EIV data used during decryption.
+ * @iv: IV/EIV data used during decryption.
  * @icv: ICV data used during decryption.
  */
 struct rxdone_entry_desc {
 	u64 timestamp;
 	int signal;
 	int rssi;
+	int noise;
 	int size;
 	int flags;
 	int dev_flags;
 	u8 cipher;
 	u8 cipher_status;
 
-	__le32 iv;
-	__le32 eiv;
+	__le32 iv[2];
 	__le32 icv;
 };
 
@@ -217,7 +232,6 @@ struct txdone_entry_desc {
  *
  * @ENTRY_TXD_RTS_FRAME: This frame is a RTS frame.
  * @ENTRY_TXD_CTS_FRAME: This frame is a CTS-to-self frame.
- * @ENTRY_TXD_OFDM_RATE: This frame is send out with an OFDM rate.
  * @ENTRY_TXD_GENERATE_SEQ: This frame requires sequence counter.
  * @ENTRY_TXD_FIRST_FRAGMENT: This is the first frame.
  * @ENTRY_TXD_MORE_FRAG: This frame is followed by another fragment.
@@ -233,7 +247,6 @@ struct txdone_entry_desc {
 enum txentry_desc_flags {
 	ENTRY_TXD_RTS_FRAME,
 	ENTRY_TXD_CTS_FRAME,
-	ENTRY_TXD_OFDM_RATE,
 	ENTRY_TXD_GENERATE_SEQ,
 	ENTRY_TXD_FIRST_FRAGMENT,
 	ENTRY_TXD_MORE_FRAG,
@@ -258,6 +271,7 @@ enum txentry_desc_flags {
  * @length_low: PLCP length low word.
  * @signal: PLCP signal.
  * @service: PLCP service.
+ * @rate_mode: Rate mode (See @enum rate_modulation).
  * @retry_limit: Max number of retries.
  * @aifs: AIFS value.
  * @ifs: IFS value.
@@ -276,6 +290,8 @@ struct txentry_desc {
 	u16 length_low;
 	u16 signal;
 	u16 service;
+
+	u16 rate_mode;
 
 	short retry_limit;
 	short aifs;
@@ -375,6 +391,8 @@ enum queue_index {
  * @cw_max: The cw max value for outgoing frames (field ignored in RX queue).
  * @data_size: Maximum data size for the frames in this queue.
  * @desc_size: Hardware descriptor size for the data in this queue.
+ * @usb_endpoint: Device endpoint used for communication (USB only)
+ * @usb_maxpacket: Max packet size for given endpoint (USB only)
  */
 struct data_queue {
 	struct rt2x00_dev *rt2x00dev;
@@ -396,6 +414,9 @@ struct data_queue {
 
 	unsigned short data_size;
 	unsigned short desc_size;
+
+	unsigned short usb_endpoint;
+	unsigned short usb_maxpacket;
 };
 
 /**
@@ -439,6 +460,19 @@ struct data_queue_desc {
 	&(__dev)->tx[(__dev)->ops->tx_queues]
 
 /**
+ * queue_next - Return pointer to next queue in list (HELPER MACRO).
+ * @__queue: Current queue for which we need the next queue
+ *
+ * Using the current queue address we take the address directly
+ * after the queue to take the next queue. Note that this macro
+ * should be used carefully since it does not protect against
+ * moving past the end of the list. (See macros &queue_end and
+ * &tx_queue_end for determining the end of the queue).
+ */
+#define queue_next(__queue) \
+	&(__queue)[1]
+
+/**
  * queue_loop - Loop through the queues within a specific range (HELPER MACRO).
  * @__entry: Pointer where the current queue entry will be stored in.
  * @__start: Start queue pointer.
@@ -448,8 +482,8 @@ struct data_queue_desc {
  */
 #define queue_loop(__entry, __start, __end)			\
 	for ((__entry) = (__start);				\
-	     prefetch(&(__entry)[1]), (__entry) != (__end);	\
-	     (__entry) = &(__entry)[1])
+	     prefetch(queue_next(__entry)), (__entry) != (__end);\
+	     (__entry) = queue_next(__entry))
 
 /**
  * queue_for_each - Loop through all queues

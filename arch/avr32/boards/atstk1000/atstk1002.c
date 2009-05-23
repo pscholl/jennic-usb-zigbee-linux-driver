@@ -16,12 +16,12 @@
 #include <linux/types.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/at73c213.h>
+#include <linux/atmel-mci.h>
 
 #include <video/atmel_lcdc.h>
 
 #include <asm/io.h>
 #include <asm/setup.h>
-#include <asm/atmel-mci.h>
 
 #include <mach/at32ap700x.h>
 #include <mach/board.h>
@@ -252,12 +252,12 @@ static void __init atstk1002_setup_extdac(void)
 void __init setup_board(void)
 {
 #ifdef	CONFIG_BOARD_ATSTK100X_SW2_CUSTOM
-	at32_map_usart(0, 1);	/* USART 0/B: /dev/ttyS1, IRDA */
+	at32_map_usart(0, 1, 0);	/* USART 0/B: /dev/ttyS1, IRDA */
 #else
-	at32_map_usart(1, 0);	/* USART 1/A: /dev/ttyS0, DB9 */
+	at32_map_usart(1, 0, 0);	/* USART 1/A: /dev/ttyS0, DB9 */
 #endif
 	/* USART 2/unused: expansion connector */
-	at32_map_usart(3, 2);	/* USART 3/C: /dev/ttyS2, DB9 */
+	at32_map_usart(3, 2, 0);	/* USART 3/C: /dev/ttyS2, DB9 */
 
 	at32_setup_serial_console(0);
 }
@@ -287,23 +287,7 @@ static int __init atstk1002_init(void)
 	 * ATSTK1000 uses 32-bit SDRAM interface. Reserve the
 	 * SDRAM-specific pins so that nobody messes with them.
 	 */
-	at32_reserve_pin(GPIO_PIN_PE(0));	/* DATA[16]	*/
-	at32_reserve_pin(GPIO_PIN_PE(1));	/* DATA[17]	*/
-	at32_reserve_pin(GPIO_PIN_PE(2));	/* DATA[18]	*/
-	at32_reserve_pin(GPIO_PIN_PE(3));	/* DATA[19]	*/
-	at32_reserve_pin(GPIO_PIN_PE(4));	/* DATA[20]	*/
-	at32_reserve_pin(GPIO_PIN_PE(5));	/* DATA[21]	*/
-	at32_reserve_pin(GPIO_PIN_PE(6));	/* DATA[22]	*/
-	at32_reserve_pin(GPIO_PIN_PE(7));	/* DATA[23]	*/
-	at32_reserve_pin(GPIO_PIN_PE(8));	/* DATA[24]	*/
-	at32_reserve_pin(GPIO_PIN_PE(9));	/* DATA[25]	*/
-	at32_reserve_pin(GPIO_PIN_PE(10));	/* DATA[26]	*/
-	at32_reserve_pin(GPIO_PIN_PE(11));	/* DATA[27]	*/
-	at32_reserve_pin(GPIO_PIN_PE(12));	/* DATA[28]	*/
-	at32_reserve_pin(GPIO_PIN_PE(13));	/* DATA[29]	*/
-	at32_reserve_pin(GPIO_PIN_PE(14));	/* DATA[30]	*/
-	at32_reserve_pin(GPIO_PIN_PE(15));	/* DATA[31]	*/
-	at32_reserve_pin(GPIO_PIN_PE(26));	/* SDCS		*/
+	at32_reserve_pin(GPIO_PIOE_BASE, ATMEL_EBI_PE_DATA_ALL);
 
 #ifdef CONFIG_BOARD_ATSTK1006
 	smc_set_timing(&nand_config, &nand_timing);

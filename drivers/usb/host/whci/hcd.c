@@ -15,7 +15,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/uwb/umc.h>
@@ -91,8 +90,6 @@ static void whc_stop(struct usb_hcd *usb_hcd)
 	struct whc *whc = wusbhc_to_whc(wusbhc);
 
 	mutex_lock(&wusbhc->mutex);
-
-	wusbhc_stop(wusbhc);
 
 	/* stop HC */
 	le_writel(0, whc->base + WUSBINTR);
@@ -189,6 +186,28 @@ static void whc_endpoint_disable(struct usb_hcd *usb_hcd,
 	}
 }
 
+static void whc_endpoint_reset(struct usb_hcd *usb_hcd,
+			       struct usb_host_endpoint *ep)
+{
+	struct wusbhc *wusbhc = usb_hcd_to_wusbhc(usb_hcd);
+	struct whc *whc = wusbhc_to_whc(wusbhc);
+	struct whc_qset *qset;
+
+	qset = ep->hcpriv;
+	if (qset) {
+		qset->remove = 1;
+
+		if (usb_endpoint_xfer_bulk(&ep->desc)
+		    || usb_endpoint_xfer_control(&ep->desc))
+			queue_work(whc->workqueue, &whc->async_work);
+		else
+			queue_work(whc->workqueue, &whc->periodic_work);
+
+		qset_reset(whc, qset);
+	}
+}
+
+
 static struct hc_driver whc_hc_driver = {
 	.description = "whci-hcd",
 	.product_desc = "Wireless host controller",
@@ -203,6 +222,7 @@ static struct hc_driver whc_hc_driver = {
 	.urb_enqueue = whc_urb_enqueue,
 	.urb_dequeue = whc_urb_dequeue,
 	.endpoint_disable = whc_endpoint_disable,
+	.endpoint_reset = whc_endpoint_reset,
 
 	.hub_status_data = wusbhc_rh_status_data,
 	.hub_control = wusbhc_rh_control,
@@ -276,6 +296,8 @@ static int whc_probe(struct umc_dev *umc)
 		goto error_wusbhc_b_create;
 	}
 
+	whc_dbg_init(whc);
+
 	return 0;
 
 error_wusbhc_b_create:
@@ -299,6 +321,7 @@ static void whc_remove(struct umc_dev *umc)
 	struct whc *whc = wusbhc_to_whc(wusbhc);
 
 	if (usb_hcd) {
+		whc_dbg_clean_up(whc);
 		wusbhc_b_destroy(wusbhc);
 		usb_remove_hcd(usb_hcd);
 		wusbhc_destroy(wusbhc);

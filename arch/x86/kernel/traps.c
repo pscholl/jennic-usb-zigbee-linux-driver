@@ -20,7 +20,6 @@
 #include <linux/module.h>
 #include <linux/ptrace.h>
 #include <linux/string.h>
-#include <linux/unwind.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/kexec.h>
@@ -51,29 +50,21 @@
 #include <asm/debugreg.h>
 #include <asm/atomic.h>
 #include <asm/system.h>
-#include <asm/unwind.h>
 #include <asm/traps.h>
 #include <asm/desc.h>
 #include <asm/i387.h>
 
-#include <mach_traps.h>
+#include <asm/mach_traps.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/pgalloc.h>
 #include <asm/proto.h>
-#include <asm/pda.h>
 #else
 #include <asm/processor-flags.h>
-#include <asm/arch_hooks.h>
-#include <asm/nmi.h>
-#include <asm/smp.h>
-#include <asm/io.h>
+#include <asm/setup.h>
 #include <asm/traps.h>
 
 #include "cpu/mcheck/mce.h"
-
-DECLARE_BITMAP(used_vectors, NR_VECTORS);
-EXPORT_SYMBOL_GPL(used_vectors);
 
 asmlinkage int system_call(void);
 
@@ -88,6 +79,9 @@ char ignore_fpu_irq;
 gate_desc idt_table[256]
 	__attribute__((__section__(".data.idt"))) = { { { { 0, 0 } } }, };
 #endif
+
+DECLARE_BITMAP(used_vectors, NR_VECTORS);
+EXPORT_SYMBOL_GPL(used_vectors);
 
 static int ignore_nmis;
 
@@ -104,6 +98,12 @@ static inline void preempt_conditional_sti(struct pt_regs *regs)
 		local_irq_enable();
 }
 
+static inline void conditional_cli(struct pt_regs *regs)
+{
+	if (regs->flags & X86_EFLAGS_IF)
+		local_irq_disable();
+}
+
 static inline void preempt_conditional_cli(struct pt_regs *regs)
 {
 	if (regs->flags & X86_EFLAGS_IF)
@@ -117,47 +117,6 @@ die_if_kernel(const char *str, struct pt_regs *regs, long err)
 {
 	if (!user_mode_vm(regs))
 		die(str, regs, err);
-}
-
-/*
- * Perform the lazy TSS's I/O bitmap copy. If the TSS has an
- * invalid offset set (the LAZY one) and the faulting thread has
- * a valid I/O bitmap pointer, we copy the I/O bitmap in the TSS,
- * we set the offset field correctly and return 1.
- */
-static int lazy_iobitmap_copy(void)
-{
-	struct thread_struct *thread;
-	struct tss_struct *tss;
-	int cpu;
-
-	cpu = get_cpu();
-	tss = &per_cpu(init_tss, cpu);
-	thread = &current->thread;
-
-	if (tss->x86_tss.io_bitmap_base == INVALID_IO_BITMAP_OFFSET_LAZY &&
-	    thread->io_bitmap_ptr) {
-		memcpy(tss->io_bitmap, thread->io_bitmap_ptr,
-		       thread->io_bitmap_max);
-		/*
-		 * If the previously set map was extending to higher ports
-		 * than the current one, pad extra space with 0xff (no access).
-		 */
-		if (thread->io_bitmap_max < tss->io_bitmap_max) {
-			memset((char *) tss->io_bitmap +
-				thread->io_bitmap_max, 0xff,
-				tss->io_bitmap_max - thread->io_bitmap_max);
-		}
-		tss->io_bitmap_max = thread->io_bitmap_max;
-		tss->x86_tss.io_bitmap_base = IO_BITMAP_OFFSET;
-		tss->io_bitmap_owner = thread;
-		put_cpu();
-
-		return 1;
-	}
-	put_cpu();
-
-	return 0;
 }
 #endif
 
@@ -292,8 +251,10 @@ dotraplinkage void do_double_fault(struct pt_regs *regs, long error_code)
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_no = 8;
 
-	/* This is always a kernel trap and never fixable (and thus must
-	   never return). */
+	/*
+	 * This is always a kernel trap and never fixable (and thus must
+	 * never return).
+	 */
 	for (;;)
 		die(str, regs, error_code);
 }
@@ -307,11 +268,6 @@ do_general_protection(struct pt_regs *regs, long error_code)
 	conditional_sti(regs);
 
 #ifdef CONFIG_X86_32
-	if (lazy_iobitmap_copy()) {
-		/* restart the faulting instruction */
-		return;
-	}
-
 	if (regs->flags & X86_VM_MASK)
 		goto gp_in_vm86;
 #endif
@@ -481,11 +437,7 @@ do_nmi(struct pt_regs *regs, long error_code)
 {
 	nmi_enter();
 
-#ifdef CONFIG_X86_32
-	{ int cpu; cpu = smp_processor_id(); ++nmi_count(cpu); }
-#else
-	add_pda(__nmi_count, 1);
-#endif
+	inc_irq_stat(__nmi_count);
 
 	if (!ignore_nmis)
 		default_do_nmi(regs);
@@ -524,9 +476,11 @@ dotraplinkage void __kprobes do_int3(struct pt_regs *regs, long error_code)
 }
 
 #ifdef CONFIG_X86_64
-/* Help handler running on IST stack to switch back to user stack
-   for scheduling or signal handling. The actual stack switch is done in
-   entry.S */
+/*
+ * Help handler running on IST stack to switch back to user stack
+ * for scheduling or signal handling. The actual stack switch is done in
+ * entry.S
+ */
 asmlinkage __kprobes struct pt_regs *sync_regs(struct pt_regs *eregs)
 {
 	struct pt_regs *regs = eregs;
@@ -536,8 +490,10 @@ asmlinkage __kprobes struct pt_regs *sync_regs(struct pt_regs *eregs)
 	/* Exception from user space */
 	else if (user_mode(eregs))
 		regs = task_pt_regs(current);
-	/* Exception from kernel and interrupts are enabled. Move to
-	   kernel process stack. */
+	/*
+	 * Exception from kernel and interrupts are enabled. Move to
+	 * kernel process stack.
+	 */
 	else if (eregs->flags & X86_EFLAGS_IF)
 		regs = (struct pt_regs *)(eregs->sp -= sizeof(struct pt_regs));
 	if (eregs != regs)
@@ -629,8 +585,10 @@ clear_dr7:
 
 #ifdef CONFIG_X86_32
 debug_vm86:
+	/* reenable preemption: handle_vm86_trap() might sleep */
+	dec_preempt_count();
 	handle_vm86_trap((struct kernel_vm86_regs *) regs, error_code, 1);
-	preempt_conditional_cli(regs);
+	conditional_cli(regs);
 	return;
 #endif
 
@@ -664,7 +622,7 @@ void math_error(void __user *ip)
 {
 	struct task_struct *task;
 	siginfo_t info;
-	unsigned short cwd, swd;
+	unsigned short cwd, swd, err;
 
 	/*
 	 * Save the info for the exception handler and clear the error.
@@ -675,7 +633,6 @@ void math_error(void __user *ip)
 	task->thread.error_code = 0;
 	info.si_signo = SIGFPE;
 	info.si_errno = 0;
-	info.si_code = __SI_FAULT;
 	info.si_addr = ip;
 	/*
 	 * (~cwd & swd) will mask out exceptions that are not set to unmasked
@@ -689,34 +646,30 @@ void math_error(void __user *ip)
 	 */
 	cwd = get_fpu_cwd(task);
 	swd = get_fpu_swd(task);
-	switch (swd & ~cwd & 0x3f) {
-	case 0x000: /* No unmasked exception */
-#ifdef CONFIG_X86_32
-		return;
-#endif
-	default: /* Multiple exceptions */
-		break;
-	case 0x001: /* Invalid Op */
+
+	err = swd & ~cwd;
+
+	if (err & 0x001) {	/* Invalid op */
 		/*
 		 * swd & 0x240 == 0x040: Stack Underflow
 		 * swd & 0x240 == 0x240: Stack Overflow
 		 * User must clear the SF bit (0x40) if set
 		 */
 		info.si_code = FPE_FLTINV;
-		break;
-	case 0x002: /* Denormalize */
-	case 0x010: /* Underflow */
-		info.si_code = FPE_FLTUND;
-		break;
-	case 0x004: /* Zero Divide */
+	} else if (err & 0x004) { /* Divide by Zero */
 		info.si_code = FPE_FLTDIV;
-		break;
-	case 0x008: /* Overflow */
+	} else if (err & 0x008) { /* Overflow */
 		info.si_code = FPE_FLTOVF;
-		break;
-	case 0x020: /* Precision */
+	} else if (err & 0x012) { /* Denormal, Underflow */
+		info.si_code = FPE_FLTUND;
+	} else if (err & 0x020) { /* Precision */
 		info.si_code = FPE_FLTRES;
-		break;
+	} else {
+		/*
+		 * If we're using IRQ 13, or supposedly even some trap 16
+		 * implementations, it's possible we get a spurious trap...
+		 */
+		return;		/* Spurious trap, no error */
 	}
 	force_sig_info(SIGFPE, &info, task);
 }
@@ -904,7 +857,7 @@ asmlinkage void math_state_restore(void)
 EXPORT_SYMBOL_GPL(math_state_restore);
 
 #ifndef CONFIG_MATH_EMULATION
-asmlinkage void math_emulate(long arg)
+void math_emulate(struct math_emu_info *info)
 {
 	printk(KERN_EMERG
 		"math-emulation not enabled and no coprocessor found.\n");
@@ -915,12 +868,16 @@ asmlinkage void math_emulate(long arg)
 #endif /* CONFIG_MATH_EMULATION */
 
 dotraplinkage void __kprobes
-do_device_not_available(struct pt_regs *regs, long error)
+do_device_not_available(struct pt_regs *regs, long error_code)
 {
 #ifdef CONFIG_X86_32
 	if (read_cr0() & X86_CR0_EM) {
+		struct math_emu_info info = { };
+
 		conditional_sti(regs);
-		math_emulate(0);
+
+		info.regs = regs;
+		math_emulate(&info);
 	} else {
 		math_state_restore(); /* interrupts still off */
 		conditional_sti(regs);
@@ -939,7 +896,7 @@ dotraplinkage void do_iret_error(struct pt_regs *regs, long error_code)
 	info.si_signo = SIGILL;
 	info.si_errno = 0;
 	info.si_code = ILL_BADSTK;
-	info.si_addr = 0;
+	info.si_addr = NULL;
 	if (notify_die(DIE_TRAP, "iret exception",
 			regs, error_code, 32, SIGILL) == NOTIFY_STOP)
 		return;
@@ -949,9 +906,7 @@ dotraplinkage void do_iret_error(struct pt_regs *regs, long error_code)
 
 void __init trap_init(void)
 {
-#ifdef CONFIG_X86_32
 	int i;
-#endif
 
 #ifdef CONFIG_EISA
 	void __iomem *p = early_ioremap(0x0FFFD9, 4);
@@ -1008,11 +963,15 @@ void __init trap_init(void)
 	}
 
 	set_system_trap_gate(SYSCALL_VECTOR, &system_call);
+#endif
 
 	/* Reserve all the builtin and the syscall vector: */
 	for (i = 0; i < FIRST_EXTERNAL_VECTOR; i++)
 		set_bit(i, used_vectors);
 
+#ifdef CONFIG_X86_64
+	set_bit(IA32_SYSCALL_VECTOR, used_vectors);
+#else
 	set_bit(SYSCALL_VECTOR, used_vectors);
 #endif
 	/*
@@ -1021,6 +980,6 @@ void __init trap_init(void)
 	cpu_init();
 
 #ifdef CONFIG_X86_32
-	trap_init_hook();
+	x86_quirk_trap_init();
 #endif
 }

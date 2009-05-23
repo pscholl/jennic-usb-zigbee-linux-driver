@@ -114,7 +114,7 @@ static inline void zero_trun_node_unused(struct ubifs_trun_node *trun)
  */
 static int reserve_space(struct ubifs_info *c, int jhead, int len)
 {
-	int err = 0, err1, retries = 0, avail, lnum, offs, free, squeeze;
+	int err = 0, err1, retries = 0, avail, lnum, offs, squeeze;
 	struct ubifs_wbuf *wbuf = &c->jheads[jhead].wbuf;
 
 	/*
@@ -139,10 +139,9 @@ again:
 	 * Write buffer wasn't seek'ed or there is no enough space - look for an
 	 * LEB with some empty space.
 	 */
-	lnum = ubifs_find_free_space(c, len, &free, squeeze);
+	lnum = ubifs_find_free_space(c, len, &offs, squeeze);
 	if (lnum >= 0) {
 		/* Found an LEB, add it to the journal head */
-		offs = c->leb_size - free;
 		err = ubifs_add_bud_to_log(c, jhead, lnum, offs);
 		if (err)
 			goto out_return;
@@ -191,7 +190,7 @@ again:
 	if (wbuf->lnum != -1 && avail >= len) {
 		/*
 		 * Someone else has switched the journal head and we have
-		 * enough space now. This happens when more then one process is
+		 * enough space now. This happens when more than one process is
 		 * trying to write to the same journal head at the same time.
 		 */
 		dbg_jnl("return LEB %d back, already have LEB %d:%d",
@@ -208,7 +207,7 @@ again:
 	offs = 0;
 
 out:
-	err = ubifs_wbuf_seek_nolock(wbuf, lnum, offs, UBI_SHORTTERM);
+	err = ubifs_wbuf_seek_nolock(wbuf, lnum, offs, wbuf->dtype);
 	if (err)
 		goto out_unlock;
 
@@ -704,7 +703,7 @@ int ubifs_jnl_write_data(struct ubifs_info *c, const struct inode *inode,
 	data->size = cpu_to_le32(len);
 	zero_data_node_unused(data);
 
-	if (!(ui->flags && UBIFS_COMPR_FL))
+	if (!(ui->flags & UBIFS_COMPR_FL))
 		/* Compression is disabled for this inode */
 		compr_type = UBIFS_COMPR_NONE;
 	else
@@ -1220,7 +1219,7 @@ int ubifs_jnl_truncate(struct ubifs_info *c, const struct inode *inode,
 	data_key_init(c, &key, inum, blk);
 
 	bit = old_size & (UBIFS_BLOCK_SIZE - 1);
-	blk = (old_size >> UBIFS_BLOCK_SHIFT) - (bit ? 0: 1);
+	blk = (old_size >> UBIFS_BLOCK_SHIFT) - (bit ? 0 : 1);
 	data_key_init(c, &to_key, inum, blk);
 
 	err = ubifs_tnc_remove_range(c, &key, &to_key);
@@ -1366,7 +1365,7 @@ out_ro:
  * @host: host inode
  *
  * This function writes the updated version of an extended attribute inode and
- * the host inode tho the journal (to the base head). The host inode is written
+ * the host inode to the journal (to the base head). The host inode is written
  * after the extended attribute inode in order to guarantee that the extended
  * attribute will be flushed when the inode is synchronized by 'fsync()' and
  * consequently, the write-buffer is synchronized. This function returns zero

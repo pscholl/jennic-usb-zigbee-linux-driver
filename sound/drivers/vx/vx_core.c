@@ -548,7 +548,7 @@ irqreturn_t snd_vx_irq_handler(int irq, void *dev)
 	    (chip->chip_status & VX_STAT_IS_STALE))
 		return IRQ_NONE;
 	if (! vx_test_and_ack(chip))
-		tasklet_hi_schedule(&chip->tq);
+		tasklet_schedule(&chip->tq);
 	return IRQ_HANDLED;
 }
 
@@ -688,7 +688,8 @@ int snd_vx_dsp_load(struct vx_core *chip, const struct firmware *dsp)
 		image = dsp->data + i;
 		/* Wait DSP ready for a new read */
 		if ((err = vx_wait_isr_bit(chip, ISR_TX_EMPTY)) < 0) {
-			printk("dsp loading error at position %d\n", i);
+			printk(KERN_ERR
+			       "dsp loading error at position %d\n", i);
 			return err;
 		}
 		cptr = image;

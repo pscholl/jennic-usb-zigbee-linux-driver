@@ -133,13 +133,14 @@ static int __init sk_isa_probe1(struct net_device *dev, int ioaddr)
 	return 0;
 }
 
+static struct net_device_ops sk_isa_netdev_ops __read_mostly;
+
 static int __init setup_card(struct net_device *dev, struct device *pdev)
 {
 	struct net_local *tp;
         static int versionprinted;
 	const unsigned *port;
 	int j, err = 0;
-	DECLARE_MAC_BUF(mac);
 
 	if (!dev)
 		return -ENOMEM;
@@ -170,8 +171,8 @@ static int __init setup_card(struct net_device *dev, struct device *pdev)
 		
 	sk_isa_read_eeprom(dev);
 
-	printk(KERN_DEBUG "skisa.c:    Ring Station Address: %s\n",
-	       print_mac(mac, dev->dev_addr));
+	printk(KERN_DEBUG "skisa.c:    Ring Station Address: %pM\n",
+	       dev->dev_addr);
 		
 	tp = netdev_priv(dev);
 	tp->setnselout = sk_isa_setnselout_pins;
@@ -185,8 +186,7 @@ static int __init setup_card(struct net_device *dev, struct device *pdev)
 
 	tp->tmspriv = NULL;
 
-	dev->open = sk_isa_open;
-	dev->stop = tms380tr_close;
+	dev->netdev_ops = &sk_isa_netdev_ops;
 
 	if (dev->irq == 0)
 	{
@@ -301,7 +301,7 @@ static void sk_isa_read_eeprom(struct net_device *dev)
 		dev->dev_addr[i] = sk_isa_sifreadw(dev, SIFINC) >> 8;
 }
 
-unsigned short sk_isa_setnselout_pins(struct net_device *dev)
+static unsigned short sk_isa_setnselout_pins(struct net_device *dev)
 {
 	return 0;
 }
@@ -362,6 +362,10 @@ static int __init sk_isa_init(void)
 	struct net_device *dev;
 	struct platform_device *pdev;
 	int i, num = 0, err = 0;
+
+	sk_isa_netdev_ops = tms380tr_netdev_ops;
+	sk_isa_netdev_ops.ndo_open = sk_isa_open;
+	sk_isa_netdev_ops.ndo_stop = tms380tr_close;
 
 	err = platform_driver_register(&sk_isa_driver);
 	if (err)

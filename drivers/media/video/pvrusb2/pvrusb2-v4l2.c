@@ -91,7 +91,7 @@ static struct v4l2_capability pvr_capability ={
 	.card           = "Hauppauge WinTV pvr-usb2",
 	.bus_info       = "usb",
 	.version        = KERNEL_VERSION(0,8,0),
-	.capabilities   = (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VBI_CAPTURE |
+	.capabilities   = (V4L2_CAP_VIDEO_CAPTURE |
 			   V4L2_CAP_TUNER | V4L2_CAP_AUDIO | V4L2_CAP_RADIO |
 			   V4L2_CAP_READWRITE),
 	.reserved       = {0,0,0,0}
@@ -168,14 +168,13 @@ static const char *get_v4l_name(int v4l_type)
  * This is part of Video 4 Linux API. The procedure handles ioctl() calls.
  *
  */
-static int __pvr2_v4l2_do_ioctl(struct file *file,
-			      unsigned int cmd, void *arg)
+static long pvr2_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 {
 	struct pvr2_v4l2_fh *fh = file->private_data;
 	struct pvr2_v4l2 *vp = fh->vhead;
 	struct pvr2_v4l2_dev *dev_info = fh->dev_info;
 	struct pvr2_hdw *hdw = fh->channel.mc_head->hdw;
-	int ret = -EINVAL;
+	long ret = -EINVAL;
 
 	if (pvrusb2_debug & PVR2_TRACE_V4LIOCTL) {
 		v4l_print_ioctl(pvr2_hdw_get_driver_name(hdw),cmd);
@@ -852,11 +851,11 @@ static int __pvr2_v4l2_do_ioctl(struct file *file,
 	case VIDIOC_DBG_G_REGISTER:
 	{
 		u64 val;
-		struct v4l2_register *req = (struct v4l2_register *)arg;
+		struct v4l2_dbg_register *req = (struct v4l2_dbg_register *)arg;
 		if (cmd == VIDIOC_DBG_S_REGISTER) val = req->val;
 		ret = pvr2_hdw_register_access(
-			hdw,req->match_type,req->match_chip,req->reg,
-			cmd == VIDIOC_DBG_S_REGISTER,&val);
+			hdw, &req->match, req->reg,
+			cmd == VIDIOC_DBG_S_REGISTER, &val);
 		if (cmd == VIDIOC_DBG_G_REGISTER) req->val = val;
 		break;
 	}
@@ -864,7 +863,7 @@ static int __pvr2_v4l2_do_ioctl(struct file *file,
 
 	default :
 		ret = v4l_compat_translate_ioctl(file, cmd,
-						 arg, __pvr2_v4l2_do_ioctl);
+						 arg, pvr2_v4l2_do_ioctl);
 	}
 
 	pvr2_hdw_commit_ctl(hdw);
@@ -872,28 +871,22 @@ static int __pvr2_v4l2_do_ioctl(struct file *file,
 	if (ret < 0) {
 		if (pvrusb2_debug & PVR2_TRACE_V4LIOCTL) {
 			pvr2_trace(PVR2_TRACE_V4LIOCTL,
-				   "pvr2_v4l2_do_ioctl failure, ret=%d",ret);
+				   "pvr2_v4l2_do_ioctl failure, ret=%ld", ret);
 		} else {
 			if (pvrusb2_debug & PVR2_TRACE_V4LIOCTL) {
 				pvr2_trace(PVR2_TRACE_V4LIOCTL,
-					   "pvr2_v4l2_do_ioctl failure, ret=%d"
-					   " command was:",ret);
+					   "pvr2_v4l2_do_ioctl failure, ret=%ld"
+					   " command was:", ret);
 				v4l_print_ioctl(pvr2_hdw_get_driver_name(hdw),
 						cmd);
 			}
 		}
 	} else {
 		pvr2_trace(PVR2_TRACE_V4LIOCTL,
-			   "pvr2_v4l2_do_ioctl complete, ret=%d (0x%x)",
-			   ret,ret);
+			   "pvr2_v4l2_do_ioctl complete, ret=%ld (0x%lx)",
+			   ret, ret);
 	}
 	return ret;
-}
-
-static int pvr2_v4l2_do_ioctl(struct inode *inode, struct file *file,
-			      unsigned int cmd, void *arg)
-{
-	return __pvr2_v4l2_do_ioctl(file, cmd, arg);
 }
 
 static void pvr2_v4l2_dev_destroy(struct pvr2_v4l2_dev *dip)
@@ -955,19 +948,15 @@ static void pvr2_v4l2_internal_check(struct pvr2_channel *chp)
 }
 
 
-static int pvr2_v4l2_ioctl(struct inode *inode, struct file *file,
+static long pvr2_v4l2_ioctl(struct file *file,
 			   unsigned int cmd, unsigned long arg)
 {
 
-/* Temporary hack : use ivtv api until a v4l2 one is available. */
-#define IVTV_IOC_G_CODEC        0xFFEE7703
-#define IVTV_IOC_S_CODEC        0xFFEE7704
-	if (cmd == IVTV_IOC_G_CODEC || cmd == IVTV_IOC_S_CODEC) return 0;
-	return video_usercopy(inode, file, cmd, arg, pvr2_v4l2_do_ioctl);
+	return video_usercopy(file, cmd, arg, pvr2_v4l2_do_ioctl);
 }
 
 
-static int pvr2_v4l2_release(struct inode *inode, struct file *file)
+static int pvr2_v4l2_release(struct file *file)
 {
 	struct pvr2_v4l2_fh *fhp = file->private_data;
 	struct pvr2_v4l2 *vp = fhp->vhead;
@@ -1015,7 +1004,7 @@ static int pvr2_v4l2_release(struct inode *inode, struct file *file)
 }
 
 
-static int pvr2_v4l2_open(struct inode *inode, struct file *file)
+static int pvr2_v4l2_open(struct file *file)
 {
 	struct pvr2_v4l2_dev *dip; /* Our own context pointer */
 	struct pvr2_v4l2_fh *fhp;
@@ -1242,13 +1231,12 @@ static unsigned int pvr2_v4l2_poll(struct file *file, poll_table *wait)
 }
 
 
-static const struct file_operations vdev_fops = {
+static const struct v4l2_file_operations vdev_fops = {
 	.owner      = THIS_MODULE,
 	.open       = pvr2_v4l2_open,
 	.release    = pvr2_v4l2_release,
 	.read       = pvr2_v4l2_read,
 	.ioctl      = pvr2_v4l2_ioctl,
-	.llseek     = no_llseek,
 	.poll       = pvr2_v4l2_poll,
 };
 
@@ -1276,8 +1264,9 @@ static void pvr2_v4l2_dev_init(struct pvr2_v4l2_dev *dip,
 		dip->minor_type = pvr2_v4l_type_video;
 		nr_ptr = video_nr;
 		if (!dip->stream) {
-			err("Failed to set up pvrusb2 v4l video dev"
-			    " due to missing stream instance");
+			pr_err(KBUILD_MODNAME
+				": Failed to set up pvrusb2 v4l video dev"
+				" due to missing stream instance\n");
 			return;
 		}
 		break;
@@ -1294,8 +1283,8 @@ static void pvr2_v4l2_dev_init(struct pvr2_v4l2_dev *dip,
 		break;
 	default:
 		/* Bail out (this should be impossible) */
-		err("Failed to set up pvrusb2 v4l dev"
-		    " due to unrecognized config");
+		pr_err(KBUILD_MODNAME ": Failed to set up pvrusb2 v4l dev"
+		    " due to unrecognized config\n");
 		return;
 	}
 
@@ -1311,7 +1300,8 @@ static void pvr2_v4l2_dev_init(struct pvr2_v4l2_dev *dip,
 				   dip->v4l_type, mindevnum) < 0) &&
 	    (video_register_device(&dip->devbase,
 				   dip->v4l_type, -1) < 0)) {
-		err("Failed to register pvrusb2 v4l device");
+		pr_err(KBUILD_MODNAME
+			": Failed to register pvrusb2 v4l device\n");
 	}
 
 	printk(KERN_INFO "pvrusb2: registered device %s%u [%s]\n",

@@ -19,7 +19,6 @@
 #include <linux/clocksource.h>
 #include <linux/kvm_para.h>
 #include <asm/pvclock.h>
-#include <asm/arch_hooks.h>
 #include <asm/msr.h>
 #include <asm/apic.h>
 #include <linux/percpu.h>
@@ -78,6 +77,11 @@ static cycle_t kvm_clock_read(void)
 	return ret;
 }
 
+static cycle_t kvm_clock_get_cycles(struct clocksource *cs)
+{
+	return kvm_clock_read();
+}
+
 /*
  * If we don't do that, there is the possibility that the guest
  * will calibrate under heavy load - thus, getting a lower lpj -
@@ -89,17 +93,17 @@ static cycle_t kvm_clock_read(void)
  */
 static unsigned long kvm_get_tsc_khz(void)
 {
-	return preset_lpj;
+	struct pvclock_vcpu_time_info *src;
+	src = &per_cpu(hv_clock, 0);
+	return pvclock_tsc_khz(src);
 }
 
 static void kvm_get_preset_lpj(void)
 {
-	struct pvclock_vcpu_time_info *src;
 	unsigned long khz;
 	u64 lpj;
 
-	src = &per_cpu(hv_clock, 0);
-	khz = pvclock_tsc_khz(src);
+	khz = kvm_get_tsc_khz();
 
 	lpj = ((u64)khz * 1000);
 	do_div(lpj, HZ);
@@ -108,7 +112,7 @@ static void kvm_get_preset_lpj(void)
 
 static struct clocksource kvm_clock = {
 	.name = "kvm-clock",
-	.read = kvm_clock_read,
+	.read = kvm_clock_get_cycles,
 	.rating = 400,
 	.mask = CLOCKSOURCE_MASK(64),
 	.mult = 1 << KVM_SCALE,
@@ -194,5 +198,7 @@ void __init kvmclock_init(void)
 #endif
 		kvm_get_preset_lpj();
 		clocksource_register(&kvm_clock);
+		pv_info.paravirt_enabled = 1;
+		pv_info.name = "KVM";
 	}
 }

@@ -82,7 +82,7 @@ static struct au1xpsc_audio_dmadata *au1xpsc_audio_pcmdma[2];
 /* PCM hardware DMA capabilities - platform specific */
 static const struct snd_pcm_hardware au1xpsc_pcm_hardware = {
 	.info		  = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID |
-			    SNDRV_PCM_INFO_INTERLEAVED,
+			    SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_BATCH,
 	.formats	  = AU1XPSC_PCM_FMTS,
 	.period_bytes_min = AU1XPSC_PERIOD_MIN_BYTES,
 	.period_bytes_max = 4096 * 1024 - 1,
@@ -187,7 +187,7 @@ static int au1x_pcm_dbdma_realloc(struct au1xpsc_audio_dmadata *pcd,
 					au1x_pcm_dmatx_cb, (void *)pcd);
 
 	if (!pcd->ddma_chan)
-		return -ENOMEM;;
+		return -ENOMEM;
 
 	au1xxx_dbdma_set_devwidth(pcd->ddma_chan, msbits);
 	au1xxx_dbdma_ring_alloc(pcd->ddma_chan, 2);
@@ -305,7 +305,7 @@ static int au1xpsc_pcm_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-struct snd_pcm_ops au1xpsc_pcm_ops = {
+static struct snd_pcm_ops au1xpsc_pcm_ops = {
 	.open		= au1xpsc_pcm_open,
 	.close		= au1xpsc_pcm_close,
 	.ioctl		= snd_pcm_lib_ioctl,
@@ -406,11 +406,12 @@ static int __init au1xpsc_audio_dbdma_init(void)
 {
 	au1xpsc_audio_pcmdma[PCM_TX] = NULL;
 	au1xpsc_audio_pcmdma[PCM_RX] = NULL;
-	return 0;
+	return snd_soc_register_platform(&au1xpsc_soc_platform);
 }
 
 static void __exit au1xpsc_audio_dbdma_exit(void)
 {
+	snd_soc_unregister_platform(&au1xpsc_soc_platform);
 }
 
 module_init(au1xpsc_audio_dbdma_init);

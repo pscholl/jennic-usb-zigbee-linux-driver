@@ -57,12 +57,12 @@ static irqreturn_t msm_timer_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static cycle_t msm_gpt_read(void)
+static cycle_t msm_gpt_read(struct clocksource *cs)
 {
 	return readl(MSM_GPT_BASE + TIMER_COUNT_VAL);
 }
 
-static cycle_t msm_dgt_read(void)
+static cycle_t msm_dgt_read(struct clocksource *cs)
 {
 	return readl(MSM_DGT_BASE + TIMER_COUNT_VAL) >> MSM_DGT_SHIFT;
 }
@@ -182,7 +182,7 @@ static void __init msm_timer_init(void)
 			clockevent_delta2ns(0xf0000000 >> clock->shift, ce);
 		/* 4 gets rounded down to 3 */
 		ce->min_delta_ns = clockevent_delta2ns(4, ce);
-		ce->cpumask = cpumask_of_cpu(0);
+		ce->cpumask = cpumask_of(0);
 
 		cs->mult = clocksource_hz2mult(clock->freq, cs->shift);
 		res = clocksource_register(cs);

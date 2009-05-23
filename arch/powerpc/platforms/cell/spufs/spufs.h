@@ -241,9 +241,9 @@ struct spufs_tree_descr {
 	size_t size;
 };
 
-extern struct spufs_tree_descr spufs_dir_contents[];
-extern struct spufs_tree_descr spufs_dir_nosched_contents[];
-extern struct spufs_tree_descr spufs_dir_debug_contents[];
+extern const struct spufs_tree_descr spufs_dir_contents[];
+extern const struct spufs_tree_descr spufs_dir_nosched_contents[];
+extern const struct spufs_tree_descr spufs_dir_debug_contents[];
 
 /* system call implementation */
 extern struct spufs_calls spufs_calls;
@@ -314,7 +314,7 @@ extern char *isolated_loader;
  *	we need to call spu_release(ctx) before sleeping, and
  *	then spu_acquire(ctx) when awoken.
  *
- * 	Returns with state_mutex re-acquired when successfull or
+ * 	Returns with state_mutex re-acquired when successful or
  * 	with -ERESTARTSYS and the state_mutex dropped when interrupted.
  */
 
@@ -358,7 +358,7 @@ struct spufs_coredump_reader {
 	u64 (*get)(struct spu_context *ctx);
 	size_t size;
 };
-extern struct spufs_coredump_reader spufs_coredump_read[];
+extern const struct spufs_coredump_reader spufs_coredump_read[];
 extern int spufs_coredump_num_notes;
 
 extern int spu_init_csa(struct spu_state *csa);

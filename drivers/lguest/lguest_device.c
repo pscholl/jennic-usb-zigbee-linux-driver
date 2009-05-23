@@ -161,7 +161,7 @@ static void set_status(struct virtio_device *vdev, u8 status)
 
 	/* We set the status. */
 	to_lgdev(vdev)->desc->status = status;
-	hcall(LHCALL_NOTIFY, (max_pfn<<PAGE_SHIFT) + offset, 0, 0);
+	kvm_hypercall1(LHCALL_NOTIFY, (max_pfn << PAGE_SHIFT) + offset);
 }
 
 static void lg_set_status(struct virtio_device *vdev, u8 status)
@@ -209,8 +209,11 @@ static void lg_notify(struct virtqueue *vq)
 	 * virtqueue structure. */
 	struct lguest_vq_info *lvq = vq->priv;
 
-	hcall(LHCALL_NOTIFY, lvq->config.pfn << PAGE_SHIFT, 0, 0);
+	kvm_hypercall1(LHCALL_NOTIFY, lvq->config.pfn << PAGE_SHIFT);
 }
+
+/* An extern declaration inside a C file is bad form.  Don't do it. */
+extern void lguest_setup_irq(unsigned int irq);
 
 /* This routine finds the first virtqueue described in the configuration of
  * this device and sets it up.
@@ -250,7 +253,7 @@ static struct virtqueue *lg_find_vq(struct virtio_device *vdev,
 	/* Figure out how many pages the ring will take, and map that memory */
 	lvq->pages = lguest_map((unsigned long)lvq->config.pfn << PAGE_SHIFT,
 				DIV_ROUND_UP(vring_size(lvq->config.num,
-							PAGE_SIZE),
+							LGUEST_VRING_ALIGN),
 					     PAGE_SIZE));
 	if (!lvq->pages) {
 		err = -ENOMEM;
@@ -259,12 +262,15 @@ static struct virtqueue *lg_find_vq(struct virtio_device *vdev,
 
 	/* OK, tell virtio_ring.c to set up a virtqueue now we know its size
 	 * and we've got a pointer to its pages. */
-	vq = vring_new_virtqueue(lvq->config.num, vdev, lvq->pages,
-				 lg_notify, callback);
+	vq = vring_new_virtqueue(lvq->config.num, LGUEST_VRING_ALIGN,
+				 vdev, lvq->pages, lg_notify, callback);
 	if (!vq) {
 		err = -ENOMEM;
 		goto unmap;
 	}
+
+	/* Make sure the interrupt is allocated. */
+	lguest_setup_irq(lvq->config.irq);
 
 	/* Tell the interrupt for this virtqueue to go to the virtio_ring
 	 * interrupt handler. */
@@ -272,7 +278,7 @@ static struct virtqueue *lg_find_vq(struct virtio_device *vdev,
 	 * the interrupt as a source of randomness: it'd be nice to have that
 	 * back.. */
 	err = request_irq(lvq->config.irq, vring_interrupt, IRQF_SHARED,
-			  vdev->dev.bus_id, vq);
+			  dev_name(&vdev->dev), vq);
 	if (err)
 		goto destroy_vring;
 
@@ -321,10 +327,7 @@ static struct virtio_config_ops lguest_config_ops = {
 
 /* The root device for the lguest virtio devices.  This makes them appear as
  * /sys/devices/lguest/0,1,2 not /sys/devices/0,1,2. */
-static struct device lguest_root = {
-	.parent = NULL,
-	.bus_id = "lguest",
-};
+static struct device *lguest_root;
 
 /*D:120 This is the core of the lguest bus: actually adding a new device.
  * It's a separate function because it's neater that way, and because an
@@ -351,7 +354,7 @@ static void add_lguest_device(struct lguest_device_desc *d,
 	}
 
 	/* This devices' parent is the lguest/ dir. */
-	ldev->vdev.dev.parent = &lguest_root;
+	ldev->vdev.dev.parent = lguest_root;
 	/* We have a unique device index thanks to the dev_index counter. */
 	ldev->vdev.id.device = d->type;
 	/* We have a simple set of routines for querying the device's
@@ -407,7 +410,8 @@ static int __init lguest_devices_init(void)
 	if (strcmp(pv_info.name, "lguest") != 0)
 		return 0;
 
-	if (device_register(&lguest_root) != 0)
+	lguest_root = root_device_register("lguest");
+	if (IS_ERR(lguest_root))
 		panic("Could not register lguest root");
 
 	/* Devices are in a single page above top of "normal" mem */

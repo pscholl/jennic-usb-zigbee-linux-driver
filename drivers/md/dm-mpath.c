@@ -8,7 +8,6 @@
 #include <linux/device-mapper.h>
 
 #include "dm-path-selector.h"
-#include "dm-bio-list.h"
 #include "dm-bio-record.h"
 #include "dm-uevent.h"
 
@@ -889,7 +888,7 @@ static int fail_path(struct pgpath *pgpath)
 	dm_path_uevent(DM_UEVENT_PATH_FAILED, m->ti,
 		      pgpath->path.dev->name, m->nr_valid_paths);
 
-	queue_work(kmultipathd, &m->trigger_event);
+	schedule_work(&m->trigger_event);
 	queue_work(kmultipathd, &pgpath->deactivate_path);
 
 out:
@@ -932,7 +931,7 @@ static int reinstate_path(struct pgpath *pgpath)
 	dm_path_uevent(DM_UEVENT_PATH_REINSTATED, m->ti,
 		      pgpath->path.dev->name, m->nr_valid_paths);
 
-	queue_work(kmultipathd, &m->trigger_event);
+	schedule_work(&m->trigger_event);
 
 out:
 	spin_unlock_irqrestore(&m->lock, flags);
@@ -976,7 +975,7 @@ static void bypass_pg(struct multipath *m, struct priority_group *pg,
 
 	spin_unlock_irqrestore(&m->lock, flags);
 
-	queue_work(kmultipathd, &m->trigger_event);
+	schedule_work(&m->trigger_event);
 }
 
 /*
@@ -1006,7 +1005,7 @@ static int switch_pg_num(struct multipath *m, const char *pgstr)
 	}
 	spin_unlock_irqrestore(&m->lock, flags);
 
-	queue_work(kmultipathd, &m->trigger_event);
+	schedule_work(&m->trigger_event);
 	return 0;
 }
 
@@ -1495,14 +1494,10 @@ static int __init dm_multipath_init(void)
 
 static void __exit dm_multipath_exit(void)
 {
-	int r;
-
 	destroy_workqueue(kmpath_handlerd);
 	destroy_workqueue(kmultipathd);
 
-	r = dm_unregister_target(&multipath_target);
-	if (r < 0)
-		DMERR("target unregister failed %d", r);
+	dm_unregister_target(&multipath_target);
 	kmem_cache_destroy(_mpio_cache);
 }
 

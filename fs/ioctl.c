@@ -231,7 +231,8 @@ static int ioctl_fiemap(struct file *filp, unsigned long arg)
 #define blk_to_logical(inode, blk) (blk << (inode)->i_blkbits)
 #define logical_to_blk(inode, offset) (offset >> (inode)->i_blkbits);
 
-/*
+/**
+ * __generic_block_fiemap - FIEMAP for block based inodes (no locking)
  * @inode - the inode to map
  * @arg - the pointer to userspace where we copy everything to
  * @get_block - the fs's get_block function
@@ -242,28 +243,32 @@ static int ioctl_fiemap(struct file *filp, unsigned long arg)
  *
  * If it is possible to have data blocks beyond a hole past @inode->i_size, then
  * please do not use this function, it will stop at the first unmapped block
- * beyond i_size
+ * beyond i_size.
+ *
+ * If you use this function directly, you need to do your own locking. Use
+ * generic_block_fiemap if you want the locking done for you.
  */
-int generic_block_fiemap(struct inode *inode,
-			 struct fiemap_extent_info *fieinfo, u64 start,
-			 u64 len, get_block_t *get_block)
+
+int __generic_block_fiemap(struct inode *inode,
+			   struct fiemap_extent_info *fieinfo, u64 start,
+			   u64 len, get_block_t *get_block)
 {
 	struct buffer_head tmp;
 	unsigned int start_blk;
 	long long length = 0, map_len = 0;
 	u64 logical = 0, phys = 0, size = 0;
 	u32 flags = FIEMAP_EXTENT_MERGED;
-	int ret = 0;
+	int ret = 0, past_eof = 0, whole_file = 0;
 
 	if ((ret = fiemap_check_flags(fieinfo, FIEMAP_FLAG_SYNC)))
 		return ret;
 
 	start_blk = logical_to_blk(inode, start);
 
-	/* guard against change */
-	mutex_lock(&inode->i_mutex);
-
 	length = (long long)min_t(u64, len, i_size_read(inode));
+	if (length < len)
+		whole_file = 1;
+
 	map_len = length;
 
 	do {
@@ -280,11 +285,26 @@ int generic_block_fiemap(struct inode *inode,
 
 		/* HOLE */
 		if (!buffer_mapped(&tmp)) {
+			length -= blk_to_logical(inode, 1);
+			start_blk++;
+
+			/*
+			 * we want to handle the case where there is an
+			 * allocated block at the front of the file, and then
+			 * nothing but holes up to the end of the file properly,
+			 * to make sure that extent at the front gets properly
+			 * marked with FIEMAP_EXTENT_LAST
+			 */
+			if (!past_eof &&
+			    blk_to_logical(inode, start_blk) >=
+			    blk_to_logical(inode, 0)+i_size_read(inode))
+				past_eof = 1;
+
 			/*
 			 * first hole after going past the EOF, this is our
 			 * last extent
 			 */
-			if (length <= 0) {
+			if (past_eof && size) {
 				flags = FIEMAP_EXTENT_MERGED|FIEMAP_EXTENT_LAST;
 				ret = fiemap_fill_next_extent(fieinfo, logical,
 							      phys, size,
@@ -292,15 +312,37 @@ int generic_block_fiemap(struct inode *inode,
 				break;
 			}
 
-			length -= blk_to_logical(inode, 1);
-
 			/* if we have holes up to/past EOF then we're done */
-			if (length <= 0)
+			if (length <= 0 || past_eof)
 				break;
-
-			start_blk++;
 		} else {
-			if (length <= 0 && size) {
+			/*
+			 * we have gone over the length of what we wanted to
+			 * map, and it wasn't the entire file, so add the extent
+			 * we got last time and exit.
+			 *
+			 * This is for the case where say we want to map all the
+			 * way up to the second to the last block in a file, but
+			 * the last block is a hole, making the second to last
+			 * block FIEMAP_EXTENT_LAST.  In this case we want to
+			 * see if there is a hole after the second to last block
+			 * so we can mark it properly.  If we found data after
+			 * we exceeded the length we were requesting, then we
+			 * are good to go, just add the extent to the fieinfo
+			 * and break
+			 */
+			if (length <= 0 && !whole_file) {
+				ret = fiemap_fill_next_extent(fieinfo, logical,
+							      phys, size,
+							      flags);
+				break;
+			}
+
+			/*
+			 * if size != 0 then we know we already have an extent
+			 * to add, so add it.
+			 */
+			if (size) {
 				ret = fiemap_fill_next_extent(fieinfo, logical,
 							      phys, size,
 							      flags);
@@ -317,29 +359,46 @@ int generic_block_fiemap(struct inode *inode,
 			start_blk += logical_to_blk(inode, size);
 
 			/*
-			 * if we are past the EOF we need to loop again to see
-			 * if there is a hole so we can mark this extent as the
-			 * last one, and if not keep mapping things until we
-			 * find a hole, or we run out of slots in the extent
-			 * array
+			 * If we are past the EOF, then we need to make sure as
+			 * soon as we find a hole that the last extent we found
+			 * is marked with FIEMAP_EXTENT_LAST
 			 */
-			if (length <= 0)
-				continue;
-
-			ret = fiemap_fill_next_extent(fieinfo, logical, phys,
-						      size, flags);
-			if (ret)
-				break;
+			if (!past_eof &&
+			    logical+size >=
+			    blk_to_logical(inode, 0)+i_size_read(inode))
+				past_eof = 1;
 		}
 		cond_resched();
 	} while (1);
-
-	mutex_unlock(&inode->i_mutex);
 
 	/* if ret is 1 then we just hit the end of the extent array */
 	if (ret == 1)
 		ret = 0;
 
+	return ret;
+}
+EXPORT_SYMBOL(__generic_block_fiemap);
+
+/**
+ * generic_block_fiemap - FIEMAP for block based inodes
+ * @inode: The inode to map
+ * @fieinfo: The mapping information
+ * @start: The initial block to map
+ * @len: The length of the extect to attempt to map
+ * @get_block: The block mapping function for the fs
+ *
+ * Calls __generic_block_fiemap to map the inode, after taking
+ * the inode's mutex lock.
+ */
+
+int generic_block_fiemap(struct inode *inode,
+			 struct fiemap_extent_info *fieinfo, u64 start,
+			 u64 len, get_block_t *get_block)
+{
+	int ret;
+	mutex_lock(&inode->i_mutex);
+	ret = __generic_block_fiemap(inode, fieinfo, start, len, get_block);
+	mutex_unlock(&inode->i_mutex);
 	return ret;
 }
 EXPORT_SYMBOL(generic_block_fiemap);
@@ -380,10 +439,12 @@ static int ioctl_fionbio(struct file *filp, int __user *argp)
 	if (O_NONBLOCK != O_NDELAY)
 		flag |= O_NDELAY;
 #endif
+	spin_lock(&filp->f_lock);
 	if (on)
 		filp->f_flags |= flag;
 	else
 		filp->f_flags &= ~flag;
+	spin_unlock(&filp->f_lock);
 	return error;
 }
 
@@ -401,18 +462,49 @@ static int ioctl_fioasync(unsigned int fd, struct file *filp,
 	/* Did FASYNC state change ? */
 	if ((flag ^ filp->f_flags) & FASYNC) {
 		if (filp->f_op && filp->f_op->fasync)
+			/* fasync() adjusts filp->f_flags */
 			error = filp->f_op->fasync(fd, filp, on);
 		else
 			error = -ENOTTY;
 	}
-	if (error)
-		return error;
+	return error < 0 ? error : 0;
+}
 
-	if (on)
-		filp->f_flags |= FASYNC;
-	else
-		filp->f_flags &= ~FASYNC;
-	return error;
+static int ioctl_fsfreeze(struct file *filp)
+{
+	struct super_block *sb = filp->f_path.dentry->d_inode->i_sb;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	/* If filesystem doesn't support freeze feature, return. */
+	if (sb->s_op->freeze_fs == NULL)
+		return -EOPNOTSUPP;
+
+	/* If a blockdevice-backed filesystem isn't specified, return. */
+	if (sb->s_bdev == NULL)
+		return -EINVAL;
+
+	/* Freeze */
+	sb = freeze_bdev(sb->s_bdev);
+	if (IS_ERR(sb))
+		return PTR_ERR(sb);
+	return 0;
+}
+
+static int ioctl_fsthaw(struct file *filp)
+{
+	struct super_block *sb = filp->f_path.dentry->d_inode->i_sb;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	/* If a blockdevice-backed filesystem isn't specified, return EINVAL. */
+	if (sb->s_bdev == NULL)
+		return -EINVAL;
+
+	/* Thaw */
+	return thaw_bdev(sb->s_bdev, sb);
 }
 
 /*
@@ -438,17 +530,11 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 		break;
 
 	case FIONBIO:
-		/* BKL needed to avoid races tweaking f_flags */
-		lock_kernel();
 		error = ioctl_fionbio(filp, argp);
-		unlock_kernel();
 		break;
 
 	case FIOASYNC:
-		/* BKL needed to avoid races tweaking f_flags */
-		lock_kernel();
 		error = ioctl_fioasync(fd, filp, argp);
-		unlock_kernel();
 		break;
 
 	case FIOQSIZE:
@@ -462,6 +548,15 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 		} else
 			error = -ENOTTY;
 		break;
+
+	case FIFREEZE:
+		error = ioctl_fsfreeze(filp);
+		break;
+
+	case FITHAW:
+		error = ioctl_fsthaw(filp);
+		break;
+
 	default:
 		if (S_ISREG(filp->f_path.dentry->d_inode->i_mode))
 			error = file_ioctl(filp, cmd, arg);
@@ -472,7 +567,7 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 	return error;
 }
 
-asmlinkage long sys_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
+SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
 {
 	struct file *filp;
 	int error = -EBADF;

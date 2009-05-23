@@ -157,8 +157,6 @@ struct mmc_omap_host {
 	struct timer_list	dma_timer;
 	unsigned		dma_len;
 
-	short			power_pin;
-
 	struct mmc_omap_slot    *slots[OMAP_MMC_MAX_SLOTS];
 	struct mmc_omap_slot    *current_slot;
 	spinlock_t              slot_lock;
@@ -1015,7 +1013,7 @@ static int mmc_omap_get_dma_channel(struct mmc_omap_host *host, struct mmc_data 
 	}
 
 	if (is_read) {
-		if (host->id == 1) {
+		if (host->id == 0) {
 			sync_dev = OMAP_DMA_MMC_RX;
 			dma_dev_name = "MMC1 read";
 		} else {
@@ -1023,7 +1021,7 @@ static int mmc_omap_get_dma_channel(struct mmc_omap_host *host, struct mmc_data 
 			dma_dev_name = "MMC2 read";
 		}
 	} else {
-		if (host->id == 1) {
+		if (host->id == 0) {
 			sync_dev = OMAP_DMA_MMC_TX;
 			dma_dev_name = "MMC1 write";
 		} else {
@@ -1317,7 +1315,7 @@ static int __init mmc_omap_new_slot(struct mmc_omap_host *host, int id)
 	host->slots[id] = slot;
 
 	mmc->caps = 0;
-	if (host->pdata->conf.wire4)
+	if (host->pdata->slots[id].wires >= 4)
 		mmc->caps |= MMC_CAP_4_BIT_DATA;
 
 	mmc->ops = &mmc_omap_ops;
@@ -1451,6 +1449,7 @@ static int __init mmc_omap_probe(struct platform_device *pdev)
 	host->irq = irq;
 
 	host->use_dma = 1;
+	host->dev->dma_mask = &pdata->dma_mask;
 	host->dma_ch = -1;
 
 	host->irq = irq;
@@ -1459,18 +1458,12 @@ static int __init mmc_omap_probe(struct platform_device *pdev)
 	if (!host->virt_base)
 		goto err_ioremap;
 
-	if (cpu_is_omap24xx()) {
-		host->iclk = clk_get(&pdev->dev, "mmc_ick");
-		if (IS_ERR(host->iclk))
-			goto err_free_mmc_host;
-		clk_enable(host->iclk);
-	}
+	host->iclk = clk_get(&pdev->dev, "ick");
+	if (IS_ERR(host->iclk))
+		goto err_free_mmc_host;
+	clk_enable(host->iclk);
 
-	if (!cpu_is_omap24xx())
-		host->fclk = clk_get(&pdev->dev, "mmc_ck");
-	else
-		host->fclk = clk_get(&pdev->dev, "mmc_fck");
-
+	host->fclk = clk_get(&pdev->dev, "fck");
 	if (IS_ERR(host->fclk)) {
 		ret = PTR_ERR(host->fclk);
 		goto err_free_iclk;
@@ -1535,10 +1528,10 @@ static int mmc_omap_remove(struct platform_device *pdev)
 	if (host->pdata->cleanup)
 		host->pdata->cleanup(&pdev->dev);
 
-	if (host->iclk && !IS_ERR(host->iclk))
-		clk_put(host->iclk);
-	if (host->fclk && !IS_ERR(host->fclk))
-		clk_put(host->fclk);
+	mmc_omap_fclk_enable(host, 0);
+	clk_put(host->fclk);
+	clk_disable(host->iclk);
+	clk_put(host->iclk);
 
 	iounmap(host->virt_base);
 	release_mem_region(pdev->resource[0].start,
