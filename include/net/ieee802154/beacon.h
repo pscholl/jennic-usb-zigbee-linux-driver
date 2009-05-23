@@ -21,17 +21,17 @@
  * Maxim Gorbachyov <maxim.gorbachev@siemens.com>
  */
 
-#ifndef IEEE80215_BEACON_H
-#define IEEE80215_BEACON_H
+#ifndef IEEE802154_BEACON_H
+#define IEEE802154_BEACON_H
 
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
-#include "af_ieee80215.h"
+#include "af_ieee802154.h"
 
 /* Per spec; optimizations are needed */
-struct ieee80215_pandsc {
+struct ieee802154_pandsc {
 	struct list_head	list;
-	struct ieee80215_addr	addr; /* Contains panid */
+	struct ieee802154_addr	addr; /* Contains panid */
 	int			channel;
 	u16			sf;
 	bool			gts_permit;
@@ -45,9 +45,9 @@ struct ieee80215_pandsc {
 int parse_beacon_frame(struct sk_buff *skb, u8 * buf,
 		int *flags, struct list_head *al);
 
-int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
+int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr,
 		u16 pan_id, const u8 *buf, int len,
 		int flags, struct list_head *al);
 
-#endif /* IEEE80215_BEACON_H */
+#endif /* IEEE802154_BEACON_H */
 

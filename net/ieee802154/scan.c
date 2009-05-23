@@ -25,11 +25,11 @@
 #include <linux/net.h>
 #include <linux/module.h>
 
-#include <net/ieee80215/beacon.h>
-#include <net/ieee80215/dev.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/mac_def.h>
-#include <net/ieee80215/nl.h>
+#include <net/ieee802154/beacon.h>
+#include <net/ieee802154/dev.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/mac_def.h>
+#include <net/ieee802154/nl.h>
 /*
  * ED scan is periodic issuing of ed device function
  * on evry permitted channel, so it is virtually PHY-only scan */
@@ -50,7 +50,7 @@ struct scan_work {
 static int scan_ed(struct scan_work *work, int channel, u8 duration)
 {
 	int ret;
-	struct ieee80215_priv *hw = ieee80215_slave_get_hw(work->dev);
+	struct ieee802154_priv *hw = ieee802154_slave_get_hw(work->dev);
 	pr_debug("ed scan channel %d duration %d\n", channel, duration);
 	ret = hw->ops->ed(&hw->hw, &work->edl[channel]);
 	pr_debug("ed scan channel %d value %d\n", channel, work->edl[channel]);
@@ -65,10 +65,10 @@ struct scan_data {
 static int beacon_notifier(struct notifier_block *p,
 		unsigned long event, void *data)
 {
-	struct ieee80215_pandsc *pd = data;
+	struct ieee802154_pandsc *pd = data;
 	struct scan_data *sd = container_of(p, struct scan_data, nb);
 	switch (event) {
-	case IEEE80215_NOTIFIER_BEACON:
+	case IEEE802154_NOTIFIER_BEACON:
 		/* TODO: add item to list here */
 		pr_debug("got a beacon frame addr_type %d pan_id %d\n",
 				pd->addr.addr_type, pd->addr.pan_id);
@@ -84,13 +84,13 @@ static int scan_passive(struct scan_work *work, int channel, u8 duration)
 	struct scan_data *data = kzalloc(sizeof(struct scan_data), GFP_KERNEL);
 	pr_debug("passive scan channel %d duration %d\n", channel, duration);
 	data->nb.notifier_call = beacon_notifier;
-	ieee80215_slave_register_notifier(work->dev, &data->nb);
+	ieee802154_slave_register_notifier(work->dev, &data->nb);
 	/* Hope 2 msecs will be enough for scan */
 	j = msecs_to_jiffies(2);
 	while (j > 0)
 		j = schedule_timeout(j);
 
-	ieee80215_slave_unregister_notifier(work->dev, &data->nb);
+	ieee802154_slave_unregister_notifier(work->dev, &data->nb);
 	kfree(data);
 	return PHY_SUCCESS;
 }
@@ -100,7 +100,7 @@ static int scan_active(struct scan_work *work, int channel, u8 duration)
 {
 	int ret;
 	pr_debug("active scan channel %d duration %d\n", channel, duration);
-	ret = ieee80215_send_beacon_req(work->dev);
+	ret = ieee802154_send_beacon_req(work->dev);
 	if (ret < 0)
 		return PHY_ERROR;
 	return scan_passive(work, channel, duration);
@@ -114,7 +114,7 @@ static int scan_orphan(struct scan_work *work, int channel, u8 duration)
 static void scanner(struct work_struct *work)
 {
 	struct scan_work *sw = container_of(work, struct scan_work, work);
-	struct ieee80215_priv *hw = ieee80215_slave_get_hw(sw->dev);
+	struct ieee802154_priv *hw = ieee802154_slave_get_hw(sw->dev);
 	int i;
 	phy_status_t ret;
 
@@ -133,7 +133,7 @@ static void scanner(struct work_struct *work)
 		sw->channels &= ~(1 << i);
 	}
 
-	ieee80215_nl_scan_confirm(sw->dev, IEEE80215_SUCCESS, sw->type, sw->channels,
+	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_SUCCESS, sw->type, sw->channels,
 			sw->edl/*, NULL */);
 
 	kfree(sw);
@@ -141,7 +141,7 @@ static void scanner(struct work_struct *work)
 	return;
 
 exit_error:
-	ieee80215_nl_scan_confirm(sw->dev, IEEE80215_INVALID_PARAMETER, sw->type, sw->channels,
+	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_INVALID_PARAMETER, sw->type, sw->channels,
 			NULL/*, NULL */);
 	kfree(sw);
 	return;
@@ -158,9 +158,9 @@ exit_error:
  * @param duration scan duration, see ieee802.15.4-2003.pdf, page 145.
  * @return 0 if request is ok, errno otherwise.
  */
-int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
+int ieee802154_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
 {
-	struct ieee80215_priv *hw = ieee80215_slave_get_hw(dev);
+	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
 	struct scan_work *work;
 
 	pr_debug("%s()\n", __func__);
@@ -180,16 +180,16 @@ int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 du
 	work->type = type;
 
 	switch (type) {
-	case IEEE80215_MAC_SCAN_ED:
+	case IEEE802154_MAC_SCAN_ED:
 		work->scan_ch = scan_ed;
 		break;
-	case IEEE80215_MAC_SCAN_ACTIVE:
+	case IEEE802154_MAC_SCAN_ACTIVE:
 		work->scan_ch = scan_active;
 		break;
-	case IEEE80215_MAC_SCAN_PASSIVE:
+	case IEEE802154_MAC_SCAN_PASSIVE:
 		work->scan_ch = scan_passive;
 		break;
-	case IEEE80215_MAC_SCAN_ORPHAN:
+	case IEEE802154_MAC_SCAN_ORPHAN:
 		work->scan_ch = scan_orphan;
 		break;
 	default:
@@ -203,9 +203,9 @@ int ieee80215_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 du
 	return 0;
 
 inval:
-	ieee80215_nl_scan_confirm(dev, IEEE80215_INVALID_PARAMETER, type, channels,
+	ieee802154_nl_scan_confirm(dev, IEEE802154_INVALID_PARAMETER, type, channels,
 			NULL/*, NULL */);
 	return -EINVAL;
 }
-EXPORT_SYMBOL(ieee80215_mlme_scan_req);
+EXPORT_SYMBOL(ieee802154_mlme_scan_req);
 

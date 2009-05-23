@@ -1,5 +1,5 @@
 /*
- * IEEE80215.4 socket interface
+ * IEEE802154.4 socket interface
  *
  * Copyright 2007, 2008 Siemens AG
  *
@@ -34,9 +34,9 @@
 #include <net/tcp_states.h>
 #include <net/route.h>
 
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/phy.h>
+#include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/phy.h>
 
 #define DBG_DUMP(data, len) { \
 	int i; \
@@ -46,7 +46,7 @@
 	} \
 }
 
-static int ieee80215_sock_release(struct socket *sock)
+static int ieee802154_sock_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
 
@@ -56,14 +56,14 @@ static int ieee80215_sock_release(struct socket *sock)
 	}
 	return 0;
 }
-static int ieee80215_sock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg, size_t len)
+static int ieee802154_sock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg, size_t len)
 {
 	struct sock *sk = sock->sk;
 
 	return sk->sk_prot->sendmsg(iocb, sk, msg, len);
 }
 
-static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
+static int ieee802154_sock_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 {
 	struct sock *sk = sock->sk;
 
@@ -73,7 +73,7 @@ static int ieee80215_sock_bind(struct socket *sock, struct sockaddr *uaddr, int 
 	return sock_no_bind(sock, uaddr, addr_len);
 }
 
-static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
+static int ieee802154_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 			int addr_len, int flags)
 {
 	struct sock *sk = sock->sk;
@@ -84,7 +84,7 @@ static int ieee80215_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 	return sk->sk_prot->connect(sk, uaddr, addr_len);
 }
 
-static int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int cmd)
+static int ieee802154_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int cmd)
 {
 	struct ifreq ifr;
 	int ret = -EINVAL;
@@ -97,7 +97,7 @@ static int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsign
 
 	dev_load(sock_net(sk), ifr.ifr_name);
 	dev = dev_get_by_name(sock_net(sk), ifr.ifr_name);
-	if (dev->type == ARPHRD_IEEE80215 || dev->type == ARPHRD_IEEE80215_PHY)
+	if (dev->type == ARPHRD_IEEE802154 || dev->type == ARPHRD_IEEE802154_PHY)
 		ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, cmd);
 
 	if (!ret && copy_to_user(arg, &ifr, sizeof(struct ifreq)))
@@ -107,7 +107,7 @@ static int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsign
 	return ret;
 }
 
-static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
+static int ieee802154_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
 	struct sock *sk = sock->sk;
 
@@ -118,7 +118,7 @@ static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned 
 		return sock_get_timestampns(sk, (struct timespec __user *)arg);
 	case SIOCGIFADDR:
 	case SIOCSIFADDR:
-		return ieee80215_dev_ioctl(sk, (struct ifreq __user *)arg, cmd);
+		return ieee802154_dev_ioctl(sk, (struct ifreq __user *)arg, cmd);
 	default:
 		if (!sk->sk_prot->ioctl)
 			return -ENOIOCTLCMD;
@@ -126,22 +126,22 @@ static int ieee80215_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned 
 	}
 }
 
-static const struct proto_ops ieee80215_raw_ops = {
-	.family		   = PF_IEEE80215,
+static const struct proto_ops ieee802154_raw_ops = {
+	.family		   = PF_IEEE802154,
 	.owner		   = THIS_MODULE,
-	.release	   = ieee80215_sock_release,
-	.bind		   = ieee80215_sock_bind,
-	.connect	   = ieee80215_sock_connect,
+	.release	   = ieee802154_sock_release,
+	.bind		   = ieee802154_sock_bind,
+	.connect	   = ieee802154_sock_connect,
 	.socketpair	   = sock_no_socketpair,
 	.accept		   = sock_no_accept,
 	.getname	   = sock_no_getname,
 	.poll		   = datagram_poll,
-	.ioctl		   = ieee80215_sock_ioctl,
+	.ioctl		   = ieee802154_sock_ioctl,
 	.listen		   = sock_no_listen,
 	.shutdown	   = sock_no_shutdown,
 	.setsockopt	   = sock_common_setsockopt,
 	.getsockopt	   = sock_common_getsockopt,
-	.sendmsg	   = ieee80215_sock_sendmsg,
+	.sendmsg	   = ieee802154_sock_sendmsg,
 	.recvmsg	   = sock_common_recvmsg,
 	.mmap		   = sock_no_mmap,
 	.sendpage	   = sock_no_sendpage,
@@ -151,22 +151,22 @@ static const struct proto_ops ieee80215_raw_ops = {
 #endif
 };
 
-static const struct proto_ops ieee80215_dgram_ops = {
-	.family		   = PF_IEEE80215,
+static const struct proto_ops ieee802154_dgram_ops = {
+	.family		   = PF_IEEE802154,
 	.owner		   = THIS_MODULE,
-	.release	   = ieee80215_sock_release,
-	.bind		   = ieee80215_sock_bind,
-	.connect	   = ieee80215_sock_connect,
+	.release	   = ieee802154_sock_release,
+	.bind		   = ieee802154_sock_bind,
+	.connect	   = ieee802154_sock_connect,
 	.socketpair	   = sock_no_socketpair,
 	.accept		   = sock_no_accept,
 	.getname	   = sock_no_getname,
 	.poll		   = datagram_poll,
-	.ioctl		   = ieee80215_sock_ioctl,
+	.ioctl		   = ieee802154_sock_ioctl,
 	.listen		   = sock_no_listen,
 	.shutdown	   = sock_no_shutdown,
 	.setsockopt	   = sock_common_setsockopt,
 	.getsockopt	   = sock_common_getsockopt,
-	.sendmsg	   = ieee80215_sock_sendmsg,
+	.sendmsg	   = ieee802154_sock_sendmsg,
 	.recvmsg	   = sock_common_recvmsg,
 	.mmap		   = sock_no_mmap,
 	.sendpage	   = sock_no_sendpage,
@@ -181,7 +181,7 @@ static const struct proto_ops ieee80215_dgram_ops = {
  * Create a socket. Initialise the socket, blank the addresses
  * set the state.
  */
-static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
+static int ieee802154_create(struct net *net, struct socket *sock, int protocol)
 {
 	struct sock *sk;
 	int rc;
@@ -194,12 +194,12 @@ static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 
 	switch (sock->type) {
 	case SOCK_RAW:
-		proto = &ieee80215_raw_prot;
-		ops = &ieee80215_raw_ops;
+		proto = &ieee802154_raw_prot;
+		ops = &ieee802154_raw_ops;
 		break;
 	case SOCK_DGRAM:
-		proto = &ieee80215_dgram_prot;
-		ops = &ieee80215_dgram_ops;
+		proto = &ieee802154_dgram_prot;
+		ops = &ieee802154_dgram_ops;
 		break;
 	default:
 		rc = -ESOCKTNOSUPPORT;
@@ -207,7 +207,7 @@ static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 	}
 
 	rc = -ENOMEM;
-	sk = sk_alloc(net, PF_IEEE80215, GFP_KERNEL, proto);
+	sk = sk_alloc(net, PF_IEEE802154, GFP_KERNEL, proto);
 	if (!sk)
 		goto out;
 	rc = 0;
@@ -216,7 +216,7 @@ static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 
 	sock_init_data(sock, sk);
 	/* FIXME: sk->sk_destruct */
-	sk->sk_family = PF_IEEE80215;
+	sk->sk_family = PF_IEEE802154;
 
 	/* Checksums on by default */
 	sock_set_flag(sk, SOCK_ZAPPED);
@@ -233,13 +233,13 @@ out:
 	return rc;
 }
 
-static struct net_proto_family ieee80215_family_ops = {
-	.family		= PF_IEEE80215,
-	.create		= ieee80215_create,
+static struct net_proto_family ieee802154_family_ops = {
+	.family		= PF_IEEE802154,
+	.create		= ieee802154_create,
 	.owner		= THIS_MODULE,
 };
 
-static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
+static int ieee802154_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct packet_type *pt, struct net_device *orig_dev)
 {
 	DBG_DUMP(skb->data, skb->len);
@@ -250,13 +250,13 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	if (!net_eq(dev_net(dev), &init_net))
 		goto drop;
 
-	ieee80215_raw_deliver(dev, skb);
+	ieee802154_raw_deliver(dev, skb);
 
-	if (dev->type != ARPHRD_IEEE80215)
+	if (dev->type != ARPHRD_IEEE802154)
 		goto drop;
 
 	if (skb->pkt_type != PACKET_OTHERHOST)
-		return ieee80215_dgram_deliver(dev, skb);
+		return ieee802154_dgram_deliver(dev, skb);
 
 drop:
 	kfree_skb(skb);
@@ -264,49 +264,49 @@ drop:
 }
 
 
-static struct packet_type ieee80215_packet_type = {
-	.type = __constant_htons(ETH_P_IEEE80215),
-	.func = ieee80215_rcv,
+static struct packet_type ieee802154_packet_type = {
+	.type = __constant_htons(ETH_P_IEEE802154),
+	.func = ieee802154_rcv,
 };
 
-static int __init af_ieee80215_init(void)
+static int __init af_ieee802154_init(void)
 {
 	int rc = -EINVAL;
 
-	rc = proto_register(&ieee80215_raw_prot, 1);
+	rc = proto_register(&ieee802154_raw_prot, 1);
 	if (rc)
 		goto out;
 
-	rc = proto_register(&ieee80215_dgram_prot, 1);
+	rc = proto_register(&ieee802154_dgram_prot, 1);
 	if (rc)
 		goto err_dgram;
 
 	/* Tell SOCKET that we are alive */
-	rc = sock_register(&ieee80215_family_ops);
+	rc = sock_register(&ieee802154_family_ops);
 	if (rc)
 		goto err_sock;
-	dev_add_pack(&ieee80215_packet_type);
+	dev_add_pack(&ieee802154_packet_type);
 
 	rc = 0;
 	goto out;
 
 err_sock:
-	proto_unregister(&ieee80215_dgram_prot);
+	proto_unregister(&ieee802154_dgram_prot);
 err_dgram:
-	proto_unregister(&ieee80215_raw_prot);
+	proto_unregister(&ieee802154_raw_prot);
 out:
 	return rc;
 }
-static void af_ieee80215_remove(void)
+static void af_ieee802154_remove(void)
 {
-	dev_remove_pack(&ieee80215_packet_type);
-	sock_unregister(PF_IEEE80215);
-	proto_unregister(&ieee80215_dgram_prot);
-	proto_unregister(&ieee80215_raw_prot);
+	dev_remove_pack(&ieee802154_packet_type);
+	sock_unregister(PF_IEEE802154);
+	proto_unregister(&ieee802154_dgram_prot);
+	proto_unregister(&ieee802154_raw_prot);
 }
 
-module_init(af_ieee80215_init);
-module_exit(af_ieee80215_remove);
+module_init(af_ieee802154_init);
+module_exit(af_ieee802154_remove);
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_NETPROTO(PF_IEEE80215);
+MODULE_ALIAS_NETPROTO(PF_IEEE802154);

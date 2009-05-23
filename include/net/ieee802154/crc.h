@@ -1,5 +1,6 @@
 /*
- * MLME START
+ * based on crc-itu-t.c.
+ * Basically it's CRC-ITU-T but with inverted bit numbering
  *
  * Copyright 2007, 2008 Siemens AG
  *
@@ -17,30 +18,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * Written by:
- * Sergey Lapin <sergey.lapin@siemens.com>
- * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
+ * 	Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
  */
 
-#include <linux/kernel.h>
-#include <linux/netdevice.h>
-#include <linux/if.h>
-#include <linux/if_arp.h>
-#include <linux/if_ether.h>
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_def.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/nl.h>
+extern const u16 ieee802154_crc_table[256];
 
-int ieee80215_mlme_start_req(struct net_device *dev, u16 panid, u8 channel,
-			     u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
-			     u8 coord_realign, u8 sec)
+static inline u16 ieee802154_crc_byte(u16 crc, const u8 data)
 {
-	ieee80215_set_pan_id(dev, panid);
-	if (pan_coord)
-		dev->priv_flags |= IFF_IEEE80215_COORD;
-	else
-		dev->priv_flags &= ~IFF_IEEE80215_COORD;
-
-	return 0;
+	return (crc >> 8) ^ ieee802154_crc_table[(crc ^ data) & 0xff];
 }
+
+static inline u16 ieee802154_crc(u16 crc, const u8 *buffer, size_t len)
+{
+	while (len--)
+		crc = ieee802154_crc_byte(crc, *buffer++);
+	return crc;
+}
+
 

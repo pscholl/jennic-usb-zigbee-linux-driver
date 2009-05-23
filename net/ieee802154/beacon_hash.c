@@ -25,28 +25,28 @@
 #include <linux/spinlock.h>
 #include <net/sock.h>
 
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/beacon_hash.h>
+#include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/beacon_hash.h>
 
-static struct hlist_head beacon_hash[IEEE80215_BEACON_HTABLE_SIZE];
+static struct hlist_head beacon_hash[IEEE802154_BEACON_HTABLE_SIZE];
 static DEFINE_RWLOCK(beacon_hash_lock);
 
-static int beacon_hashfn(struct ieee80215_addr *coord_addr, u16 pan_addr)
+static int beacon_hashfn(struct ieee802154_addr *coord_addr, u16 pan_addr)
 {
-	return pan_addr % IEEE80215_BEACON_HTABLE_SIZE;
+	return pan_addr % IEEE802154_BEACON_HTABLE_SIZE;
 }
 
-static void __beacon_add_node(struct ieee80215_addr *coord_addr, u16 pan_addr)
+static void __beacon_add_node(struct ieee802154_addr *coord_addr, u16 pan_addr)
 {
 	struct beacon_node *node = kzalloc(sizeof(struct beacon_node), GFP_KERNEL);
 	struct hlist_head *list = &beacon_hash[beacon_hashfn(coord_addr, pan_addr)];
-	memcpy(&node->coord_addr, coord_addr, sizeof(struct ieee80215_addr));
+	memcpy(&node->coord_addr, coord_addr, sizeof(struct ieee802154_addr));
 	node->pan_addr = pan_addr;
 	INIT_HLIST_NODE(&node->list);
 	hlist_add_head(&node->list, list);
 }
 
-struct beacon_node *ieee80215_beacon_find_pan(struct ieee80215_addr *coord_addr,
+struct beacon_node *ieee802154_beacon_find_pan(struct ieee802154_addr *coord_addr,
 						u16 pan_addr)
 {
 	struct hlist_head *list;
@@ -61,21 +61,21 @@ struct beacon_node *ieee80215_beacon_find_pan(struct ieee80215_addr *coord_addr,
 	}
 	return NULL;
 }
-EXPORT_SYMBOL(ieee80215_beacon_find_pan);
+EXPORT_SYMBOL(ieee802154_beacon_find_pan);
 
-void ieee80215_beacon_hash_add(struct ieee80215_addr *coord_addr)
+void ieee802154_beacon_hash_add(struct ieee802154_addr *coord_addr)
 {
-	if (!ieee80215_beacon_find_pan(coord_addr, coord_addr->pan_id)) {
+	if (!ieee802154_beacon_find_pan(coord_addr, coord_addr->pan_id)) {
 		write_lock(&beacon_hash_lock);
 		__beacon_add_node(coord_addr, coord_addr->pan_id);
 		write_unlock(&beacon_hash_lock);
 	}
 }
-EXPORT_SYMBOL(ieee80215_beacon_hash_add);
+EXPORT_SYMBOL(ieee802154_beacon_hash_add);
 
-void ieee80215_beacon_hash_del(struct ieee80215_addr *coord_addr)
+void ieee802154_beacon_hash_del(struct ieee802154_addr *coord_addr)
 {
-	struct beacon_node *entry = ieee80215_beacon_find_pan(coord_addr,
+	struct beacon_node *entry = ieee802154_beacon_find_pan(coord_addr,
 								coord_addr->pan_id);
 	if (!entry)
 		return;
@@ -84,15 +84,15 @@ void ieee80215_beacon_hash_del(struct ieee80215_addr *coord_addr)
 	write_unlock(&beacon_hash_lock);
 	kfree(entry);
 }
-EXPORT_SYMBOL(ieee80215_beacon_hash_del);
+EXPORT_SYMBOL(ieee802154_beacon_hash_del);
 
-void ieee80215_beacon_hash_dump(void)
+void ieee802154_beacon_hash_dump(void)
 {
 	int i;
 	struct hlist_node *tmp;
 	pr_debug("beacon hash dump begin\n");
 	read_lock(&beacon_hash_lock);
-	for (i = 0; i < IEEE80215_BEACON_HTABLE_SIZE; i++) {
+	for (i = 0; i < IEEE802154_BEACON_HTABLE_SIZE; i++) {
 		struct beacon_node *entry;
 		hlist_for_each(tmp, &beacon_hash[i]) {
 			entry = hlist_entry(tmp, struct beacon_node, list);
