@@ -21,9 +21,9 @@
  */
 
 #include <linux/types.h>
-#include <net/ieee80215/crc.h>
+#include <net/ieee802154/crc.h>
 
-const u16 ieee80215_crc_table[256] = {
+const u16 ieee802154_crc_table[256] = {
 	0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf,
 	0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5, 0xe97e, 0xf8f7,
 	0x1081, 0x0108, 0x3393, 0x221a, 0x56a5, 0x472c, 0x75b7, 0x643e,
@@ -67,7 +67,7 @@ void generate()
 	for (i = 0x80; i ; i >>= 1) {
 		crc = (crc >> 1) ^ ((crc & 1) ? 0x8408 : 0);
 		for (j = 0; j < 256; j += 2 * i)
-			ieee80215_crc_table[i + j] = crc ^ ieee80215_crc_table[j];
+			ieee802154_crc_table[i + j] = crc ^ ieee802154_crc_table[j];
 	}
 }
 #endif

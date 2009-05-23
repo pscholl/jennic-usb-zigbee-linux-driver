@@ -31,7 +31,7 @@
 #include <linux/tty.h>
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
-#include <net/ieee80215/dev.h>
+#include <net/ieee802154/dev.h>
 
 
 /* NOTE: be sure to use here the same values as in the firmware */
@@ -102,7 +102,7 @@ enum {
 struct zb_device {
 	/* Relative devices */
 	struct tty_struct	*tty;
-	struct ieee80215_dev	*dev;
+	struct ieee802154_dev	*dev;
 
 	/* locks the ldisc for the command */
 	struct mutex		mutex;
@@ -336,7 +336,7 @@ static void serial_net_rx(struct zb_device *zbdev)
 	skb = alloc_skb(zbdev->param2, GFP_ATOMIC);
 	skb_put(skb, zbdev->param2);
 	skb_copy_to_linear_data(skb, zbdev->data, zbdev->param2);
-	ieee80215_rx_irqsafe(zbdev->dev, skb, zbdev->param1);
+	ieee802154_rx_irqsafe(zbdev->dev, skb, zbdev->param1);
 }
 
 static void
@@ -547,7 +547,7 @@ static int _open_dev(struct zb_device *zbdev)
 
 /* Valid channels: 1-16 */
 static phy_status_t
-ieee80215_serial_set_channel(struct ieee80215_dev *dev, int channel)
+ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -591,7 +591,7 @@ out:
 }
 
 static phy_status_t
-ieee80215_serial_ed(struct ieee80215_dev *dev, u8 *level)
+ieee802154_serial_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -631,7 +631,7 @@ out:
 }
 
 static phy_status_t
-ieee80215_serial_cca(struct ieee80215_dev *dev)
+ieee802154_serial_cca(struct ieee802154_dev *dev)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -663,7 +663,7 @@ out:
 }
 
 static phy_status_t
-ieee80215_serial_set_state(struct ieee80215_dev *dev, phy_status_t state)
+ieee802154_serial_set_state(struct ieee802154_dev *dev, phy_status_t state)
 {
 	struct zb_device *zbdev;
 	unsigned char flag;
@@ -714,7 +714,7 @@ out:
 }
 
 static phy_status_t
-ieee80215_serial_xmit(struct ieee80215_dev *dev, struct sk_buff *skb)
+ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct zb_device *zbdev;
 	phy_status_t ret;
@@ -750,13 +750,13 @@ out:
  * Line discipline interface for IEEE 802.15.4 serial device
  *****************************************************************************/
 
-static struct ieee80215_ops serial_ops = {
+static struct ieee802154_ops serial_ops = {
 	.owner = THIS_MODULE,
-	.tx = ieee80215_serial_xmit,
-	.ed = ieee80215_serial_ed,
-	.cca = ieee80215_serial_cca,
-	.set_trx_state = ieee80215_serial_set_state,
-	.set_channel	= ieee80215_serial_set_channel,
+	.tx = ieee802154_serial_xmit,
+	.ed = ieee802154_serial_ed,
+	.cca = ieee802154_serial_cca,
+	.set_trx_state = ieee802154_serial_set_state,
+	.set_channel	= ieee802154_serial_set_channel,
 };
 
 static int dev_minor_match(struct device *dev, void *data)
@@ -770,7 +770,7 @@ static int dev_minor_match(struct device *dev, void *data)
  * Returns 0 on success.
  */
 static int
-ieee80215_tty_open(struct tty_struct *tty)
+ieee802154_tty_open(struct tty_struct *tty)
 {
 	struct zb_device *zbdev = tty->disc_data;
 	int err;
@@ -793,7 +793,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 	init_completion(&zbdev->open_done);
 	init_waitqueue_head(&zbdev->wq);
 
-	zbdev->dev = ieee80215_alloc_device();
+	zbdev->dev = ieee802154_alloc_device();
 	if (!zbdev->dev) {
 		err = -ENOMEM;
 		goto out_free_zb;
@@ -804,7 +804,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 	zbdev->dev->extra_tx_headroom	= 0;
 	zbdev->dev->channel_mask	= 0x7ff;
 	zbdev->dev->current_channel	= 11; /* it's 1st channel of 2.4 Ghz space */
-	zbdev->dev->flags		= IEEE80215_OPS_OMIT_CKSUM;
+	zbdev->dev->flags		= IEEE802154_OPS_OMIT_CKSUM;
 
 	minor = tty->index + tty->driver->minor_start;
 	zbdev->dev->parent = class_find_device(tty_class, NULL, &minor, dev_minor_match);
@@ -823,7 +823,7 @@ ieee80215_tty_open(struct tty_struct *tty)
 		tty->ldisc.ops->flush_buffer(tty);
 	tty_driver_flush_buffer(tty);
 
-	err = ieee80215_register_device(zbdev->dev, &serial_ops);
+	err = ieee802154_register_device(zbdev->dev, &serial_ops);
 	/* we put it only after it has a chance to be get by network core */
 	if (zbdev->dev->parent)
 		put_device(zbdev->dev->parent);
@@ -834,12 +834,12 @@ ieee80215_tty_open(struct tty_struct *tty)
 
 	return 0;
 
-	ieee80215_unregister_device(zbdev->dev);
+	ieee802154_unregister_device(zbdev->dev);
 
 out_free:
 	tty->disc_data = NULL;
 
-	ieee80215_free_device(zbdev->dev);
+	ieee802154_free_device(zbdev->dev);
 out_free_zb:
 	kfree(zbdev);
 
@@ -854,7 +854,7 @@ out_free_zb:
  * interrupt or softirq context.
  */
 static void
-ieee80215_tty_close(struct tty_struct *tty)
+ieee802154_tty_close(struct tty_struct *tty)
 {
 	struct zb_device *zbdev;
 
@@ -867,12 +867,12 @@ ieee80215_tty_close(struct tty_struct *tty)
 	tty->disc_data = NULL;
 	zbdev->tty = NULL;
 
-	ieee80215_unregister_device(zbdev->dev);
+	ieee802154_unregister_device(zbdev->dev);
 
 	tty_ldisc_flush(tty);
 	tty_driver_flush_buffer(tty);
 
-	ieee80215_free_device(zbdev->dev);
+	ieee802154_free_device(zbdev->dev);
 	kfree(zbdev);
 }
 
@@ -880,9 +880,9 @@ ieee80215_tty_close(struct tty_struct *tty)
  * Called on tty hangup in process context.
  */
 static int
-ieee80215_tty_hangup(struct tty_struct *tty)
+ieee802154_tty_hangup(struct tty_struct *tty)
 {
-	ieee80215_tty_close(tty);
+	ieee802154_tty_close(tty);
 	return 0;
 }
 
@@ -890,11 +890,11 @@ ieee80215_tty_hangup(struct tty_struct *tty)
  * Called in process context only. May be re-entered by multiple ioctl calling threads.
  */
 static int
-ieee80215_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
+ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct zb_device *zbdev;
 	struct ifreq ifr;
-	struct ieee80215_priv *priv;
+	struct ieee802154_priv *priv;
 	int err;
 	void __user *argp = (void __user *) arg;
 
@@ -911,7 +911,7 @@ ieee80215_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd,
 	switch (cmd) {
 	case PPPIOCGUNIT:
 		/* TODO: some error checking */
-		priv = ieee80215_to_priv(zbdev->dev);
+		priv = ieee802154_to_priv(zbdev->dev);
 		BUG_ON(!priv->master);
 		err = -EFAULT;
 		if (copy_to_user(argp, priv->master->name, strlen(priv->master->name)))
@@ -931,7 +931,7 @@ ieee80215_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd,
  * as soft interrupt level or mainline.
  */
 static void
-ieee80215_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, int count)
+ieee802154_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, int count)
 {
 	struct zb_device *zbdev;
 	int i;
@@ -960,26 +960,26 @@ ieee80215_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cf
 /*
  * Line discipline device structure
  */
-static struct tty_ldisc_ops ieee80215_ldisc = {
+static struct tty_ldisc_ops ieee802154_ldisc = {
 	.owner  = THIS_MODULE,
 	.magic	= TTY_LDISC_MAGIC,
-	.name	= "ieee80215-ldisc",
-	.open	= ieee80215_tty_open,
-	.close	= ieee80215_tty_close,
-	.hangup	= ieee80215_tty_hangup,
-	.receive_buf = ieee80215_tty_receive,
-	.ioctl	= ieee80215_tty_ioctl,
+	.name	= "ieee802154-ldisc",
+	.open	= ieee802154_tty_open,
+	.close	= ieee802154_tty_close,
+	.hangup	= ieee802154_tty_hangup,
+	.receive_buf = ieee802154_tty_receive,
+	.ioctl	= ieee802154_tty_ioctl,
 };
 
 /*****************************************************************************
  * Module service routinues
  *****************************************************************************/
 
-static int __init ieee80215_serial_init(void)
+static int __init ieee802154_serial_init(void)
 {
 	printk(KERN_INFO "Initializing ZigBee TTY interface\n");
 
-	if (tty_register_ldisc(N_IEEE80215, &ieee80215_ldisc) != 0) {
+	if (tty_register_ldisc(N_IEEE802154, &ieee802154_ldisc) != 0) {
 		printk(KERN_ERR "%s: line discipline register failed\n", __func__);
 		return -EINVAL;
 	}
@@ -987,15 +987,15 @@ static int __init ieee80215_serial_init(void)
 	return 0;
 }
 
-static void __exit ieee80215_serial_cleanup(void)
+static void __exit ieee802154_serial_cleanup(void)
 {
-	if (tty_unregister_ldisc(N_IEEE80215) != 0)
+	if (tty_unregister_ldisc(N_IEEE802154) != 0)
 		printk(KERN_CRIT "failed to unregister ZigBee line discipline.\n");
 }
 
-module_init(ieee80215_serial_init);
-module_exit(ieee80215_serial_cleanup);
+module_init(ieee802154_serial_init);
+module_exit(ieee802154_serial_cleanup);
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_LDISC(N_IEEE80215);
+MODULE_ALIAS_LDISC(N_IEEE802154);
 

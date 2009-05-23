@@ -26,9 +26,9 @@
 #include <linux/if_arp.h>
 #include <linux/list.h>
 #include <net/sock.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_def.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/mac_def.h>
 #include <asm/ioctls.h>
 
 static HLIST_HEAD(dgram_head);
@@ -38,8 +38,8 @@ struct dgram_sock {
 	struct sock sk;
 
 	int bound;
-	struct ieee80215_addr src_addr;
-	struct ieee80215_addr dst_addr;
+	struct ieee802154_addr src_addr;
+	struct ieee802154_addr dst_addr;
 };
 
 static inline struct dgram_sock *dgram_sk(const struct sock *sk)
@@ -68,7 +68,7 @@ static int dgram_init(struct sock *sk)
 {
 	struct dgram_sock *ro = dgram_sk(sk);
 
-	ro->dst_addr.addr_type = IEEE80215_ADDR_LONG;
+	ro->dst_addr.addr_type = IEEE802154_ADDR_LONG;
 	ro->dst_addr.pan_id = 0xffff;
 	memset(&ro->dst_addr.hwaddr, 0xff, sizeof(ro->dst_addr.hwaddr));
 	return 0;
@@ -81,7 +81,7 @@ static void dgram_close(struct sock *sk, long timeout)
 
 static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 {
-	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
+	struct sockaddr_ieee802154 *addr = (struct sockaddr_ieee802154 *)uaddr;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int err = 0;
 	struct net_device *dev;
@@ -91,23 +91,23 @@ static int dgram_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 	if (len < sizeof(*addr))
 		return -EINVAL;
 
-	if (addr->family != AF_IEEE80215)
+	if (addr->family != AF_IEEE802154)
 		return -EINVAL;
 
 	lock_sock(sk);
 
-	dev = ieee80215_get_dev(sock_net(sk), &addr->addr);
+	dev = ieee802154_get_dev(sock_net(sk), &addr->addr);
 	if (!dev) {
 		err = -ENODEV;
 		goto out;
 	}
 
-	if (dev->type != ARPHRD_IEEE80215) {
+	if (dev->type != ARPHRD_IEEE802154) {
 		err = -ENODEV;
 		goto out_put;
 	}
 
-	memcpy(&ro->src_addr, &addr->addr, sizeof(struct ieee80215_addr));
+	memcpy(&ro->src_addr, &addr->addr, sizeof(struct ieee802154_addr));
 
 	ro->bound = 1;
 out_put:
@@ -156,14 +156,14 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
 			int len)
 {
-	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
+	struct sockaddr_ieee802154 *addr = (struct sockaddr_ieee802154 *)uaddr;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int err = 0;
 
 	if (len < sizeof(*addr))
 		return -EINVAL;
 
-	if (addr->family != AF_IEEE80215)
+	if (addr->family != AF_IEEE802154)
 		return -EINVAL;
 
 	lock_sock(sk);
@@ -173,7 +173,7 @@ static int dgram_connect(struct sock *sk, struct sockaddr *uaddr,
 		goto out;
 	}
 
-	memcpy(&ro->dst_addr, &addr->addr, sizeof(struct ieee80215_addr));
+	memcpy(&ro->dst_addr, &addr->addr, sizeof(struct ieee802154_addr));
 
 out:
 	release_sock(sk);
@@ -186,7 +186,7 @@ static int dgram_disconnect(struct sock *sk, int flags)
 
 	lock_sock(sk);
 
-	ro->dst_addr.addr_type = IEEE80215_ADDR_LONG;
+	ro->dst_addr.addr_type = IEEE802154_ADDR_LONG;
 	memset(&ro->dst_addr.hwaddr, 0xff, sizeof(ro->dst_addr.hwaddr));
 
 	release_sock(sk);
@@ -202,7 +202,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	struct sk_buff *skb;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int err;
-	struct ieee80215_priv *hw;
+	struct ieee802154_priv *hw;
 
 	if (msg->msg_flags & MSG_OOB) {
 		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
@@ -210,15 +210,15 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	}
 
 	if (!ro->bound)
-		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE80215);
+		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE802154);
 	else
-		dev = ieee80215_get_dev(sock_net(sk), &ro->src_addr);
+		dev = ieee802154_get_dev(sock_net(sk), &ro->src_addr);
 
 	if (!dev) {
 		pr_debug("no dev\n");
 		return -ENXIO;
 	}
-	hw = ieee80215_slave_get_hw(dev);
+	hw = ieee802154_slave_get_hw(dev);
 	mtu = dev->mtu;
 	pr_debug("name = %s, mtu = %u\n", dev->name, mtu);
 
@@ -232,9 +232,9 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 
 	skb_reset_network_header(skb);
 
-	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
+	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
 	MAC_CB(skb)->seq = hw->dsn;
-	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
+	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
 	if (err < 0) {
 		kfree_skb(skb);
 		dev_put(dev);
@@ -257,7 +257,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 
 	skb->dev = dev;
 	skb->sk  = sk;
-	skb->protocol = htons(ETH_P_IEEE80215);
+	skb->protocol = htons(ETH_P_IEEE802154);
 
 	err = dev_queue_xmit(skb);
 	hw->dsn++;
@@ -315,7 +315,7 @@ static int dgram_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	return NET_RX_SUCCESS;
 }
 
-int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
+int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk, *prev = NULL;
 	struct hlist_node *node;
@@ -327,11 +327,11 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	sk_for_each(sk, node, &dgram_head) {
 		struct dgram_sock *ro = dgram_sk(sk);
 		if (!ro->bound ||
-		  (ro->src_addr.addr_type == IEEE80215_ADDR_LONG &&
-		     !memcmp(ro->src_addr.hwaddr, dev->dev_addr, IEEE80215_ADDR_LEN)) ||
-		  (ro->src_addr.addr_type == IEEE80215_ADDR_SHORT &&
-		     ieee80215_dev_get_pan_id(dev) == ro->src_addr.pan_id &&
-		     ieee80215_dev_get_short_addr(dev) == ro->src_addr.short_addr)) {
+		  (ro->src_addr.addr_type == IEEE802154_ADDR_LONG &&
+		     !memcmp(ro->src_addr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN)) ||
+		  (ro->src_addr.addr_type == IEEE802154_ADDR_SHORT &&
+		     ieee802154_dev_get_pan_id(dev) == ro->src_addr.pan_id &&
+		     ieee802154_dev_get_short_addr(dev) == ro->src_addr.short_addr)) {
 			if (prev) {
 				struct sk_buff *clone;
 				clone = skb_clone(skb, GFP_ATOMIC);
@@ -354,7 +354,7 @@ int ieee80215_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	return ret;
 }
 
-struct proto ieee80215_dgram_prot = {
+struct proto ieee802154_dgram_prot = {
 	.name		= "IEEE-802.15.4-MAC",
 	.owner		= THIS_MODULE,
 	.obj_size	= sizeof(struct dgram_sock),

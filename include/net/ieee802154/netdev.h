@@ -1,5 +1,5 @@
 /*
- * IEEE80215.4 net device
+ * IEEE802154.4 net device
  *
  * Copyright 2008 Siemens AG
  *
@@ -18,46 +18,46 @@
  *
  */
 
-#ifndef IEEE80215_NETDEV_H
-#define IEEE80215_NETDEV_H
+#ifndef IEEE802154_NETDEV_H
+#define IEEE802154_NETDEV_H
 #include <linux/netdevice.h>
-#include <net/ieee80215/dev.h>
-#include <net/ieee80215/phy.h>
-#include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee802154/dev.h>
+#include <net/ieee802154/phy.h>
+#include <net/ieee802154/af_ieee802154.h>
 
-int ieee80215_register_netdev_master(struct ieee80215_priv *hw);
-void ieee80215_unregister_netdev_master(struct ieee80215_priv *hw);
+int ieee802154_register_netdev_master(struct ieee802154_priv *hw);
+void ieee802154_unregister_netdev_master(struct ieee802154_priv *hw);
 
 /* FIXME: this header should be probably separated, as it contains both driver-specific and stack specific things */
-void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb);
-struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev);
+void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb);
+struct ieee802154_priv *ieee802154_slave_get_hw(struct net_device *dev);
 
-struct ieee80215_addr;
-struct net_device *ieee80215_get_dev(struct net *net, struct ieee80215_addr *sa);
+struct ieee802154_addr;
+struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *sa);
 
 /* FIXME: should be dropped in favour of MIB getting */
-u16 ieee80215_dev_get_pan_id(struct net_device *dev);
-u16 ieee80215_dev_get_short_addr(struct net_device *dev);
-void ieee80215_dev_set_pan_id(struct net_device *dev, u16 val);
-void ieee80215_dev_set_short_addr(struct net_device *dev, u16 val);
-void ieee80215_dev_set_channel(struct net_device *dev, u8 chan);
+u16 ieee802154_dev_get_pan_id(struct net_device *dev);
+u16 ieee802154_dev_get_short_addr(struct net_device *dev);
+void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val);
+void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val);
+void ieee802154_dev_set_channel(struct net_device *dev, u8 chan);
 
-struct ieee80215_phy_cb {
+struct ieee802154_phy_cb {
 	u8 lqi;
 	u8 chan;
 };
 
-#define PHY_CB(skb)	((struct ieee80215_phy_cb *)(skb)->cb)
+#define PHY_CB(skb)	((struct ieee802154_phy_cb *)(skb)->cb)
 
 
-struct ieee80215_mac_cb {
-	struct ieee80215_phy_cb phy;
-	struct ieee80215_addr sa;
-	struct ieee80215_addr da;
+struct ieee802154_mac_cb {
+	struct ieee802154_phy_cb phy;
+	struct ieee802154_addr sa;
+	struct ieee802154_addr da;
 	u8 flags;
 	u8 seq;
 };
-#define MAC_CB(skb)	((struct ieee80215_mac_cb *)(skb)->cb)
+#define MAC_CB(skb)	((struct ieee802154_mac_cb *)(skb)->cb)
 
 #define MAC_CB_FLAG_TYPEMASK		((1 << 3) - 1)
 
