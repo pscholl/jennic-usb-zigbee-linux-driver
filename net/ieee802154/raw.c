@@ -26,8 +26,8 @@
 #include <linux/if_arp.h>
 #include <linux/list.h>
 #include <net/sock.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/af_ieee802154.h>
 
 static HLIST_HEAD(raw_head);
 static DEFINE_RWLOCK(raw_lock);
@@ -55,25 +55,25 @@ static void raw_close(struct sock *sk, long timeout)
 
 static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 {
-	struct sockaddr_ieee80215 *addr = (struct sockaddr_ieee80215 *)uaddr;
+	struct sockaddr_ieee802154 *addr = (struct sockaddr_ieee802154 *)uaddr;
 	int err = 0;
 	struct net_device *dev = NULL;
 
 	if (len < sizeof(*addr))
 		return -EINVAL;
 
-	if (addr->family != AF_IEEE80215)
+	if (addr->family != AF_IEEE802154)
 		return -EINVAL;
 
 	lock_sock(sk);
 
-	dev = ieee80215_get_dev(sock_net(sk), &addr->addr);
+	dev = ieee802154_get_dev(sock_net(sk), &addr->addr);
 	if (!dev) {
 		err = -ENODEV;
 		goto out;
 	}
 
-	if (dev->type != ARPHRD_IEEE80215_PHY && dev->type != ARPHRD_IEEE80215) {
+	if (dev->type != ARPHRD_IEEE802154_PHY && dev->type != ARPHRD_IEEE802154) {
 		err = -ENODEV;
 		goto out_put;
 	}
@@ -115,7 +115,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 	lock_sock(sk);
 	if (!sk->sk_bound_dev_if)
-		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE80215_PHY);
+		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE802154_PHY);
 	else
 		dev = dev_get_by_index(sock_net(sk), sk->sk_bound_dev_if);
 	release_sock(sk);
@@ -151,7 +151,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 	skb->dev = dev;
 	skb->sk  = sk;
-	skb->protocol = htons(ETH_P_IEEE80215);
+	skb->protocol = htons(ETH_P_IEEE802154);
 
 	err = dev_queue_xmit(skb);
 
@@ -212,7 +212,7 @@ static int raw_rcv_skb(struct sock *sk, struct sk_buff *skb)
 }
 
 
-void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
+void ieee802154_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk;
 	struct hlist_node *node;
@@ -233,7 +233,7 @@ void ieee80215_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 	read_unlock(&raw_lock);
 }
 
-struct proto ieee80215_raw_prot = {
+struct proto ieee802154_raw_prot = {
 	.name		= "IEEE-802.15.4-RAW",
 	.owner		= THIS_MODULE,
 	.obj_size	= sizeof(struct sock),

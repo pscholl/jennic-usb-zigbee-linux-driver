@@ -25,15 +25,15 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/if_ether.h>
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_def.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/nl.h>
-#include <net/ieee80215/beacon.h>
+#include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/mac_def.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/nl.h>
+#include <net/ieee802154/beacon.h>
 
-static int ieee80215_cmd_beacon_req(struct sk_buff *skb)
+static int ieee802154_cmd_beacon_req(struct sk_buff *skb)
 {
-	struct ieee80215_addr saddr; /* jeez */
+	struct ieee802154_addr saddr; /* jeez */
 	int flags = 0;
 	if (skb->len != 1)
 		return -EINVAL;
@@ -43,13 +43,13 @@ static int ieee80215_cmd_beacon_req(struct sk_buff *skb)
 
 	/* Checking if we're really PAN coordinator
 	 * before sending beacons */
-	if (!(skb->dev->priv_flags & IFF_IEEE80215_COORD))
+	if (!(skb->dev->priv_flags & IFF_IEEE802154_COORD))
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE ||
-	    MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_SHORT ||
-	    MAC_CB(skb)->da.pan_id != IEEE80215_PANID_BROADCAST ||
-	    MAC_CB(skb)->da.short_addr != IEEE80215_ADDR_BROADCAST)
+	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_NONE ||
+	    MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_SHORT ||
+	    MAC_CB(skb)->da.pan_id != IEEE802154_PANID_BROADCAST ||
+	    MAC_CB(skb)->da.short_addr != IEEE802154_ADDR_BROADCAST)
 		return -EINVAL;
 
 
@@ -57,11 +57,11 @@ static int ieee80215_cmd_beacon_req(struct sk_buff *skb)
 	 * We have no information in this command to proceed with.
 	 * we need to submit beacon as answer to this. */
 
-	return ieee80215_send_beacon(skb->dev, &saddr, ieee80215_dev_get_pan_id(skb->dev),
+	return ieee802154_send_beacon(skb->dev, &saddr, ieee802154_dev_get_pan_id(skb->dev),
 			NULL, 0, flags, NULL);
 }
 
-static int ieee80215_cmd_assoc_req(struct sk_buff *skb)
+static int ieee802154_cmd_assoc_req(struct sk_buff *skb)
 {
 	u8 cap;
 
@@ -71,18 +71,18 @@ static int ieee80215_cmd_assoc_req(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
-	    MAC_CB(skb)->sa.pan_id != IEEE80215_PANID_BROADCAST)
+	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
+	    MAC_CB(skb)->sa.pan_id != IEEE802154_PANID_BROADCAST)
 		return -EINVAL;
 
 	/* FIXME: check that we allow incoming ASSOC requests by consulting MIB */
 
 	cap = skb->data[1];
 
-	return ieee80215_nl_assoc_indic(skb->dev, &MAC_CB(skb)->sa, cap);
+	return ieee802154_nl_assoc_indic(skb->dev, &MAC_CB(skb)->sa, cap);
 }
 
-static int ieee80215_cmd_assoc_resp(struct sk_buff *skb)
+static int ieee802154_cmd_assoc_resp(struct sk_buff *skb)
 {
 	u8 status;
 	u16 short_addr;
@@ -93,8 +93,8 @@ static int ieee80215_cmd_assoc_resp(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
-	    MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
+	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
+	    MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
 	    !(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN))
 		return -EINVAL;
 
@@ -104,15 +104,15 @@ static int ieee80215_cmd_assoc_resp(struct sk_buff *skb)
 	short_addr = skb->data[1] | (skb->data[2] << 8);
 	pr_info("Received ASSOC-RESP status %x, addr %hx\n", status, short_addr);
 	if (status) {
-		ieee80215_dev_set_short_addr(skb->dev, IEEE80215_ADDR_BROADCAST);
-		ieee80215_dev_set_pan_id(skb->dev, IEEE80215_PANID_BROADCAST);
+		ieee802154_dev_set_short_addr(skb->dev, IEEE802154_ADDR_BROADCAST);
+		ieee802154_dev_set_pan_id(skb->dev, IEEE802154_PANID_BROADCAST);
 	} else
-		ieee80215_dev_set_short_addr(skb->dev, short_addr);
+		ieee802154_dev_set_short_addr(skb->dev, short_addr);
 
-	return ieee80215_nl_assoc_confirm(skb->dev, short_addr, status);
+	return ieee802154_nl_assoc_confirm(skb->dev, short_addr, status);
 }
 
-static int ieee80215_cmd_disassoc_notify(struct sk_buff *skb)
+static int ieee802154_cmd_disassoc_notify(struct sk_buff *skb)
 {
 	u8 reason;
 
@@ -122,9 +122,9 @@ static int ieee80215_cmd_disassoc_notify(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_LONG ||
-	    (MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_LONG &&
-	     MAC_CB(skb)->da.addr_type != IEEE80215_ADDR_SHORT) ||
+	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
+	    (MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_LONG &&
+	     MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_SHORT) ||
 	    MAC_CB(skb)->sa.pan_id != MAC_CB(skb)->da.pan_id)
 		return -EINVAL;
 
@@ -134,10 +134,10 @@ static int ieee80215_cmd_disassoc_notify(struct sk_buff *skb)
 	/* FIXME: if we device, one should receive ->da and not ->sa */
 	/* FIXME: the status should also help */
 
-	return ieee80215_nl_disassoc_indic(skb->dev, &MAC_CB(skb)->sa, reason);
+	return ieee802154_nl_disassoc_indic(skb->dev, &MAC_CB(skb)->sa, reason);
 }
 
-int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
+int ieee802154_process_cmd(struct net_device *dev, struct sk_buff *skb)
 {
 	u8 cmd;
 
@@ -150,17 +150,17 @@ int ieee80215_process_cmd(struct net_device *dev, struct sk_buff *skb)
 	pr_debug("Command %02x on device %s\n", cmd, dev->name);
 
 	switch (cmd) {
-	case IEEE80215_CMD_ASSOCIATION_REQ:
-		ieee80215_cmd_assoc_req(skb);
+	case IEEE802154_CMD_ASSOCIATION_REQ:
+		ieee802154_cmd_assoc_req(skb);
 		break;
-	case IEEE80215_CMD_ASSOCIATION_RESP:
-		ieee80215_cmd_assoc_resp(skb);
+	case IEEE802154_CMD_ASSOCIATION_RESP:
+		ieee802154_cmd_assoc_resp(skb);
 		break;
-	case IEEE80215_CMD_DISASSOCIATION_NOTIFY:
-		ieee80215_cmd_disassoc_notify(skb);
+	case IEEE802154_CMD_DISASSOCIATION_NOTIFY:
+		ieee802154_cmd_disassoc_notify(skb);
 		break;
-	case IEEE80215_CMD_BEACON_REQ:
-		ieee80215_cmd_beacon_req(skb);
+	case IEEE802154_CMD_BEACON_REQ:
+		ieee802154_cmd_beacon_req(skb);
 		break;
 	default:
 		pr_debug("Frame type is not supported yet\n");
@@ -176,27 +176,27 @@ drop:
 	return NET_RX_DROP;
 }
 
-int ieee80215_send_beacon_req(struct net_device *dev)
+int ieee802154_send_beacon_req(struct net_device *dev)
 {
-	struct ieee80215_addr addr;
-	struct ieee80215_addr saddr;
-	u8 cmd = IEEE80215_CMD_BEACON_REQ;
-	addr.addr_type = IEEE80215_ADDR_SHORT;
-	addr.short_addr = IEEE80215_ADDR_BROADCAST;
-	addr.pan_id = IEEE80215_PANID_BROADCAST;
-	saddr.addr_type = IEEE80215_ADDR_NONE;
-	return ieee80215_send_cmd(dev, &addr, &saddr, &cmd, 1);
+	struct ieee802154_addr addr;
+	struct ieee802154_addr saddr;
+	u8 cmd = IEEE802154_CMD_BEACON_REQ;
+	addr.addr_type = IEEE802154_ADDR_SHORT;
+	addr.short_addr = IEEE802154_ADDR_BROADCAST;
+	addr.pan_id = IEEE802154_PANID_BROADCAST;
+	saddr.addr_type = IEEE802154_ADDR_NONE;
+	return ieee802154_send_cmd(dev, &addr, &saddr, &cmd, 1);
 }
 
-int ieee80215_send_cmd(struct net_device *dev,
-		struct ieee80215_addr *addr, struct ieee80215_addr *saddr,
+int ieee802154_send_cmd(struct net_device *dev,
+		struct ieee802154_addr *addr, struct ieee802154_addr *saddr,
 		const u8 *buf, int len)
 {
 	struct sk_buff *skb;
 	int err;
-	struct ieee80215_priv *hw = ieee80215_slave_get_hw(dev);
+	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
 
-	BUG_ON(dev->type != ARPHRD_IEEE80215);
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	skb = alloc_skb(LL_ALLOCATED_SPACE(dev) + len, GFP_KERNEL);
 	if (!skb)
@@ -206,9 +206,9 @@ int ieee80215_send_cmd(struct net_device *dev,
 
 	skb_reset_network_header(skb);
 
-	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
+	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
 	MAC_CB(skb)->seq = hw->dsn;
-	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, addr, saddr, len);
+	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, addr, saddr, len);
 	if (err < 0) {
 		kfree_skb(skb);
 		return err;
@@ -218,7 +218,7 @@ int ieee80215_send_cmd(struct net_device *dev,
 	memcpy(skb_put(skb, len), buf, len);
 
 	skb->dev = dev;
-	skb->protocol = htons(ETH_P_IEEE80215);
+	skb->protocol = htons(ETH_P_IEEE802154);
 	hw->dsn++;
 
 	return dev_queue_xmit(skb);

@@ -1,5 +1,5 @@
 /*
- * ieee80215_phy.c
+ * ieee802154_phy.c
  *
  * Description: IEEE 802.15.4 PHY layer
  *
@@ -28,33 +28,33 @@
 #include <linux/module.h>
 #include <linux/workqueue.h>
 
-#include <net/ieee80215/dev.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/nl.h>
+#include <net/ieee802154/dev.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/nl.h>
 
-struct ieee80215_dev *ieee80215_alloc_device(void)
+struct ieee802154_dev *ieee802154_alloc_device(void)
 {
-	struct ieee80215_priv *priv = kzalloc(sizeof(struct ieee80215_priv), GFP_KERNEL);
+	struct ieee802154_priv *priv = kzalloc(sizeof(struct ieee802154_priv), GFP_KERNEL);
 	INIT_LIST_HEAD(&priv->slaves);
 	spin_lock_init(&priv->slaves_lock);
 	return &priv->hw;
 }
-EXPORT_SYMBOL(ieee80215_alloc_device);
+EXPORT_SYMBOL(ieee802154_alloc_device);
 
-void ieee80215_free_device(struct ieee80215_dev *hw)
+void ieee802154_free_device(struct ieee802154_dev *hw)
 {
-	struct ieee80215_priv *priv = ieee80215_to_priv(hw);
+	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
 
 	BUG_ON(!list_empty(&priv->slaves));
 	BUG_ON(priv->master);
 
 	kfree(priv);
 }
-EXPORT_SYMBOL(ieee80215_free_device);
+EXPORT_SYMBOL(ieee802154_free_device);
 
-int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *ops)
+int ieee802154_register_device(struct ieee802154_dev *dev, struct ieee802154_ops *ops)
 {
-	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
+	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 	int rc;
 
 	if (!try_module_get(ops->owner))
@@ -64,7 +64,7 @@ int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *o
 	BUG_ON(!ops || !ops->tx || !ops->cca || !ops->ed || !ops->set_trx_state);
 
 	priv->ops = ops;
-	rc = ieee80215_register_netdev_master(priv);
+	rc = ieee802154_register_netdev_master(priv);
 	if (rc < 0)
 		goto out;
 	priv->dev_workqueue = create_singlethread_workqueue(priv->master->name);
@@ -74,27 +74,27 @@ int ieee80215_register_device(struct ieee80215_dev *dev, struct ieee80215_ops *o
 	return 0;
 
 out_wq:
-	ieee80215_unregister_netdev_master(priv);
+	ieee802154_unregister_netdev_master(priv);
 out:
 	return rc;
 }
-EXPORT_SYMBOL(ieee80215_register_device);
+EXPORT_SYMBOL(ieee802154_register_device);
 
-void ieee80215_unregister_device(struct ieee80215_dev *dev)
+void ieee802154_unregister_device(struct ieee802154_dev *dev)
 {
-	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
+	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 
-	ieee80215_drop_slaves(dev);
-	ieee80215_unregister_netdev_master(priv);
+	ieee802154_drop_slaves(dev);
+	ieee802154_unregister_netdev_master(priv);
 	flush_workqueue(priv->dev_workqueue);
 	destroy_workqueue(priv->dev_workqueue);
 	module_put(priv->ops->owner);
 }
-EXPORT_SYMBOL(ieee80215_unregister_device);
+EXPORT_SYMBOL(ieee802154_unregister_device);
 
-static void __ieee80215_rx_prepare(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
+static void __ieee802154_rx_prepare(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi)
 {
-	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
+	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 
 	BUG_ON(!skb);
 
@@ -104,31 +104,31 @@ static void __ieee80215_rx_prepare(struct ieee80215_dev *dev, struct sk_buff *sk
 
 	skb->iif = skb->dev->ifindex;
 
-	skb->protocol = htons(ETH_P_IEEE80215);
+	skb->protocol = htons(ETH_P_IEEE802154);
 
 	skb_reset_mac_header(skb);
 }
 
-void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
+void ieee802154_rx(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi)
 {
 	struct sk_buff *skb2;
 
-	__ieee80215_rx_prepare(dev, skb, lqi);
+	__ieee802154_rx_prepare(dev, skb, lqi);
 
 	skb2 = skb_clone(skb, GFP_KERNEL);
 	netif_rx(skb2);
 
-	ieee80215_subif_rx(dev, skb);
+	ieee802154_subif_rx(dev, skb);
 }
-EXPORT_SYMBOL(ieee80215_rx);
+EXPORT_SYMBOL(ieee802154_rx);
 
 struct rx_work {
 	struct sk_buff *skb;
 	struct work_struct work;
-	struct ieee80215_dev *dev;
+	struct ieee802154_dev *dev;
 };
 
-static void ieee80215_rx_worker(struct work_struct *work)
+static void ieee802154_rx_worker(struct work_struct *work)
 {
 	struct rx_work *rw = container_of(work, struct rx_work, work);
 	struct sk_buff *skb = rw->skb;
@@ -136,39 +136,39 @@ static void ieee80215_rx_worker(struct work_struct *work)
 	struct sk_buff *skb2 = skb_clone(skb, GFP_KERNEL);
 	netif_rx(skb2);
 
-	ieee80215_subif_rx(rw->dev, skb);
+	ieee802154_subif_rx(rw->dev, skb);
 	kfree(rw);
 }
 
-void ieee80215_rx_irqsafe(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi)
+void ieee802154_rx_irqsafe(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi)
 {
-	struct ieee80215_priv *priv = ieee80215_to_priv(dev);
+	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 	struct rx_work *work = kzalloc(sizeof(struct rx_work), GFP_ATOMIC);
 
 	if (!work)
 		return;
 
-	__ieee80215_rx_prepare(dev, skb, lqi);
+	__ieee802154_rx_prepare(dev, skb, lqi);
 
-	INIT_WORK(&work->work, ieee80215_rx_worker);
+	INIT_WORK(&work->work, ieee802154_rx_worker);
 	work->skb = skb;
 	work->dev = dev;
 
 	queue_work(priv->dev_workqueue, &work->work);
 }
-EXPORT_SYMBOL(ieee80215_rx_irqsafe);
+EXPORT_SYMBOL(ieee802154_rx_irqsafe);
 
-static int __init ieee80215_init(void)
+static int __init ieee802154_init(void)
 {
-	return ieee80215_nl_init();
+	return ieee802154_nl_init();
 }
-module_init(ieee80215_init);
+module_init(ieee802154_init);
 
-static void __exit ieee80215_exit(void)
+static void __exit ieee802154_exit(void)
 {
-	ieee80215_nl_exit();
+	ieee802154_nl_exit();
 }
-module_exit(ieee80215_exit);
+module_exit(ieee802154_exit);
 
 MODULE_DESCRIPTION("IEEE 802.15.4 implementation");
 MODULE_LICENSE("GPL v2");

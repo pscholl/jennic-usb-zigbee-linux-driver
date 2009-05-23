@@ -27,11 +27,11 @@
 #include <linux/if_ether.h>
 #include <linux/list.h>
 
-#include <net/ieee80215/af_ieee80215.h>
-#include <net/ieee80215/mac_def.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/beacon.h>
-#include <net/ieee80215/nl.h>
+#include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/mac_def.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/beacon.h>
+#include <net/ieee802154/nl.h>
 
 /* Beacon frame format per specification is the followinf:
  * Standard MAC frame header:
@@ -77,24 +77,24 @@
  * 0-2   Number of short addresses pending
  * */
 
-#define IEEE80215_BEACON_SF_BO_BEACONLESS	(15 << 0)
-#define IEEE80215_BEACON_SF_SO(x)		((x & 0xf) << 4)
-#define IEEE80215_BEACON_SF_SO_INACTIVE		IEEE80215_BEACON_SF_SO(15)
-#define IEEE80215_BEACON_SF_PANCOORD		(1 << 14)
-#define IEEE80215_BEACON_SF_CANASSOC		(1 << 15)
-#define IEEE80215_BEACON_GTS_COUNT(x)		(x << 0)
-#define IEEE80215_BEACON_GTS_PERMIT		(1 << 7)
-#define IEEE80215_BEACON_PA_SHORT(x)		((x & 7) << 0)
-#define IEEE80215_BEACON_PA_LONG(x)		((x & 7) << 4)
+#define IEEE802154_BEACON_SF_BO_BEACONLESS	(15 << 0)
+#define IEEE802154_BEACON_SF_SO(x)		((x & 0xf) << 4)
+#define IEEE802154_BEACON_SF_SO_INACTIVE		IEEE802154_BEACON_SF_SO(15)
+#define IEEE802154_BEACON_SF_PANCOORD		(1 << 14)
+#define IEEE802154_BEACON_SF_CANASSOC		(1 << 15)
+#define IEEE802154_BEACON_GTS_COUNT(x)		(x << 0)
+#define IEEE802154_BEACON_GTS_PERMIT		(1 << 7)
+#define IEEE802154_BEACON_PA_SHORT(x)		((x & 7) << 0)
+#define IEEE802154_BEACON_PA_LONG(x)		((x & 7) << 4)
 
 /* Flags parameter */
-#define IEEE80215_BEACON_FLAG_PANCOORD		(1 << 0)
-#define IEEE80215_BEACON_FLAG_CANASSOC		(1 << 1)
-#define IEEE80215_BEACON_FLAG_GTSPERMIT		(1 << 2)
+#define IEEE802154_BEACON_FLAG_PANCOORD		(1 << 0)
+#define IEEE802154_BEACON_FLAG_CANASSOC		(1 << 1)
+#define IEEE802154_BEACON_FLAG_GTSPERMIT		(1 << 2)
 
-struct ieee80215_address_list {
+struct ieee802154_address_list {
 	struct list_head list;
-	struct ieee80215_addr addr;
+	struct ieee802154_addr addr;
 };
 /*
  * @dev device
@@ -118,7 +118,7 @@ struct ieee80215_address_list {
 */
 
 
-int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
+int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr,
 		u16 pan_id, const u8 *buf, int len,
 		int flags, struct list_head *al)
 {
@@ -129,10 +129,10 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 	u8 pa_spec;
 	int addr16_cnt;
 	int addr64_cnt;
-	struct ieee80215_addr addr;
-	struct ieee80215_priv *hw = ieee80215_slave_get_hw(dev);
+	struct ieee802154_addr addr;
+	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
 
-	BUG_ON(dev->type != ARPHRD_IEEE80215);
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	skb = alloc_skb(LL_ALLOCATED_SPACE(dev) + len, GFP_ATOMIC);
 	if (!skb)
@@ -142,11 +142,11 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 
 	skb_reset_network_header(skb);
 
-	MAC_CB(skb)->flags = IEEE80215_FC_TYPE_BEACON;
+	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_BEACON;
 	MAC_CB(skb)->seq = hw->bsn;
 
-	addr.addr_type = IEEE80215_ADDR_NONE;
-	err = dev_hard_header(skb, dev, ETH_P_IEEE80215, &addr, saddr, len);
+	addr.addr_type = IEEE802154_ADDR_NONE;
+	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &addr, saddr, len);
 	if (err < 0) {
 		kfree_skb(skb);
 		return err;
@@ -154,20 +154,20 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 	skb_reset_mac_header(skb);
 
 	/* Superframe */
-	sf = IEEE80215_BEACON_SF_BO_BEACONLESS;
-	sf |= IEEE80215_BEACON_SF_SO_INACTIVE;
-	if (flags & IEEE80215_BEACON_FLAG_PANCOORD)
-		sf |= IEEE80215_BEACON_SF_PANCOORD;
+	sf = IEEE802154_BEACON_SF_BO_BEACONLESS;
+	sf |= IEEE802154_BEACON_SF_SO_INACTIVE;
+	if (flags & IEEE802154_BEACON_FLAG_PANCOORD)
+		sf |= IEEE802154_BEACON_SF_PANCOORD;
 
-	if (flags & IEEE80215_BEACON_FLAG_CANASSOC)
-		sf |= IEEE80215_BEACON_SF_CANASSOC;
+	if (flags & IEEE802154_BEACON_FLAG_CANASSOC)
+		sf |= IEEE802154_BEACON_SF_CANASSOC;
 	memcpy(skb_put(skb,  sizeof(sf)), &sf, sizeof(sf));
 
 	/* TODO GTS */
 	gts = 0;
 
-	if (flags & IEEE80215_BEACON_FLAG_GTSPERMIT)
-		gts |= IEEE80215_BEACON_GTS_PERMIT;
+	if (flags & IEEE802154_BEACON_FLAG_GTSPERMIT)
+		gts |= IEEE802154_BEACON_GTS_PERMIT;
 	memcpy(skb_put(skb, sizeof(gts)), &gts, sizeof(gts));
 
 	/* FIXME pending address */
@@ -176,21 +176,21 @@ int ieee80215_send_beacon(struct net_device *dev, struct ieee80215_addr *saddr,
 #if 0
 	/* need more thinking about this */
 	list_for_each_entry(l, al->list, list) {
-		struct ieee80215_addr *s = container_of(l, struct list_head, list);
-		if (s->addr_type == IEEE80215_ADDR_LONG)
+		struct ieee802154_addr *s = container_of(l, struct list_head, list);
+		if (s->addr_type == IEEE802154_ADDR_LONG)
 			addr16_cnt++;
 
-		if (s->addr_type == IEEE80215_ADDR_SHORT)
+		if (s->addr_type == IEEE802154_ADDR_SHORT)
 			addr64_cnt++;
 	}
 #endif
-	pa_spec = IEEE80215_BEACON_PA_LONG(addr64_cnt) | IEEE80215_BEACON_PA_SHORT(addr16_cnt);
+	pa_spec = IEEE802154_BEACON_PA_LONG(addr64_cnt) | IEEE802154_BEACON_PA_SHORT(addr16_cnt);
 	memcpy(skb_put(skb, sizeof(pa_spec)), &pa_spec, sizeof(pa_spec));
 
 	memcpy(skb_put(skb, len), buf, len);
 
 	skb->dev = dev;
-	skb->protocol = htons(ETH_P_IEEE80215);
+	skb->protocol = htons(ETH_P_IEEE802154);
 	hw->bsn++; /* FIXME locking */
 
 	return dev_queue_xmit(skb);
@@ -205,20 +205,20 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 	int offt = 0;
 	u8 gts_spec;
 	u8 pa_spec;
-	struct ieee80215_priv *hw = ieee80215_slave_get_hw(skb->dev);
-	struct ieee80215_pandsc *pd;
+	struct ieee802154_priv *hw = ieee802154_slave_get_hw(skb->dev);
+	struct ieee802154_pandsc *pd;
 	u16 sf = skb->data[0] + (skb->data[1] << 8);
 
-	pd = kzalloc(sizeof(struct ieee80215_pandsc), GFP_KERNEL);
+	pd = kzalloc(sizeof(struct ieee802154_pandsc), GFP_KERNEL);
 
 	/* Filling-up pre-parsed values */
 	pd->lqi = MAC_CB(skb)->phy.lqi;
 	pd->sf = sf;
-	memcpy(&pd->addr, &MAC_CB(skb)->da, sizeof(struct ieee80215_addr));
+	memcpy(&pd->addr, &MAC_CB(skb)->da, sizeof(struct ieee802154_addr));
 
 	/* Supplying our nitifiers with data */
-	ieee80215_slave_event(skb->dev, IEEE80215_NOTIFIER_BEACON, pd);
-	ieee80215_nl_beacon_indic(skb->dev, 0xeba1, 1); /* FIXME */
+	ieee802154_slave_event(skb->dev, IEEE802154_NOTIFIER_BEACON, pd);
+	ieee802154_nl_beacon_indic(skb->dev, 0xeba1, 1); /* FIXME */
 	kfree(pd);
 
 	offt += 2;
@@ -237,11 +237,11 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 
 	*flags = 0;
 
-	if (sf & IEEE80215_BEACON_SF_PANCOORD)
-		*flags |= IEEE80215_BEACON_FLAG_PANCOORD;
+	if (sf & IEEE802154_BEACON_SF_PANCOORD)
+		*flags |= IEEE802154_BEACON_FLAG_PANCOORD;
 
-	if (sf & IEEE80215_BEACON_SF_CANASSOC)
-		*flags |= IEEE80215_BEACON_FLAG_CANASSOC;
+	if (sf & IEEE802154_BEACON_SF_CANASSOC)
+		*flags |= IEEE802154_BEACON_FLAG_CANASSOC;
 	BUG_ON(skb->len - offt < 0);
 	/* FIXME */
 	if (buf && (skb->len - offt > 0))
