@@ -30,7 +30,7 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/at86rf230.h>
 
-#include <net/ieee80215/dev.h>
+#include <net/ieee802154/dev.h>
 
 struct at86rf230_local {
 	struct spi_device *spi;
@@ -44,7 +44,7 @@ struct at86rf230_local {
 
 	struct work_struct irqwork;
 
-	struct ieee80215_dev *dev;
+	struct ieee802154_dev *dev;
 
 	spinlock_t lock;
 	unsigned irq_disabled:1;
@@ -284,7 +284,7 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 }
 
 static phy_status_t
-at86rf230_ed(struct ieee80215_dev *dev, u8 *level)
+at86rf230_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
@@ -294,7 +294,7 @@ at86rf230_ed(struct ieee80215_dev *dev, u8 *level)
 }
 
 static phy_status_t
-at86rf230_cca(struct ieee80215_dev *dev)
+at86rf230_cca(struct ieee802154_dev *dev)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
@@ -302,7 +302,7 @@ at86rf230_cca(struct ieee80215_dev *dev)
 }
 
 static phy_status_t
-at86rf230_state(struct ieee80215_dev *dev, phy_status_t state)
+at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 {
 	struct at86rf230_local *lp = dev->priv;
 	int rc;
@@ -351,7 +351,7 @@ err:
 }
 
 static phy_status_t
-at86rf230_channel(struct ieee80215_dev *dev, int channel)
+at86rf230_channel(struct ieee802154_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
@@ -361,7 +361,7 @@ at86rf230_channel(struct ieee80215_dev *dev, int channel)
 }
 
 static int
-at86rf230_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
+at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	pr_debug("%s\n", __func__);
 
@@ -370,7 +370,7 @@ at86rf230_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	return PHY_SUCCESS;
 }
 
-static struct ieee80215_ops at86rf230_ops = {
+static struct ieee802154_ops at86rf230_ops = {
 	.owner = THIS_MODULE,
 	.tx = at86rf230_tx,
 	.ed = at86rf230_ed,
@@ -383,7 +383,7 @@ static int at86rf230_register(struct at86rf230_local *lp)
 {
 	int rc = -ENOMEM;
 
-	lp->dev = ieee80215_alloc_device();
+	lp->dev = ieee802154_alloc_device();
 	if (!lp->dev)
 		goto err_alloc;
 
@@ -392,25 +392,25 @@ static int at86rf230_register(struct at86rf230_local *lp)
 	lp->dev->parent = &lp->spi->dev;
 	lp->dev->extra_tx_headroom = 0;
 	lp->dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
-	lp->dev->flags = IEEE80215_OPS_OMIT_CKSUM;
+	lp->dev->flags = IEEE802154_OPS_OMIT_CKSUM;
 
-	rc = ieee80215_register_device(lp->dev, &at86rf230_ops);
+	rc = ieee802154_register_device(lp->dev, &at86rf230_ops);
 	if (rc)
 		goto err_register;
 
 	return 0;
 
-	ieee80215_unregister_device(lp->dev);
+	ieee802154_unregister_device(lp->dev);
 err_register:
-	ieee80215_free_device(lp->dev);
+	ieee802154_free_device(lp->dev);
 err_alloc:
 	return rc;
 }
 
 static void at86rf230_unregister(struct at86rf230_local *lp)
 {
-	ieee80215_unregister_device(lp->dev);
-	ieee80215_free_device(lp->dev);
+	ieee802154_unregister_device(lp->dev);
+	ieee802154_free_device(lp->dev);
 }
 
 static void at86rf230_irqwork(struct work_struct *work)
@@ -454,7 +454,7 @@ static void at86rf230_irqwork(struct work_struct *work)
 			skb_put(skb, len-2); /* We do not put CRC into the frame */
 
 			skb_pull(skb, 2); // FIXME: hack for old firmware of mc13192
-			ieee80215_rx_irqsafe(lp->dev, skb, lqi);
+			ieee802154_rx_irqsafe(lp->dev, skb, lqi);
 
 			dev_dbg(&lp->spi->dev, "READ_FBUF: %d %d %x\n", rc, len, lqi);
 		}
