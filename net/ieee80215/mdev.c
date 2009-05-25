@@ -148,6 +148,54 @@ static void ieee80215_netdev_setup_master(struct net_device *dev)
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
 }
+static ssize_t ieee80215_netdev_show(const struct device *dev,
+			   struct device_attribute *attr, char *buf,
+			   ssize_t (*format)(const struct net_device *, char *))
+{
+	struct net_device *netdev = to_net_dev(dev);
+	ssize_t ret = -EINVAL;
+
+	if (netdev->reg_state <= NETREG_REGISTERED)
+		ret = (*format)(netdev, buf);
+
+	return ret;
+}
+#define MASTER_SHOW(field, format_string)				\
+static ssize_t format_##field(const struct net_device *dev, char *buf)	\
+{									\
+	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);		\
+	return sprintf(buf, format_string, priv->hw->hw.field);		\
+}									\
+static ssize_t show_##field(struct device *dev,				\
+			    struct device_attribute *attr, char *buf)	\
+{									\
+	return ieee80215_netdev_show(dev, attr, buf, format_##field);	\
+}									\
+static DEVICE_ATTR(field, S_IRUGO, show_##field, NULL)
+
+static const char fmt_long_hex[] = "%#lx\n";
+static const char fmt_hex[] = "%#x\n";
+static const char fmt_dec[] = "%d\n";
+
+MASTER_SHOW(current_channel, fmt_dec);
+MASTER_SHOW(channel_mask, fmt_hex);
+
+static struct attribute *pmib_attrs[] = {
+	&dev_attr_current_channel.attr,
+	&dev_attr_channel_mask.attr,
+	NULL
+};
+
+static struct attribute_group pmib_group = {
+	.name  = "pib",
+	.attrs  = pmib_attrs,
+};
+
+static void ieee80215_register_netdev_master_sysfs(struct net_device *dev)
+{
+	struct attribute_group **groups = dev->sysfs_groups;
+	groups[1] = &pmib_group;
+}
 
 int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 {
@@ -170,6 +218,7 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	dev->needed_headroom = hw->hw.extra_tx_headroom;
 	dev->do_ioctl = ieee80215_master_ioctl;
 	SET_NETDEV_DEV(dev, hw->hw.parent);
+	ieee80215_register_netdev_master_sysfs(dev);
 	register_netdev(dev);
 	return 0;
 }
