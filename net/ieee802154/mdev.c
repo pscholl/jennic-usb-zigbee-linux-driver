@@ -1,5 +1,5 @@
 /*
- * Interface from IEEE80215.4 MAC layer to the userspace, net_device part.
+ * Interface from IEEE802154.4 MAC layer to the userspace, net_device part.
  *
  * Copyright (C) 2007, 2008 Siemens AG
  *
@@ -22,22 +22,22 @@
 #include <linux/if_arp.h>
 #include <linux/etherdevice.h>
 
-#include <net/ieee80215/phy.h>
-#include <net/ieee80215/netdev.h>
-#include <net/ieee80215/af_ieee80215.h>
+#include <net/ieee802154/phy.h>
+#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/af_ieee802154.h>
 
-struct ieee80215_mnetdev_priv {
-	struct ieee80215_priv *hw;
+struct ieee802154_mnetdev_priv {
+	struct ieee802154_priv *hw;
 	struct net_device *dev;
 };
 
 struct xmit_work {
 	struct sk_buff *skb;
 	struct work_struct work;
-	struct ieee80215_mnetdev_priv *priv;
+	struct ieee802154_mnetdev_priv *priv;
 };
 
-static void ieee80215_xmit_worker(struct work_struct *work)
+static void ieee802154_xmit_worker(struct work_struct *work)
 {
 	struct xmit_work *xw = container_of(work, struct xmit_work, work);
 	phy_status_t res;
@@ -72,9 +72,9 @@ out:
 	kfree(xw);
 }
 
-static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static int ieee802154_master_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_mnetdev_priv *priv = netdev_priv(dev);
 	struct xmit_work *work;
 
 	if (skb_cow_head(skb, priv->hw->hw.extra_tx_headroom)) {
@@ -86,7 +86,7 @@ static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_devi
 	if (!work)
 		return NETDEV_TX_BUSY;
 
-	INIT_WORK(&work->work, ieee80215_xmit_worker);
+	INIT_WORK(&work->work, ieee802154_xmit_worker);
 	work->skb = skb;
 	work->priv = priv;
 
@@ -95,9 +95,9 @@ static int ieee80215_master_hard_start_xmit(struct sk_buff *skb, struct net_devi
 	return NETDEV_TX_OK;
 }
 
-static int ieee80215_master_open(struct net_device *dev)
+static int ieee802154_master_open(struct net_device *dev)
 {
-	struct ieee80215_mnetdev_priv *priv;
+	struct ieee802154_mnetdev_priv *priv;
 	phy_status_t status;
 	priv = netdev_priv(dev);
 	if (!priv) {
@@ -115,28 +115,28 @@ static int ieee80215_master_open(struct net_device *dev)
 	return 0;
 }
 
-static int ieee80215_master_close(struct net_device *dev)
+static int ieee802154_master_close(struct net_device *dev)
 {
-	struct ieee80215_mnetdev_priv *priv;
+	struct ieee802154_mnetdev_priv *priv;
 	netif_stop_queue(dev);
 	priv = netdev_priv(dev);
 
 	priv->hw->ops->set_trx_state(&priv->hw->hw, PHY_FORCE_TRX_OFF);
 	return 0;
 }
-static int ieee80215_master_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+static int ieee802154_master_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
-	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_mnetdev_priv *priv = netdev_priv(dev);
 	switch (cmd) {
-	case IEEE80215_SIOC_ADD_SLAVE:
+	case IEEE802154_SIOC_ADD_SLAVE:
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
-		return ieee80215_add_slave(&priv->hw->hw, (u8 *) &ifr->ifr_hwaddr.sa_data);
+		return ieee802154_add_slave(&priv->hw->hw, (u8 *) &ifr->ifr_hwaddr.sa_data);
 	}
 	return -ENOIOCTLCMD;
 }
 
-static void ieee80215_netdev_setup_master(struct net_device *dev)
+static void ieee802154_netdev_setup_master(struct net_device *dev)
 {
 	dev->addr_len		= 0;
 	memset(dev->broadcast, 0xff, dev->addr_len);
@@ -144,7 +144,7 @@ static void ieee80215_netdev_setup_master(struct net_device *dev)
 	dev->hard_header_len	= 0;
 	dev->mtu		= 127;
 	dev->tx_queue_len	= 0;
-	dev->type		= ARPHRD_IEEE80215_PHY;
+	dev->type		= ARPHRD_IEEE802154_PHY;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
 }
@@ -197,29 +197,29 @@ static void ieee80215_register_netdev_master_sysfs(struct net_device *dev)
 	groups[1] = &pmib_group;
 }
 
-static const struct net_device_ops ieee80215_master_ops = {
-	.ndo_open		= ieee80215_master_open,
-	.ndo_stop		= ieee80215_master_close,
-	.ndo_start_xmit		= ieee80215_master_hard_start_xmit,
-	.ndo_do_ioctl		= ieee80215_master_ioctl,
+static const struct net_device_ops ieee802154_master_ops = {
+	.ndo_open		= ieee802154_master_open,
+	.ndo_stop		= ieee802154_master_close,
+	.ndo_start_xmit		= ieee802154_master_hard_start_xmit,
+	.ndo_do_ioctl		= ieee802154_master_ioctl,
 };
 
-int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
+int ieee802154_register_netdev_master(struct ieee802154_priv *hw)
 {
 	struct net_device *dev;
-	struct ieee80215_mnetdev_priv *priv;
+	struct ieee802154_mnetdev_priv *priv;
 
-	dev = alloc_netdev(sizeof(struct ieee80215_mnetdev_priv),
-			"mwpan%d", ieee80215_netdev_setup_master);
+	dev = alloc_netdev(sizeof(struct ieee802154_mnetdev_priv),
+			"mwpan%d", ieee802154_netdev_setup_master);
 	if (!dev) {
-		printk(KERN_ERR "Failure to initialize master IEEE80215 device\n");
+		printk(KERN_ERR "Failure to initialize master IEEE802154 device\n");
 		return -ENOMEM;
 	}
 	priv = netdev_priv(dev);
 	priv->dev = dev;
 	priv->hw = hw;
 	hw->master = dev;
-	dev->netdev_ops = &ieee80215_master_ops;
+	dev->netdev_ops = &ieee802154_master_ops;
 	dev->needed_headroom = hw->hw.extra_tx_headroom;
 	SET_NETDEV_DEV(dev, hw->hw.parent);
 	ieee80215_register_netdev_master_sysfs(dev);
@@ -227,7 +227,7 @@ int ieee80215_register_netdev_master(struct ieee80215_priv *hw)
 	return 0;
 }
 
-void ieee80215_unregister_netdev_master(struct ieee80215_priv *hw)
+void ieee802154_unregister_netdev_master(struct ieee802154_priv *hw)
 {
 	struct net_device *dev = hw->master;
 	BUG_ON(!hw->master);

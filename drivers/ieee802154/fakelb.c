@@ -27,10 +27,10 @@
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
-#include <net/ieee80215/dev.h>
+#include <net/ieee802154/dev.h>
 
 struct fake_dev_priv {
-	struct ieee80215_dev *dev;
+	struct ieee802154_dev *dev;
 	phy_status_t cur_state, pend_state;
 
 	struct list_head list;
@@ -42,18 +42,18 @@ struct fake_priv {
 	rwlock_t lock;
 };
 
-static int is_transmitting(struct ieee80215_dev *dev)
+static int is_transmitting(struct ieee802154_dev *dev)
 {
 	return 0;
 }
 
-static int is_receiving(struct ieee80215_dev *dev)
+static int is_receiving(struct ieee802154_dev *dev)
 {
 	return 0;
 }
 
 static phy_status_t
-hw_ed(struct ieee80215_dev *dev, u8 *level)
+hw_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
@@ -63,7 +63,7 @@ hw_ed(struct ieee80215_dev *dev, u8 *level)
 }
 
 static phy_status_t
-hw_cca(struct ieee80215_dev *dev)
+hw_cca(struct ieee802154_dev *dev)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
@@ -71,7 +71,7 @@ hw_cca(struct ieee80215_dev *dev)
 }
 
 static phy_status_t
-hw_state(struct ieee80215_dev *dev, phy_status_t state)
+hw_state(struct ieee802154_dev *dev, phy_status_t state)
 {
 	struct fake_dev_priv *priv = dev->priv;
 	pr_debug("%s %d %d\n", __func__, priv->cur_state, state);
@@ -96,7 +96,7 @@ hw_state(struct ieee80215_dev *dev, phy_status_t state)
 }
 
 static phy_status_t
-hw_channel(struct ieee80215_dev *dev, int channel)
+hw_channel(struct ieee802154_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
@@ -111,11 +111,11 @@ hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
 
 	newskb = pskb_copy(skb, GFP_ATOMIC);
 
-	ieee80215_rx_irqsafe(priv->dev, newskb, 0xcc);
+	ieee802154_rx_irqsafe(priv->dev, newskb, 0xcc);
 }
 
 static int
-hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
+hw_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct fake_dev_priv *priv = dev->priv;
 	struct fake_priv *fake = priv->fake;
@@ -137,7 +137,7 @@ hw_tx(struct ieee80215_dev *dev, struct sk_buff *skb)
 	return PHY_SUCCESS;
 }
 
-static struct ieee80215_ops fake_ops = {
+static struct ieee802154_ops fake_ops = {
 	.owner = THIS_MODULE,
 	.tx = hw_tx,
 	.ed = hw_ed,
@@ -146,7 +146,7 @@ static struct ieee80215_ops fake_ops = {
 	.set_channel = hw_channel,
 };
 
-static int ieee80215fake_add_priv(struct device *dev, struct fake_priv *fake, const u8 *macaddr)
+static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake, const u8 *macaddr)
 {
 	struct fake_dev_priv *priv;
 	int err = -ENOMEM;
@@ -157,7 +157,7 @@ static int ieee80215fake_add_priv(struct device *dev, struct fake_priv *fake, co
 
 	INIT_LIST_HEAD(&priv->list);
 
-	priv->dev = ieee80215_alloc_device();
+	priv->dev = ieee802154_alloc_device();
 	if (!priv->dev)
 		goto err_alloc_dev;
 	priv->dev->name = "IEEE 802.15.4 fake";
@@ -165,11 +165,11 @@ static int ieee80215fake_add_priv(struct device *dev, struct fake_priv *fake, co
 	priv->dev->parent = dev;
 	priv->fake = fake;
 
-	err = ieee80215_register_device(priv->dev, &fake_ops);
+	err = ieee802154_register_device(priv->dev, &fake_ops);
 	if (err)
 		goto err_reg;
 	rtnl_lock();
-	err = ieee80215_add_slave(priv->dev, macaddr);
+	err = ieee802154_add_slave(priv->dev, macaddr);
 	rtnl_unlock();
 	if (err < 0)
 		goto err_slave;
@@ -181,23 +181,23 @@ static int ieee80215fake_add_priv(struct device *dev, struct fake_priv *fake, co
 	return 0;
 
 err_slave:
-	ieee80215_unregister_device(priv->dev);
+	ieee802154_unregister_device(priv->dev);
 err_reg:
-	ieee80215_free_device(priv->dev);
+	ieee802154_free_device(priv->dev);
 err_alloc_dev:
 	kfree(priv);
 err_alloc:
 	return err;
 }
 
-static void ieee80215fake_del_priv(struct fake_dev_priv *priv)
+static void ieee802154fake_del_priv(struct fake_dev_priv *priv)
 {
 	write_lock_bh(&priv->fake->lock);
 	list_del(&priv->list);
 	write_unlock_bh(&priv->fake->lock);
 
-	ieee80215_unregister_device(priv->dev);
-	ieee80215_free_device(priv->dev);
+	ieee802154_unregister_device(priv->dev);
+	ieee802154_free_device(priv->dev);
 	kfree(priv);
 }
 
@@ -236,7 +236,7 @@ adddev_store(struct device *dev, struct device_attribute *attr,
 	}
 	if (i != 16)
 		return -EINVAL;
-	err = ieee80215fake_add_priv(dev, priv, hw);
+	err = ieee802154fake_add_priv(dev, priv, hw);
 	if (err)
 		return err;
 	return n;
@@ -255,7 +255,7 @@ static struct attribute_group fake_group = {
 };
 
 
-static int __devinit ieee80215fake_probe(struct platform_device *pdev)
+static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 {
 	struct fake_priv *priv;
 	struct fake_dev_priv *dp;
@@ -272,21 +272,21 @@ static int __devinit ieee80215fake_probe(struct platform_device *pdev)
 	if (err)
 		goto err_grp;
 
-	err = ieee80215fake_add_priv(&pdev->dev, priv, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
+	err = ieee802154fake_add_priv(&pdev->dev, priv, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
 	if (err < 0)
 		goto err_slave;
 
-/*	err = ieee80215fake_add_priv(priv, "\x67\x45\x23\x01\x67\x45\x23\x01");
+/*	err = ieee802154fake_add_priv(priv, "\x67\x45\x23\x01\x67\x45\x23\x01");
 	if (err < 0)
 		goto err_slave;*/
 
 	platform_set_drvdata(pdev, priv);
-	dev_info(&pdev->dev, "Added ieee80215 hardware\n");
+	dev_info(&pdev->dev, "Added ieee802154 hardware\n");
 	return 0;
 
 err_slave:
 	list_for_each_entry(dp, &priv->list, list)
-		ieee80215fake_del_priv(dp);
+		ieee802154fake_del_priv(dp);
 	sysfs_remove_group(&pdev->dev.kobj, &fake_group);
 err_grp:
 	kfree(priv);
@@ -294,39 +294,39 @@ err_alloc:
 	return err;
 }
 
-static int __devexit ieee80215fake_remove(struct platform_device *pdev)
+static int __devexit ieee802154fake_remove(struct platform_device *pdev)
 {
 	struct fake_priv *priv = platform_get_drvdata(pdev);
 	struct fake_dev_priv *dp, *temp;
 
 	list_for_each_entry_safe(dp, temp, &priv->list, list)
-		ieee80215fake_del_priv(dp);
+		ieee802154fake_del_priv(dp);
 	sysfs_remove_group(&pdev->dev.kobj, &fake_group);
 	kfree(priv);
 	return 0;
 }
 
-static struct platform_device *ieee80215fake_dev;
+static struct platform_device *ieee802154fake_dev;
 
-static struct platform_driver ieee80215fake_driver = {
-	.probe = ieee80215fake_probe,
-	.remove = __devexit_p(ieee80215fake_remove),
+static struct platform_driver ieee802154fake_driver = {
+	.probe = ieee802154fake_probe,
+	.remove = __devexit_p(ieee802154fake_remove),
 	.driver = {
-			.name = "ieee80215fakelb",
+			.name = "ieee802154fakelb",
 			.owner = THIS_MODULE,
 	},
 };
 
 static __init int fake_init(void)
 {
-	ieee80215fake_dev = platform_device_register_simple("ieee80215fakelb", -1, NULL, 0);
-	return platform_driver_register(&ieee80215fake_driver);
+	ieee802154fake_dev = platform_device_register_simple("ieee802154fakelb", -1, NULL, 0);
+	return platform_driver_register(&ieee802154fake_driver);
 }
 
 static __exit void fake_exit(void)
 {
-	platform_driver_unregister(&ieee80215fake_driver);
-	platform_device_unregister(ieee80215fake_dev);
+	platform_driver_unregister(&ieee802154fake_driver);
+	platform_device_unregister(ieee802154fake_dev);
 }
 
 module_init(fake_init);
