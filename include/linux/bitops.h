@@ -112,6 +112,25 @@ static inline unsigned fls_long(unsigned long l)
 	return fls64(l);
 }
 
+/**
+ * __ffs64 - find first set bit in a 64 bit word
+ * @word: The 64 bit word
+ *
+ * On 64 bit arches this is a synomyn for __ffs
+ * The result is not defined if no bits are set, so check that @word
+ * is non-zero before calling this.
+ */
+static inline unsigned long __ffs64(u64 word)
+{
+#if BITS_PER_LONG == 32
+	if (((u32)word) == 0UL)
+		return __ffs((u32)(word >> 32)) + 32;
+#elif BITS_PER_LONG != 64
+#error BITS_PER_LONG not 32 or 64
+#endif
+	return __ffs((unsigned long)word);
+}
+
 #ifdef __KERNEL__
 #ifdef CONFIG_GENERIC_FIND_FIRST_BIT
 
@@ -134,8 +153,19 @@ extern unsigned long find_first_bit(const unsigned long *addr,
  */
 extern unsigned long find_first_zero_bit(const unsigned long *addr,
 					 unsigned long size);
-
 #endif /* CONFIG_GENERIC_FIND_FIRST_BIT */
+
+#ifdef CONFIG_GENERIC_FIND_LAST_BIT
+/**
+ * find_last_bit - find the last set bit in a memory region
+ * @addr: The address to start the search at
+ * @size: The maximum size to search
+ *
+ * Returns the bit number of the first set bit, or size.
+ */
+extern unsigned long find_last_bit(const unsigned long *addr,
+				   unsigned long size);
+#endif /* CONFIG_GENERIC_FIND_LAST_BIT */
 
 #ifdef CONFIG_GENERIC_FIND_NEXT_BIT
 

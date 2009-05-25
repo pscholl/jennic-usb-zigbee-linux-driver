@@ -54,7 +54,7 @@
  * 9/28/04 Christoph Hellwig <hch@lst.de>
  *	    - merge the two source files
  *	    - remove internal queueing code
- * 14/06/07 Alan Cox <alan@redhat.com>
+ * 14/06/07 Alan Cox <alan@lxorguk.ukuu.org.uk>
  *	 - Grand cleanup and Linuxisation
  */
 
@@ -633,7 +633,7 @@ static int orc_device_reset(struct orc_host * host, struct scsi_cmnd *cmd, unsig
 		return FAILED;
 	}
 
-	/* Reset device is handled by the firmare, we fill in an SCB and
+	/* Reset device is handled by the firmware, we fill in an SCB and
 	   fire it at the controller, it does the rest */
 	scb->opcode = ORC_BUSDEVRST;
 	scb->target = target;
@@ -1094,7 +1094,7 @@ static int __devinit inia100_probe_one(struct pci_dev *pdev,
 
 	if (pci_enable_device(pdev))
 		goto out;
-	if (pci_set_dma_mask(pdev, DMA_32BIT_MASK)) {
+	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
 		printk(KERN_WARNING "Unable to set 32bit DMA "
 				    "on inia100 adapter, ignoring.\n");
 		goto out_disable_device;

@@ -279,9 +279,9 @@ static const u8 hs_rh_config_descriptor [] = {
  * helper routine for returning string descriptors in UTF-16LE
  * input can actually be ISO-8859-1; ASCII is its 7-bit subset
  */
-static int ascii2utf (char *s, u8 *utf, int utfmax)
+static unsigned ascii2utf(char *s, u8 *utf, int utfmax)
 {
-	int retval;
+	unsigned retval;
 
 	for (retval = 0; *s && utfmax > 1; utfmax -= 2, retval += 2) {
 		*utf++ = *s++;
@@ -304,19 +304,15 @@ static int ascii2utf (char *s, u8 *utf, int utfmax)
  * Produces either a manufacturer, product or serial number string for the
  * virtual root hub device.
  */
-static int rh_string (
-	int		id,
-	struct usb_hcd	*hcd,
-	u8		*data,
-	int		len
-) {
+static unsigned rh_string(int id, struct usb_hcd *hcd, u8 *data, unsigned len)
+{
 	char buf [100];
 
 	// language ids
 	if (id == 0) {
 		buf[0] = 4;    buf[1] = 3;	/* 4 bytes string data */
 		buf[2] = 0x09; buf[3] = 0x04;	/* MSFT-speak for "en-us" */
-		len = min (len, 4);
+		len = min_t(unsigned, len, 4);
 		memcpy (data, buf, len);
 		return len;
 
@@ -332,10 +328,7 @@ static int rh_string (
 	} else if (id == 3) {
 		snprintf (buf, sizeof buf, "%s %s %s", init_utsname()->sysname,
 			init_utsname()->release, hcd->driver->description);
-
-	// unsupported IDs --> "protocol stall"
-	} else
-		return -EPIPE;
+	}
 
 	switch (len) {		/* All cases fall through */
 	default:
@@ -360,9 +353,8 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 	u8		tbuf [sizeof (struct usb_hub_descriptor)]
 		__attribute__((aligned(4)));
 	const u8	*bufp = tbuf;
-	int		len = 0;
+	unsigned	len = 0;
 	int		status;
-	int		n;
 	u8		patch_wakeup = 0;
 	u8		patch_protocol = 0;
 
@@ -456,10 +448,11 @@ static int rh_call_control (struct usb_hcd *hcd, struct urb *urb)
 				patch_wakeup = 1;
 			break;
 		case USB_DT_STRING << 8:
-			n = rh_string (wValue & 0xff, hcd, ubuf, wLength);
-			if (n < 0)
+			if ((wValue & 0xff) < 4)
+				urb->actual_length = rh_string(wValue & 0xff,
+						hcd, ubuf, wLength);
+			else /* unsupported IDs --> "protocol stall" */
 				goto error;
-			urb->actual_length = n;
 			break;
 		default:
 			goto error;
@@ -629,7 +622,7 @@ static int rh_queue_status (struct usb_hcd *hcd, struct urb *urb)
 {
 	int		retval;
 	unsigned long	flags;
-	int		len = 1 + (urb->dev->maxchild / 8);
+	unsigned	len = 1 + (urb->dev->maxchild / 8);
 
 	spin_lock_irqsave (&hcd_root_hub_lock, flags);
 	if (hcd->status_urb || urb->transfer_buffer_length < len) {
@@ -901,7 +894,7 @@ static int register_root_hub(struct usb_hcd *hcd)
 
 	mutex_lock(&usb_bus_list_lock);
 
-	usb_dev->ep0.desc.wMaxPacketSize = __constant_cpu_to_le16(64);
+	usb_dev->ep0.desc.wMaxPacketSize = cpu_to_le16(64);
 	retval = usb_get_device_descriptor(usb_dev, USB_DT_DEVICE_SIZE);
 	if (retval != sizeof usb_dev->descriptor) {
 		mutex_unlock(&usb_bus_list_lock);
@@ -1010,7 +1003,7 @@ int usb_hcd_link_urb_to_ep(struct usb_hcd *hcd, struct urb *urb)
 	spin_lock(&hcd_urb_list_lock);
 
 	/* Check that the URB isn't being killed */
-	if (unlikely(urb->reject)) {
+	if (unlikely(atomic_read(&urb->reject))) {
 		rc = -EPERM;
 		goto done;
 	}
@@ -1340,7 +1333,7 @@ int usb_hcd_submit_urb (struct urb *urb, gfp_t mem_flags)
 		INIT_LIST_HEAD(&urb->urb_list);
 		atomic_dec(&urb->use_count);
 		atomic_dec(&urb->dev->urbnum);
-		if (urb->reject)
+		if (atomic_read(&urb->reject))
 			wake_up(&usb_kill_urb_queue);
 		usb_put_urb(urb);
 	}
@@ -1444,7 +1437,7 @@ void usb_hcd_giveback_urb(struct usb_hcd *hcd, struct urb *urb, int status)
 	urb->status = status;
 	urb->complete (urb);
 	atomic_dec (&urb->use_count);
-	if (unlikely (urb->reject))
+	if (unlikely(atomic_read(&urb->reject)))
 		wake_up (&usb_kill_urb_queue);
 	usb_put_urb (urb);
 }
@@ -1546,6 +1539,32 @@ void usb_hcd_disable_endpoint(struct usb_device *udev,
 		hcd->driver->endpoint_disable(hcd, ep);
 }
 
+/**
+ * usb_hcd_reset_endpoint - reset host endpoint state
+ * @udev: USB device.
+ * @ep:   the endpoint to reset.
+ *
+ * Resets any host endpoint state such as the toggle bit, sequence
+ * number and current window.
+ */
+void usb_hcd_reset_endpoint(struct usb_device *udev,
+			    struct usb_host_endpoint *ep)
+{
+	struct usb_hcd *hcd = bus_to_hcd(udev->bus);
+
+	if (hcd->driver->endpoint_reset)
+		hcd->driver->endpoint_reset(hcd, ep);
+	else {
+		int epnum = usb_endpoint_num(&ep->desc);
+		int is_out = usb_endpoint_dir_out(&ep->desc);
+		int is_control = usb_endpoint_xfer_control(&ep->desc);
+
+		usb_settoggle(udev, epnum, is_out, 0);
+		if (is_control)
+			usb_settoggle(udev, epnum, !is_out, 0);
+	}
+}
+
 /* Protect against drivers that try to unlink URBs after the device
  * is gone, by waiting until all unlinks for @udev are finished.
  * Since we don't currently track URBs by device, simply wait until
@@ -1573,14 +1592,14 @@ int usb_hcd_get_frame_number (struct usb_device *udev)
 
 #ifdef	CONFIG_PM
 
-int hcd_bus_suspend(struct usb_device *rhdev)
+int hcd_bus_suspend(struct usb_device *rhdev, pm_message_t msg)
 {
 	struct usb_hcd	*hcd = container_of(rhdev->bus, struct usb_hcd, self);
 	int		status;
 	int		old_state = hcd->state;
 
 	dev_dbg(&rhdev->dev, "bus %s%s\n",
-			rhdev->auto_pm ? "auto-" : "", "suspend");
+			(msg.event & PM_EVENT_AUTO ? "auto-" : ""), "suspend");
 	if (!hcd->driver->bus_suspend) {
 		status = -ENOENT;
 	} else {
@@ -1598,14 +1617,14 @@ int hcd_bus_suspend(struct usb_device *rhdev)
 	return status;
 }
 
-int hcd_bus_resume(struct usb_device *rhdev)
+int hcd_bus_resume(struct usb_device *rhdev, pm_message_t msg)
 {
 	struct usb_hcd	*hcd = container_of(rhdev->bus, struct usb_hcd, self);
 	int		status;
 	int		old_state = hcd->state;
 
 	dev_dbg(&rhdev->dev, "usb %s%s\n",
-			rhdev->auto_pm ? "auto-" : "", "resume");
+			(msg.event & PM_EVENT_AUTO ? "auto-" : ""), "resume");
 	if (!hcd->driver->bus_resume)
 		return -ENOENT;
 	if (hcd->state == HC_STATE_RUNNING)
@@ -1638,7 +1657,7 @@ static void hcd_resume_work(struct work_struct *work)
 
 	usb_lock_device(udev);
 	usb_mark_last_busy(udev);
-	usb_external_resume_device(udev);
+	usb_external_resume_device(udev, PMSG_REMOTE_RESUME);
 	usb_unlock_device(udev);
 }
 
@@ -2028,7 +2047,7 @@ EXPORT_SYMBOL_GPL(usb_hcd_platform_shutdown);
 
 /*-------------------------------------------------------------------------*/
 
-#if defined(CONFIG_USB_MON)
+#if defined(CONFIG_USB_MON) || defined(CONFIG_USB_MON_MODULE)
 
 struct usb_mon_operations *mon_ops;
 
@@ -2064,4 +2083,4 @@ void usb_mon_deregister (void)
 }
 EXPORT_SYMBOL_GPL (usb_mon_deregister);
 
-#endif /* CONFIG_USB_MON */
+#endif /* CONFIG_USB_MON || CONFIG_USB_MON_MODULE */

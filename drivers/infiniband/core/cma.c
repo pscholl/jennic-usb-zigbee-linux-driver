@@ -42,6 +42,7 @@
 #include <linux/inetdevice.h>
 
 #include <net/tcp.h>
+#include <net/ipv6.h>
 
 #include <rdma/rdma_cm.h>
 #include <rdma/rdma_cm_ib.h>
@@ -296,21 +297,25 @@ static void cma_detach_from_dev(struct rdma_id_private *id_priv)
 	id_priv->cma_dev = NULL;
 }
 
-static int cma_set_qkey(struct ib_device *device, u8 port_num,
-			enum rdma_port_space ps,
-			struct rdma_dev_addr *dev_addr, u32 *qkey)
+static int cma_set_qkey(struct rdma_id_private *id_priv)
 {
 	struct ib_sa_mcmember_rec rec;
 	int ret = 0;
 
-	switch (ps) {
+	if (id_priv->qkey)
+		return 0;
+
+	switch (id_priv->id.ps) {
 	case RDMA_PS_UDP:
-		*qkey = RDMA_UDP_QKEY;
+		id_priv->qkey = RDMA_UDP_QKEY;
 		break;
 	case RDMA_PS_IPOIB:
-		ib_addr_get_mgid(dev_addr, &rec.mgid);
-		ret = ib_sa_get_mcmember_rec(device, port_num, &rec.mgid, &rec);
-		*qkey = be32_to_cpu(rec.qkey);
+		ib_addr_get_mgid(&id_priv->id.route.addr.dev_addr, &rec.mgid);
+		ret = ib_sa_get_mcmember_rec(id_priv->id.device,
+					     id_priv->id.port_num, &rec.mgid,
+					     &rec);
+		if (!ret)
+			id_priv->qkey = be32_to_cpu(rec.qkey);
 		break;
 	default:
 		break;
@@ -340,12 +345,7 @@ static int cma_acquire_dev(struct rdma_id_private *id_priv)
 		ret = ib_find_cached_gid(cma_dev->device, &gid,
 					 &id_priv->id.port_num, NULL);
 		if (!ret) {
-			ret = cma_set_qkey(cma_dev->device,
-					   id_priv->id.port_num,
-					   id_priv->id.ps, dev_addr,
-					   &id_priv->qkey);
-			if (!ret)
-				cma_attach_to_dev(id_priv, cma_dev);
+			cma_attach_to_dev(id_priv, cma_dev);
 			break;
 		}
 	}
@@ -577,6 +577,10 @@ static int cma_ib_init_qp_attr(struct rdma_id_private *id_priv,
 	*qp_attr_mask = IB_QP_STATE | IB_QP_PKEY_INDEX | IB_QP_PORT;
 
 	if (cma_is_ud_ps(id_priv->id.ps)) {
+		ret = cma_set_qkey(id_priv);
+		if (ret)
+			return ret;
+
 		qp_attr->qkey = id_priv->qkey;
 		*qp_attr_mask |= IB_QP_QKEY;
 	} else {
@@ -636,7 +640,12 @@ static inline int cma_zero_addr(struct sockaddr *addr)
 
 static inline int cma_loopback_addr(struct sockaddr *addr)
 {
-	return ipv4_is_loopback(((struct sockaddr_in *) addr)->sin_addr.s_addr);
+	if (addr->sa_family == AF_INET)
+		return ipv4_is_loopback(
+			((struct sockaddr_in *) addr)->sin_addr.s_addr);
+	else
+		return ipv6_addr_loopback(
+			&((struct sockaddr_in6 *) addr)->sin6_addr);
 }
 
 static inline int cma_any_addr(struct sockaddr *addr)
@@ -1467,10 +1476,10 @@ static void cma_listen_on_all(struct rdma_id_private *id_priv)
 
 static int cma_bind_any(struct rdma_cm_id *id, sa_family_t af)
 {
-	struct sockaddr_in addr_in;
+	struct sockaddr_storage addr_in;
 
 	memset(&addr_in, 0, sizeof addr_in);
-	addr_in.sin_family = af;
+	addr_in.ss_family = af;
 	return rdma_bind_addr(id, (struct sockaddr *) &addr_in);
 }
 
@@ -2073,7 +2082,7 @@ int rdma_bind_addr(struct rdma_cm_id *id, struct sockaddr *addr)
 	struct rdma_id_private *id_priv;
 	int ret;
 
-	if (addr->sa_family != AF_INET)
+	if (addr->sa_family != AF_INET && addr->sa_family != AF_INET6)
 		return -EAFNOSUPPORT;
 
 	id_priv = container_of(id, struct rdma_id_private, id);
@@ -2113,31 +2122,59 @@ EXPORT_SYMBOL(rdma_bind_addr);
 static int cma_format_hdr(void *hdr, enum rdma_port_space ps,
 			  struct rdma_route *route)
 {
-	struct sockaddr_in *src4, *dst4;
 	struct cma_hdr *cma_hdr;
 	struct sdp_hh *sdp_hdr;
 
-	src4 = (struct sockaddr_in *) &route->addr.src_addr;
-	dst4 = (struct sockaddr_in *) &route->addr.dst_addr;
+	if (route->addr.src_addr.ss_family == AF_INET) {
+		struct sockaddr_in *src4, *dst4;
 
-	switch (ps) {
-	case RDMA_PS_SDP:
-		sdp_hdr = hdr;
-		if (sdp_get_majv(sdp_hdr->sdp_version) != SDP_MAJ_VERSION)
-			return -EINVAL;
-		sdp_set_ip_ver(sdp_hdr, 4);
-		sdp_hdr->src_addr.ip4.addr = src4->sin_addr.s_addr;
-		sdp_hdr->dst_addr.ip4.addr = dst4->sin_addr.s_addr;
-		sdp_hdr->port = src4->sin_port;
-		break;
-	default:
-		cma_hdr = hdr;
-		cma_hdr->cma_version = CMA_VERSION;
-		cma_set_ip_ver(cma_hdr, 4);
-		cma_hdr->src_addr.ip4.addr = src4->sin_addr.s_addr;
-		cma_hdr->dst_addr.ip4.addr = dst4->sin_addr.s_addr;
-		cma_hdr->port = src4->sin_port;
-		break;
+		src4 = (struct sockaddr_in *) &route->addr.src_addr;
+		dst4 = (struct sockaddr_in *) &route->addr.dst_addr;
+
+		switch (ps) {
+		case RDMA_PS_SDP:
+			sdp_hdr = hdr;
+			if (sdp_get_majv(sdp_hdr->sdp_version) != SDP_MAJ_VERSION)
+				return -EINVAL;
+			sdp_set_ip_ver(sdp_hdr, 4);
+			sdp_hdr->src_addr.ip4.addr = src4->sin_addr.s_addr;
+			sdp_hdr->dst_addr.ip4.addr = dst4->sin_addr.s_addr;
+			sdp_hdr->port = src4->sin_port;
+			break;
+		default:
+			cma_hdr = hdr;
+			cma_hdr->cma_version = CMA_VERSION;
+			cma_set_ip_ver(cma_hdr, 4);
+			cma_hdr->src_addr.ip4.addr = src4->sin_addr.s_addr;
+			cma_hdr->dst_addr.ip4.addr = dst4->sin_addr.s_addr;
+			cma_hdr->port = src4->sin_port;
+			break;
+		}
+	} else {
+		struct sockaddr_in6 *src6, *dst6;
+
+		src6 = (struct sockaddr_in6 *) &route->addr.src_addr;
+		dst6 = (struct sockaddr_in6 *) &route->addr.dst_addr;
+
+		switch (ps) {
+		case RDMA_PS_SDP:
+			sdp_hdr = hdr;
+			if (sdp_get_majv(sdp_hdr->sdp_version) != SDP_MAJ_VERSION)
+				return -EINVAL;
+			sdp_set_ip_ver(sdp_hdr, 6);
+			sdp_hdr->src_addr.ip6 = src6->sin6_addr;
+			sdp_hdr->dst_addr.ip6 = dst6->sin6_addr;
+			sdp_hdr->port = src6->sin6_port;
+			break;
+		default:
+			cma_hdr = hdr;
+			cma_hdr->cma_version = CMA_VERSION;
+			cma_set_ip_ver(cma_hdr, 6);
+			cma_hdr->src_addr.ip6 = src6->sin6_addr;
+			cma_hdr->dst_addr.ip6 = dst6->sin6_addr;
+			cma_hdr->port = src6->sin6_port;
+			break;
+		}
 	}
 	return 0;
 }
@@ -2165,6 +2202,12 @@ static int cma_sidr_rep_handler(struct ib_cm_id *cm_id,
 		if (rep->status != IB_SIDR_SUCCESS) {
 			event.event = RDMA_CM_EVENT_UNREACHABLE;
 			event.status = ib_event->param.sidr_rep_rcvd.status;
+			break;
+		}
+		ret = cma_set_qkey(id_priv);
+		if (ret) {
+			event.event = RDMA_CM_EVENT_ADDR_ERROR;
+			event.status = -EINVAL;
 			break;
 		}
 		if (id_priv->qkey != rep->qkey) {
@@ -2446,10 +2489,14 @@ static int cma_send_sidr_rep(struct rdma_id_private *id_priv,
 			     const void *private_data, int private_data_len)
 {
 	struct ib_cm_sidr_rep_param rep;
+	int ret;
 
 	memset(&rep, 0, sizeof rep);
 	rep.status = status;
 	if (status == IB_SIDR_SUCCESS) {
+		ret = cma_set_qkey(id_priv);
+		if (ret)
+			return ret;
 		rep.qp_num = id_priv->qp_num;
 		rep.qkey = id_priv->qkey;
 	}
@@ -2678,6 +2725,10 @@ static int cma_join_ib_multicast(struct rdma_id_private *id_priv,
 		    IB_SA_MCMEMBER_REC_QKEY | IB_SA_MCMEMBER_REC_SL |
 		    IB_SA_MCMEMBER_REC_FLOW_LABEL |
 		    IB_SA_MCMEMBER_REC_TRAFFIC_CLASS;
+
+	if (id_priv->id.ps == RDMA_PS_IPOIB)
+		comp_mask |= IB_SA_MCMEMBER_REC_RATE |
+			     IB_SA_MCMEMBER_REC_RATE_SELECTOR;
 
 	mc->multicast.ib = ib_sa_join_multicast(&sa_client, id_priv->id.device,
 						id_priv->id.port_num, &rec,

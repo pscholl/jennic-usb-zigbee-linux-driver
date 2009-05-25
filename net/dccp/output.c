@@ -161,21 +161,27 @@ unsigned int dccp_sync_mss(struct sock *sk, u32 pmtu)
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct dccp_sock *dp = dccp_sk(sk);
 	u32 ccmps = dccp_determine_ccmps(dp);
-	int cur_mps = ccmps ? min(pmtu, ccmps) : pmtu;
+	u32 cur_mps = ccmps ? min(pmtu, ccmps) : pmtu;
 
 	/* Account for header lengths and IPv4/v6 option overhead */
 	cur_mps -= (icsk->icsk_af_ops->net_header_len + icsk->icsk_ext_hdr_len +
 		    sizeof(struct dccp_hdr) + sizeof(struct dccp_hdr_ext));
 
 	/*
-	 * FIXME: this should come from the CCID infrastructure, where, say,
-	 * TFRC will say it wants TIMESTAMPS, ELAPSED time, etc, for now lets
-	 * put a rough estimate for NDP + TIMESTAMP + TIMESTAMP_ECHO + ELAPSED
-	 * TIME + TFRC_OPT_LOSS_EVENT_RATE + TFRC_OPT_RECEIVE_RATE + padding to
-	 * make it a multiple of 4
+	 * Leave enough headroom for common DCCP header options.
+	 * This only considers options which may appear on DCCP-Data packets, as
+	 * per table 3 in RFC 4340, 5.8. When running out of space for other
+	 * options (eg. Ack Vector which can take up to 255 bytes), it is better
+	 * to schedule a separate Ack. Thus we leave headroom for the following:
+	 *  - 1 byte for Slow Receiver (11.6)
+	 *  - 6 bytes for Timestamp (13.1)
+	 *  - 10 bytes for Timestamp Echo (13.3)
+	 *  - 8 bytes for NDP count (7.7, when activated)
+	 *  - 6 bytes for Data Checksum (9.3)
+	 *  - %DCCPAV_MIN_OPTLEN bytes for Ack Vector size (11.4, when enabled)
 	 */
-
-	cur_mps -= ((5 + 6 + 10 + 6 + 6 + 6 + 3) / 4) * 4;
+	cur_mps -= roundup(1 + 6 + 10 + dp->dccps_send_ndp_count * 8 + 6 +
+			   (dp->dccps_hc_rx_ackvec ? DCCPAV_MIN_OPTLEN : 0), 4);
 
 	/* And store cached results */
 	icsk->icsk_pmtu_cookie = pmtu;
@@ -270,7 +276,20 @@ void dccp_write_xmit(struct sock *sk, int block)
 			const int len = skb->len;
 
 			if (sk->sk_state == DCCP_PARTOPEN) {
-				/* See 8.1.5.  Handshake Completion */
+				const u32 cur_mps = dp->dccps_mss_cache - DCCP_FEATNEG_OVERHEAD;
+				/*
+				 * See 8.1.5 - Handshake Completion.
+				 *
+				 * For robustness we resend Confirm options until the client has
+				 * entered OPEN. During the initial feature negotiation, the MPS
+				 * is smaller than usual, reduced by the Change/Confirm options.
+				 */
+				if (!list_empty(&dp->dccps_featneg) && len > cur_mps) {
+					DCCP_WARN("Payload too large (%d) for featneg.\n", len);
+					dccp_send_ack(sk);
+					dccp_feat_list_purge(&dp->dccps_featneg);
+				}
+
 				inet_csk_schedule_ack(sk);
 				inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
 						  inet_csk(sk)->icsk_rto,
@@ -339,10 +358,12 @@ struct sk_buff *dccp_make_response(struct sock *sk, struct dst_entry *dst,
 	DCCP_SKB_CB(skb)->dccpd_type = DCCP_PKT_RESPONSE;
 	DCCP_SKB_CB(skb)->dccpd_seq  = dreq->dreq_iss;
 
-	if (dccp_insert_options_rsk(dreq, skb)) {
-		kfree_skb(skb);
-		return NULL;
-	}
+	/* Resolve feature dependencies resulting from choice of CCID */
+	if (dccp_feat_server_ccid_dependencies(dreq))
+		goto response_failed;
+
+	if (dccp_insert_options_rsk(dreq, skb))
+		goto response_failed;
 
 	/* Build and checksum header */
 	dh = dccp_zeroed_hdr(skb, dccp_header_size);
@@ -363,6 +384,9 @@ struct sk_buff *dccp_make_response(struct sock *sk, struct dst_entry *dst,
 	inet_rsk(req)->acked = 1;
 	DCCP_INC_STATS(DCCP_MIB_OUTSEGS);
 	return skb;
+response_failed:
+	kfree_skb(skb);
+	return NULL;
 }
 
 EXPORT_SYMBOL_GPL(dccp_make_response);
@@ -468,6 +492,10 @@ int dccp_connect(struct sock *sk)
 {
 	struct sk_buff *skb;
 	struct inet_connection_sock *icsk = inet_csk(sk);
+
+	/* do not connect if feature negotiation setup fails */
+	if (dccp_feat_finalise_settings(dccp_sk(sk)))
+		return -EPROTO;
 
 	dccp_connect_init(sk);
 

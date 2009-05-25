@@ -16,6 +16,7 @@
 #include <linux/mutex.h>
 #include <linux/freezer.h>
 #include <linux/kthread.h>
+#include <linux/sunrpc/svcauth_gss.h>
 
 #include <net/inet_sock.h>
 
@@ -37,18 +38,9 @@ static struct svc_program nfs4_callback_program;
 
 unsigned int nfs_callback_set_tcpport;
 unsigned short nfs_callback_tcpport;
+unsigned short nfs_callback_tcpport6;
 static const int nfs_set_port_min = 0;
 static const int nfs_set_port_max = 65535;
-
-/*
- * If the kernel has IPv6 support available, always listen for
- * both AF_INET and AF_INET6 requests.
- */
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-static const sa_family_t	nfs_callback_family = AF_INET6;
-#else
-static const sa_family_t	nfs_callback_family = AF_INET;
-#endif
 
 static int param_set_port(const char *val, struct kernel_param *kp)
 {
@@ -115,19 +107,29 @@ int nfs_callback_up(void)
 	mutex_lock(&nfs_callback_mutex);
 	if (nfs_callback_info.users++ || nfs_callback_info.task != NULL)
 		goto out;
-	serv = svc_create(&nfs4_callback_program, NFS4_CALLBACK_BUFSIZE,
-				nfs_callback_family, NULL);
+	serv = svc_create(&nfs4_callback_program, NFS4_CALLBACK_BUFSIZE, NULL);
 	ret = -ENOMEM;
 	if (!serv)
 		goto out_err;
 
-	ret = svc_create_xprt(serv, "tcp", nfs_callback_set_tcpport,
-			      SVC_SOCK_ANONYMOUS);
+	ret = svc_create_xprt(serv, "tcp", PF_INET,
+				nfs_callback_set_tcpport, SVC_SOCK_ANONYMOUS);
 	if (ret <= 0)
 		goto out_err;
 	nfs_callback_tcpport = ret;
 	dprintk("NFS: Callback listener port = %u (af %u)\n",
-			nfs_callback_tcpport, nfs_callback_family);
+			nfs_callback_tcpport, PF_INET);
+
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	ret = svc_create_xprt(serv, "tcp", PF_INET6,
+				nfs_callback_set_tcpport, SVC_SOCK_ANONYMOUS);
+	if (ret > 0) {
+		nfs_callback_tcpport6 = ret;
+		dprintk("NFS: Callback listener port = %u (af %u)\n",
+				nfs_callback_tcpport6, PF_INET6);
+	} else if (ret != -EAFNOSUPPORT)
+		goto out_err;
+#endif	/* defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE) */
 
 	nfs_callback_info.rqst = svc_prepare_thread(serv, &serv->sv_pools[0]);
 	if (IS_ERR(nfs_callback_info.rqst)) {
@@ -182,10 +184,34 @@ void nfs_callback_down(void)
 	mutex_unlock(&nfs_callback_mutex);
 }
 
+static int check_gss_callback_principal(struct nfs_client *clp,
+					struct svc_rqst *rqstp)
+{
+	struct rpc_clnt *r = clp->cl_rpcclient;
+	char *p = svc_gss_principal(rqstp);
+
+	/*
+	 * It might just be a normal user principal, in which case
+	 * userspace won't bother to tell us the name at all.
+	 */
+	if (p == NULL)
+		return SVC_DENIED;
+
+	/* Expect a GSS_C_NT_HOSTBASED_NAME like "nfs@serverhostname" */
+
+	if (memcmp(p, "nfs@", 4) != 0)
+		return SVC_DENIED;
+	p += 4;
+	if (strcmp(p, r->cl_server) != 0)
+		return SVC_DENIED;
+	return SVC_OK;
+}
+
 static int nfs_callback_authenticate(struct svc_rqst *rqstp)
 {
 	struct nfs_client *clp;
 	RPC_IFDEBUG(char buf[RPC_MAX_ADDRBUFLEN]);
+	int ret = SVC_OK;
 
 	/* Don't talk to strangers */
 	clp = nfs_find_client(svc_addr(rqstp), 4);
@@ -194,21 +220,22 @@ static int nfs_callback_authenticate(struct svc_rqst *rqstp)
 
 	dprintk("%s: %s NFSv4 callback!\n", __func__,
 			svc_print_addr(rqstp, buf, sizeof(buf)));
-	nfs_put_client(clp);
 
 	switch (rqstp->rq_authop->flavour) {
 		case RPC_AUTH_NULL:
 			if (rqstp->rq_proc != CB_NULL)
-				return SVC_DENIED;
+				ret = SVC_DENIED;
 			break;
 		case RPC_AUTH_UNIX:
 			break;
 		case RPC_AUTH_GSS:
-			/* FIXME: RPCSEC_GSS handling? */
+			ret = check_gss_callback_principal(clp, rqstp);
+			break;
 		default:
-			return SVC_DENIED;
+			ret = SVC_DENIED;
 	}
-	return SVC_OK;
+	nfs_put_client(clp);
+	return ret;
 }
 
 /*

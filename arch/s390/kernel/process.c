@@ -1,18 +1,10 @@
 /*
- *  arch/s390/kernel/process.c
+ * This file handles the architecture dependent parts of process handling.
  *
- *  S390 version
- *    Copyright (C) 1999 IBM Deutschland Entwicklung GmbH, IBM Corporation
- *    Author(s): Martin Schwidefsky (schwidefsky@de.ibm.com),
- *               Hartmut Penner (hp@de.ibm.com),
- *               Denis Joseph Barrow (djbarrow@de.ibm.com,barrow_dj@yahoo.com),
- *
- *  Derived from "arch/i386/kernel/process.c"
- *    Copyright (C) 1995, Linus Torvalds
- */
-
-/*
- * This file handles the architecture-dependent parts of process handling..
+ *    Copyright IBM Corp. 1999,2009
+ *    Author(s): Martin Schwidefsky <schwidefsky@de.ibm.com>,
+ *		 Hartmut Penner <hp@de.ibm.com>,
+ *		 Denis Joseph Barrow,
  */
 
 #include <linux/compiler.h>
@@ -38,6 +30,8 @@
 #include <linux/utsname.h>
 #include <linux/tick.h>
 #include <linux/elfcore.h>
+#include <linux/kernel_stat.h>
+#include <linux/syscalls.h>
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
 #include <asm/system.h>
@@ -45,7 +39,7 @@
 #include <asm/processor.h>
 #include <asm/irq.h>
 #include <asm/timer.h>
-#include <asm/cpu.h>
+#include <asm/nmi.h>
 #include "entry.h"
 
 asmlinkage void ret_from_fork(void) asm ("ret_from_fork");
@@ -75,37 +69,6 @@ unsigned long thread_saved_pc(struct task_struct *tsk)
 	return sf->gprs[8];
 }
 
-DEFINE_PER_CPU(struct s390_idle_data, s390_idle) = {
-	.lock = __SPIN_LOCK_UNLOCKED(s390_idle.lock)
-};
-
-static int s390_idle_enter(void)
-{
-	struct s390_idle_data *idle;
-
-	idle = &__get_cpu_var(s390_idle);
-	spin_lock(&idle->lock);
-	idle->idle_count++;
-	idle->in_idle = 1;
-	idle->idle_enter = get_clock();
-	spin_unlock(&idle->lock);
-	vtime_stop_cpu_timer();
-	return NOTIFY_OK;
-}
-
-void s390_idle_leave(void)
-{
-	struct s390_idle_data *idle;
-
-	vtime_start_cpu_timer();
-	idle = &__get_cpu_var(s390_idle);
-	spin_lock(&idle->lock);
-	idle->idle_time += get_clock() - idle->idle_enter;
-	idle->in_idle = 0;
-	spin_unlock(&idle->lock);
-}
-
-extern void s390_handle_mcck(void);
 /*
  * The idle loop on a S390...
  */
@@ -114,10 +77,6 @@ static void default_idle(void)
 	/* CPU is going idle. */
 	local_irq_disable();
 	if (need_resched()) {
-		local_irq_enable();
-		return;
-	}
-	if (s390_idle_enter() == NOTIFY_BAD) {
 		local_irq_enable();
 		return;
 	}
@@ -130,7 +89,6 @@ static void default_idle(void)
 	local_mcck_disable();
 	if (test_thread_flag(TIF_MCCK_PENDING)) {
 		local_mcck_enable();
-		s390_idle_leave();
 		local_irq_enable();
 		s390_handle_mcck();
 		return;
@@ -138,9 +96,9 @@ static void default_idle(void)
 	trace_hardirqs_on();
 	/* Don't trace preempt off for idle. */
 	stop_critical_timings();
-	/* Wait for external, I/O or machine check interrupt. */
-	__load_psw_mask(psw_kernel_bits | PSW_MASK_WAIT |
-			PSW_MASK_IO | PSW_MASK_EXT);
+	/* Stop virtual timer and halt the cpu. */
+	vtime_stop_cpu();
+	/* Reenable preemption tracer. */
 	start_critical_timings();
 }
 
@@ -183,6 +141,7 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED,
 		       0, &regs, 0, NULL, NULL);
 }
+EXPORT_SYMBOL(kernel_thread);
 
 /*
  * Free current thread data structures etc..
@@ -201,35 +160,36 @@ void release_thread(struct task_struct *dead_task)
 {
 }
 
-int copy_thread(int nr, unsigned long clone_flags, unsigned long new_stackp,
-	unsigned long unused,
-        struct task_struct * p, struct pt_regs * regs)
+int copy_thread(unsigned long clone_flags, unsigned long new_stackp,
+		unsigned long unused,
+		struct task_struct *p, struct pt_regs *regs)
 {
-        struct fake_frame
-          {
-	    struct stack_frame sf;
-            struct pt_regs childregs;
-          } *frame;
+	struct thread_info *ti;
+	struct fake_frame
+	{
+		struct stack_frame sf;
+		struct pt_regs childregs;
+	} *frame;
 
-        frame = container_of(task_pt_regs(p), struct fake_frame, childregs);
-        p->thread.ksp = (unsigned long) frame;
+	frame = container_of(task_pt_regs(p), struct fake_frame, childregs);
+	p->thread.ksp = (unsigned long) frame;
 	/* Store access registers to kernel stack of new process. */
-        frame->childregs = *regs;
+	frame->childregs = *regs;
 	frame->childregs.gprs[2] = 0;	/* child returns 0 on fork. */
-        frame->childregs.gprs[15] = new_stackp;
-        frame->sf.back_chain = 0;
+	frame->childregs.gprs[15] = new_stackp;
+	frame->sf.back_chain = 0;
 
-        /* new return point is ret_from_fork */
-        frame->sf.gprs[8] = (unsigned long) ret_from_fork;
+	/* new return point is ret_from_fork */
+	frame->sf.gprs[8] = (unsigned long) ret_from_fork;
 
-        /* fake return stack for resume(), don't go back to schedule */
-        frame->sf.gprs[9] = (unsigned long) frame;
+	/* fake return stack for resume(), don't go back to schedule */
+	frame->sf.gprs[9] = (unsigned long) frame;
 
 	/* Save access registers to new thread structure. */
 	save_access_regs(&p->thread.acrs[0]);
 
 #ifndef CONFIG_64BIT
-        /*
+	/*
 	 * save fprs to current->thread.fp_regs to merge them with
 	 * the emulated registers and then copy the result to the child.
 	 */
@@ -254,19 +214,22 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long new_stackp,
 #endif /* CONFIG_64BIT */
 	/* start new process with ar4 pointing to the correct address space */
 	p->thread.mm_segment = get_fs();
-        /* Don't copy debug registers */
-        memset(&p->thread.per_info,0,sizeof(p->thread.per_info));
-
-        return 0;
+	/* Don't copy debug registers */
+	memset(&p->thread.per_info, 0, sizeof(p->thread.per_info));
+	/* Initialize per thread user and system timer values */
+	ti = task_thread_info(p);
+	ti->user_timer = 0;
+	ti->system_timer = 0;
+	return 0;
 }
 
-asmlinkage long sys_fork(void)
+SYSCALL_DEFINE0(fork)
 {
 	struct pt_regs *regs = task_pt_regs(current);
 	return do_fork(SIGCHLD, regs->gprs[15], regs, 0, NULL, NULL);
 }
 
-asmlinkage long sys_clone(void)
+SYSCALL_DEFINE0(clone)
 {
 	struct pt_regs *regs = task_pt_regs(current);
 	unsigned long clone_flags;
@@ -293,7 +256,7 @@ asmlinkage long sys_clone(void)
  * do not have enough call-clobbered registers to hold all
  * the information you need.
  */
-asmlinkage long sys_vfork(void)
+SYSCALL_DEFINE0(vfork)
 {
 	struct pt_regs *regs = task_pt_regs(current);
 	return do_fork(CLONE_VFORK | CLONE_VM | SIGCHLD,
@@ -313,7 +276,7 @@ asmlinkage void execve_tail(void)
 /*
  * sys_execve() executes a new program.
  */
-asmlinkage long sys_execve(void)
+SYSCALL_DEFINE0(execve)
 {
 	struct pt_regs *regs = task_pt_regs(current);
 	char *filename;
@@ -345,7 +308,7 @@ out:
 int dump_fpu (struct pt_regs * regs, s390_fp_regs *fpregs)
 {
 #ifndef CONFIG_64BIT
-        /*
+	/*
 	 * save fprs to current->thread.fp_regs to merge them with
 	 * the emulated registers and then copy the result to the dump.
 	 */
@@ -356,6 +319,7 @@ int dump_fpu (struct pt_regs * regs, s390_fp_regs *fpregs)
 #endif /* CONFIG_64BIT */
 	return 1;
 }
+EXPORT_SYMBOL(dump_fpu);
 
 unsigned long get_wchan(struct task_struct *p)
 {
@@ -380,4 +344,3 @@ unsigned long get_wchan(struct task_struct *p)
 	}
 	return 0;
 }
-

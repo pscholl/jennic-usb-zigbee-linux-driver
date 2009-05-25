@@ -25,6 +25,7 @@
 #include "zfcp_fsf.h"
 
 #define ZFCP_DBF_TAG_SIZE      4
+#define ZFCP_DBF_ID_SIZE       7
 
 struct zfcp_dbf_dump {
 	u8 tag[ZFCP_DBF_TAG_SIZE];
@@ -70,7 +71,7 @@ struct zfcp_rec_dbf_record_action {
 
 struct zfcp_rec_dbf_record {
 	u8 id;
-	u8 id2;
+	char id2[7];
 	union {
 		struct zfcp_rec_dbf_record_action action;
 		struct zfcp_rec_dbf_record_thread thread;
@@ -171,6 +172,7 @@ struct zfcp_san_dbf_record_ct_response {
 	u8 reason_code;
 	u8 expl;
 	u8 vendor_unique;
+	u16 max_res_size;
 	u32 len;
 } __attribute__ ((packed));
 

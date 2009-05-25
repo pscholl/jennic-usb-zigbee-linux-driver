@@ -7,8 +7,6 @@
  * EtherBlaster. (probably it also works with every full NE2100
  * compatible card)
  *
- * To compile as module, type:
- *     gcc -O2 -fomit-frame-pointer -m486 -D__KERNEL__ -DMODULE -c ni65.c
  * driver probes: io: 0x360,0x300,0x320,0x340 / dma: 3,5,6,7
  *
  * This is an extension to the Linux operating system, and is covered by the
@@ -239,7 +237,7 @@ struct priv
 	void *tmdbounce[TMDNUM];
 	int tmdbouncenum;
 	int lock,xmit_queued;
-	struct net_device_stats stats;
+
 	void *self;
 	int cmdr_addr;
 	int cardno;
@@ -259,7 +257,6 @@ static void  ni65_timeout(struct net_device *dev);
 static int  ni65_close(struct net_device *dev);
 static int  ni65_alloc_buffer(struct net_device *dev);
 static void ni65_free_buffer(struct priv *p);
-static struct net_device_stats *ni65_get_stats(struct net_device *);
 static void set_multicast_list(struct net_device *dev);
 
 static int irqtab[] __initdata = { 9,12,15,5 }; /* irq config-translate */
@@ -295,7 +292,7 @@ static void ni65_set_performance(struct priv *p)
  */
 static int ni65_open(struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = dev->ml_priv;
 	int irqval = request_irq(dev->irq, &ni65_interrupt,0,
                         cards[p->cardno].cardname,dev);
 	if (irqval) {
@@ -321,7 +318,7 @@ static int ni65_open(struct net_device *dev)
  */
 static int ni65_close(struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = dev->ml_priv;
 
 	netif_stop_queue(dev);
 
@@ -345,7 +342,7 @@ static int ni65_close(struct net_device *dev)
 
 static void cleanup_card(struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = dev->ml_priv;
 	disable_dma(dev->dma);
 	free_dma(dev->dma);
 	release_region(dev->base_addr, cards[p->cardno].total_size);
@@ -403,6 +400,17 @@ out:
 	return ERR_PTR(err);
 }
 
+static const struct net_device_ops ni65_netdev_ops = {
+	.ndo_open		= ni65_open,
+	.ndo_stop		= ni65_close,
+	.ndo_start_xmit		= ni65_send_packet,
+	.ndo_tx_timeout		= ni65_timeout,
+	.ndo_set_multicast_list = set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /*
  * this is the real card probe ..
  */
@@ -444,7 +452,7 @@ static int __init ni65_probe1(struct net_device *dev,int ioaddr)
 		release_region(ioaddr, cards[i].total_size);
 		return j;
 	}
-	p = (struct priv *) dev->priv;
+	p = dev->ml_priv;
 	p->cmdr_addr = ioaddr + cards[i].cmd_offset;
 	p->cardno = i;
 	spin_lock_init(&p->ring_lock);
@@ -483,8 +491,9 @@ static int __init ni65_probe1(struct net_device *dev,int ioaddr)
 	else {
 		if(dev->dma == 0) {
 		/* 'stuck test' from lance.c */
-			long dma_channels = ((inb(DMA1_STAT_REG) >> 4) & 0x0f) |
-					    (inb(DMA2_STAT_REG) & 0xf0);
+			unsigned long dma_channels =
+				((inb(DMA1_STAT_REG) >> 4) & 0x0f)
+				| (inb(DMA2_STAT_REG) & 0xf0);
 			for(i=1;i<5;i++) {
 				int dma = dmatab[i];
 				if(test_bit(dma,&dma_channels) || request_dma(dma,"ni6510"))
@@ -550,13 +559,9 @@ static int __init ni65_probe1(struct net_device *dev,int ioaddr)
 	}
 
 	dev->base_addr = ioaddr;
-	dev->open		= ni65_open;
-	dev->stop		= ni65_close;
-	dev->hard_start_xmit	= ni65_send_packet;
-	dev->tx_timeout		= ni65_timeout;
+	dev->netdev_ops = &ni65_netdev_ops;
 	dev->watchdog_timeo	= HZ/2;
-	dev->get_stats		= ni65_get_stats;
-	dev->set_multicast_list = set_multicast_list;
+
 	return 0; /* everything is OK */
 }
 
@@ -647,8 +652,8 @@ static int ni65_alloc_buffer(struct net_device *dev)
 	if(!ptr)
 		return -ENOMEM;
 
-	p = dev->priv = (struct priv *) (((unsigned long) ptr + 7) & ~0x7);
-	memset((char *) dev->priv,0,sizeof(struct priv));
+	p = dev->ml_priv = (struct priv *) (((unsigned long) ptr + 7) & ~0x7);
+	memset((char *)p, 0, sizeof(struct priv));
 	p->self = ptr;
 
 	for(i=0;i<TMDNUM;i++)
@@ -790,7 +795,7 @@ static void ni65_stop_start(struct net_device *dev,struct priv *p)
 static int ni65_lance_reinit(struct net_device *dev)
 {
 	 int i;
-	 struct priv *p = (struct priv *) dev->priv;
+	 struct priv *p = dev->ml_priv;
 	 unsigned long flags;
 
 	 p->lock = 0;
@@ -876,7 +881,7 @@ static irqreturn_t ni65_interrupt(int irq, void * dev_id)
 	struct priv *p;
 	int bcnt = 32;
 
-	p = (struct priv *) dev->priv;
+	p = dev->ml_priv;
 
 	spin_lock(&p->ring_lock);
 
@@ -899,17 +904,16 @@ static irqreturn_t ni65_interrupt(int irq, void * dev_id)
 
 		if(csr0 & CSR0_ERR)
 		{
-			struct priv *p = (struct priv *) dev->priv;
 			if(debuglevel > 1)
 				printk(KERN_ERR "%s: general error: %04x.\n",dev->name,csr0);
 			if(csr0 & CSR0_BABL)
-				p->stats.tx_errors++;
+				dev->stats.tx_errors++;
 			if(csr0 & CSR0_MISS) {
 				int i;
 				for(i=0;i<RMDNUM;i++)
 					printk("%02x ",p->rmdhead[i].u.s.status);
 				printk("\n");
-				p->stats.rx_errors++;
+				dev->stats.rx_errors++;
 			}
 			if(csr0 & CSR0_MERR) {
 				if(debuglevel > 1)
@@ -924,8 +928,7 @@ static irqreturn_t ni65_interrupt(int irq, void * dev_id)
  int j;
  for(j=0;j<RMDNUM;j++)
  {
-	struct priv *p = (struct priv *) dev->priv;
-	int i,k,num1,num2;
+	int i, num2;
 	for(i=RMDNUM-1;i>0;i--) {
 		 num2 = (p->rmdnum + i) & (RMDNUM-1);
 		 if(!(p->rmdhead[num2].u.s.status & RCV_OWN))
@@ -933,6 +936,7 @@ static irqreturn_t ni65_interrupt(int irq, void * dev_id)
 	}
 
 	if(i) {
+		int k, num1;
 		for(k=0;k<RMDNUM;k++) {
 			num1 = (p->rmdnum + k) & (RMDNUM-1);
 			if(!(p->rmdhead[num1].u.s.status & RCV_OWN))
@@ -944,7 +948,6 @@ static irqreturn_t ni65_interrupt(int irq, void * dev_id)
 		if(debuglevel > 0)
 		{
 			char buf[256],*buf1;
-			int k;
 			buf1 = buf;
 			for(k=0;k<RMDNUM;k++) {
 				sprintf(buf1,"%02x ",(p->rmdhead[k].u.s.status)); /* & RCV_OWN) ); */
@@ -982,7 +985,7 @@ static irqreturn_t ni65_interrupt(int irq, void * dev_id)
  */
 static void ni65_xmit_intr(struct net_device *dev,int csr0)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = dev->ml_priv;
 
 	while(p->xmit_queued)
 	{
@@ -1000,12 +1003,12 @@ static void ni65_xmit_intr(struct net_device *dev,int csr0)
 #endif
 		 /* checking some errors */
 			if(tmdp->status2 & XMIT_RTRY)
-				p->stats.tx_aborted_errors++;
+				dev->stats.tx_aborted_errors++;
 			if(tmdp->status2 & XMIT_LCAR)
-				p->stats.tx_carrier_errors++;
+				dev->stats.tx_carrier_errors++;
 			if(tmdp->status2 & (XMIT_BUFF | XMIT_UFLO )) {
 		/* this stops the xmitter */
-				p->stats.tx_fifo_errors++;
+				dev->stats.tx_fifo_errors++;
 				if(debuglevel > 0)
 					printk(KERN_ERR "%s: Xmit FIFO/BUFF error\n",dev->name);
 				if(p->features & INIT_RING_BEFORE_START) {
@@ -1019,12 +1022,12 @@ static void ni65_xmit_intr(struct net_device *dev,int csr0)
 			if(debuglevel > 2)
 				printk(KERN_ERR "%s: xmit-error: %04x %02x-%04x\n",dev->name,csr0,(int) tmdstat,(int) tmdp->status2);
 			if(!(csr0 & CSR0_BABL)) /* don't count errors twice */
-				p->stats.tx_errors++;
+				dev->stats.tx_errors++;
 			tmdp->status2 = 0;
 		}
 		else {
-			p->stats.tx_bytes -= (short)(tmdp->blen);
-			p->stats.tx_packets++;
+			dev->stats.tx_bytes -= (short)(tmdp->blen);
+			dev->stats.tx_packets++;
 		}
 
 #ifdef XMT_VIA_SKB
@@ -1049,7 +1052,7 @@ static void ni65_recv_intr(struct net_device *dev,int csr0)
 	struct rmd *rmdp;
 	int rmdstat,len;
 	int cnt=0;
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = dev->ml_priv;
 
 	rmdp = p->rmdhead + p->rmdnum;
 	while(!( (rmdstat = rmdp->u.s.status) & RCV_OWN))
@@ -1060,7 +1063,7 @@ static void ni65_recv_intr(struct net_device *dev,int csr0)
 			if(!(rmdstat & RCV_ERR)) {
 				if(rmdstat & RCV_START)
 				{
-					p->stats.rx_length_errors++;
+					dev->stats.rx_length_errors++;
 					printk(KERN_ERR "%s: recv, packet too long: %d\n",dev->name,rmdp->mlen & 0x0fff);
 				}
 			}
@@ -1069,16 +1072,16 @@ static void ni65_recv_intr(struct net_device *dev,int csr0)
 					printk(KERN_ERR "%s: receive-error: %04x, lance-status: %04x/%04x\n",
 									dev->name,(int) rmdstat,csr0,(int) inw(PORT+L_DATAREG) );
 				if(rmdstat & RCV_FRAM)
-					p->stats.rx_frame_errors++;
+					dev->stats.rx_frame_errors++;
 				if(rmdstat & RCV_OFLO)
-					p->stats.rx_over_errors++;
+					dev->stats.rx_over_errors++;
 				if(rmdstat & RCV_CRC)
-					p->stats.rx_crc_errors++;
+					dev->stats.rx_crc_errors++;
 				if(rmdstat & RCV_BUF_ERR)
-					p->stats.rx_fifo_errors++;
+					dev->stats.rx_fifo_errors++;
 			}
 			if(!(csr0 & CSR0_MISS)) /* don't count errors twice */
-				p->stats.rx_errors++;
+				dev->stats.rx_errors++;
 		}
 		else if( (len = (rmdp->mlen & 0x0fff) - 4) >= 60)
 		{
@@ -1109,21 +1112,20 @@ static void ni65_recv_intr(struct net_device *dev,int csr0)
 				skb_put(skb,len);
 				skb_copy_to_linear_data(skb, (unsigned char *) p->recvbounce[p->rmdnum],len);
 #endif
-				p->stats.rx_packets++;
-				p->stats.rx_bytes += len;
+				dev->stats.rx_packets++;
+				dev->stats.rx_bytes += len;
 				skb->protocol=eth_type_trans(skb,dev);
 				netif_rx(skb);
-				dev->last_rx = jiffies;
 			}
 			else
 			{
 				printk(KERN_ERR "%s: can't alloc new sk_buff\n",dev->name);
-				p->stats.rx_dropped++;
+				dev->stats.rx_dropped++;
 			}
 		}
 		else {
 			printk(KERN_INFO "%s: received runt packet\n",dev->name);
-			p->stats.rx_errors++;
+			dev->stats.rx_errors++;
 		}
 		rmdp->blen = -(R_BUF_SIZE-8);
 		rmdp->mlen = 0;
@@ -1140,7 +1142,7 @@ static void ni65_recv_intr(struct net_device *dev,int csr0)
 static void ni65_timeout(struct net_device *dev)
 {
 	int i;
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = dev->ml_priv;
 
 	printk(KERN_ERR "%s: xmitter timed out, try to restart!\n",dev->name);
 	for(i=0;i<TMDNUM;i++)
@@ -1157,7 +1159,7 @@ static void ni65_timeout(struct net_device *dev)
 
 static int ni65_send_packet(struct sk_buff *skb, struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = dev->ml_priv;
 
 	netif_stop_queue(dev);
 
@@ -1217,23 +1219,6 @@ static int ni65_send_packet(struct sk_buff *skb, struct net_device *dev)
 	return 0;
 }
 
-static struct net_device_stats *ni65_get_stats(struct net_device *dev)
-{
-
-#if 0
-	int i;
-	struct priv *p = (struct priv *) dev->priv;
-	for(i=0;i<RMDNUM;i++)
-	{
-		struct rmd *rmdp = p->rmdhead + ((p->rmdnum + i) & (RMDNUM-1));
-		printk("%02x ",rmdp->u.s.status);
-	}
-	printk("\n");
-#endif
-
-	return &((struct priv *) dev->priv)->stats;
-}
-
 static void set_multicast_list(struct net_device *dev)
 {
 	if(!ni65_lance_reinit(dev))
@@ -1266,7 +1251,3 @@ void __exit cleanup_module(void)
 #endif /* MODULE */
 
 MODULE_LICENSE("GPL");
-
-/*
- * END of ni65.c
- */

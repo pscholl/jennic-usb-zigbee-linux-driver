@@ -35,6 +35,7 @@
 #include <linux/spinlock.h>
 #include <linux/platform_device.h>
 #include <linux/mod_devicetable.h>
+#include <linux/log2.h>
 
 /* this is for "generic access to PC-style RTC" using CMOS_READ/CMOS_WRITE */
 #include <asm-generic/rtc.h>
@@ -58,7 +59,7 @@ struct cmos_rtc {
 };
 
 /* both platform and pnp busses use negative numbers for invalid irqs */
-#define is_valid_irq(n)		((n) >= 0)
+#define is_valid_irq(n)		((n) > 0)
 
 static const char driver_name[] = "rtc_cmos";
 
@@ -384,6 +385,8 @@ static int cmos_irq_set_freq(struct device *dev, int freq)
 	if (!is_valid_irq(cmos->irq))
 		return -ENXIO;
 
+	if (!is_power_of_2(freq))
+		return -EINVAL;
 	/* 0 = no irqs; 1 = 2^15 Hz ... 15 = 2^0 Hz */
 	f = ffs(freq);
 	if (f-- > 16)
@@ -729,7 +732,7 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 
 	cmos_rtc.dev = dev;
 	dev_set_drvdata(dev, &cmos_rtc);
-	rename_region(ports, cmos_rtc.rtc->dev.bus_id);
+	rename_region(ports, dev_name(&cmos_rtc.rtc->dev));
 
 	spin_lock_irq(&rtc_lock);
 
@@ -777,7 +780,7 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 			rtc_cmos_int_handler = cmos_interrupt;
 
 		retval = request_irq(rtc_irq, rtc_cmos_int_handler,
-				IRQF_DISABLED, cmos_rtc.rtc->dev.bus_id,
+				IRQF_DISABLED, dev_name(&cmos_rtc.rtc->dev),
 				cmos_rtc.rtc);
 		if (retval < 0) {
 			dev_dbg(dev, "IRQ %d is already in use\n", rtc_irq);
@@ -794,17 +797,15 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 		goto cleanup2;
 	}
 
-	pr_info("%s: alarms up to one %s%s, %zd bytes nvram%s\n",
-			cmos_rtc.rtc->dev.bus_id,
-			is_valid_irq(rtc_irq)
-				?  (cmos_rtc.mon_alrm
-					? "year"
-					: (cmos_rtc.day_alrm
-						? "month" : "day"))
-				: "no",
-			cmos_rtc.century ? ", y3k" : "",
-			nvram.size,
-			is_hpet_enabled() ? ", hpet irqs" : "");
+	pr_info("%s: %s%s, %zd bytes nvram%s\n",
+		dev_name(&cmos_rtc.rtc->dev),
+		!is_valid_irq(rtc_irq) ? "no alarms" :
+			cmos_rtc.mon_alrm ? "alarms up to one year" :
+			cmos_rtc.day_alrm ? "alarms up to one month" :
+			"alarms up to one day",
+		cmos_rtc.century ? ", y3k" : "",
+		nvram.size,
+		is_hpet_enabled() ? ", hpet irqs" : "");
 
 	return 0;
 
@@ -885,7 +886,7 @@ static int cmos_suspend(struct device *dev, pm_message_t mesg)
 	}
 
 	pr_debug("%s: suspend%s, ctrl %02x\n",
-			cmos_rtc.rtc->dev.bus_id,
+			dev_name(&cmos_rtc.rtc->dev),
 			(tmp & RTC_AIE) ? ", alarm may wake" : "",
 			tmp);
 
@@ -941,7 +942,7 @@ static int cmos_resume(struct device *dev)
 	}
 
 	pr_debug("%s: resume, ctrl %02x\n",
-			cmos_rtc.rtc->dev.bus_id,
+			dev_name(&cmos_rtc.rtc->dev),
 			tmp);
 
 	return 0;

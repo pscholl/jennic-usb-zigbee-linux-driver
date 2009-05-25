@@ -1,40 +1,37 @@
+#ifndef __WINBOND_MDS_H
+#define __WINBOND_MDS_H
+
+#include <linux/timer.h>
+#include <linux/types.h>
+#include <asm/atomic.h>
+
+#include "localpara.h"
+#include "mac_structures.h"
+#include "scan_s.h"
+
+/* Preamble_Type, see <SFS-802.11G-MIB-203> */
+enum {
+	WLAN_PREAMBLE_TYPE_SHORT,
+	WLAN_PREAMBLE_TYPE_LONG,
+};
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define MAX_USB_TX_DESCRIPTOR		15		// IS89C35 ability
 #define MAX_USB_TX_BUFFER_NUMBER	4		// Virtual pre-buffer number of MAX_USB_TX_BUFFER
 #define MAX_USB_TX_BUFFER			4096	// IS89C35 ability 4n alignment is required for hardware
 
-#define MDS_EVENT_INDICATE( _A, _B, _F )	OS_EVENT_INDICATE( _A, _B, _F )
 #define AUTH_REQUEST_PAIRWISE_ERROR			0		// _F flag setting
 #define AUTH_REQUEST_GROUP_ERROR			1		// _F flag setting
 
-// For variable setting
-#define CURRENT_BSS_TYPE				psBSS(psLOCAL->wConnectedSTAindex)->bBssType
-#define CURRENT_WEP_MODE				psSME->_dot11PrivacyInvoked
-#define CURRENT_BSSID					psBSS(psLOCAL->wConnectedSTAindex)->abBssID
-#define CURRENT_DESIRED_WPA_ENABLE		((psSME->bDesiredAuthMode==WPA_AUTH)||(psSME->bDesiredAuthMode==WPAPSK_AUTH))
-#ifdef _WPA2_
-#define CURRENT_DESIRED_WPA2_ENABLE		((psSME->bDesiredAuthMode==WPA2_AUTH)||(psSME->bDesiredAuthMode==WPA2PSK_AUTH))
-#endif //end def _WPA2_
-#define CURRENT_PAIRWISE_KEY_OK			psSME->pairwise_key_ok
-//[20040712 WS]
-#define CURRENT_GROUP_KEY_OK			psSME->group_key_ok
-#define CURRENT_PAIRWISE_KEY			psSME->tx_mic_key
-#define CURRENT_GROUP_KEY				psSME->group_tx_mic_key
-#define CURRENT_ENCRYPT_STATUS			psSME->encrypt_status
-#define CURRENT_WEP_ID					Adapter->sSmePara._dot11WEPDefaultKeyID
-#define CURRENT_CONTROL_PORT_BLOCK		( psSME->wpa_ok!=1 || (Adapter->Mds.boCounterMeasureBlock==1 && (CURRENT_ENCRYPT_STATUS==ENCRYPT_TKIP)) )
-#define CURRENT_FRAGMENT_THRESHOLD		(Adapter->Mds.TxFragmentThreshold & ~0x1)
+#define CURRENT_FRAGMENT_THRESHOLD		(adapter->Mds.TxFragmentThreshold & ~0x1)
 #define CURRENT_PREAMBLE_MODE			psLOCAL->boShortPreamble?WLAN_PREAMBLE_TYPE_SHORT:WLAN_PREAMBLE_TYPE_LONG
-#define CURRENT_LINK_ON					OS_LINK_STATUS
-#define CURRENT_TX_RATE					Adapter->sLocalPara.CurrentTxRate
-#define CURRENT_FALL_BACK_TX_RATE		Adapter->sLocalPara.CurrentTxFallbackRate
-#define CURRENT_TX_RATE_FOR_MNG			Adapter->sLocalPara.CurrentTxRateForMng
+#define CURRENT_TX_RATE_FOR_MNG			adapter->sLocalPara.CurrentTxRateForMng
 #define CURRENT_PROTECT_MECHANISM		psLOCAL->boProtectMechanism
-#define CURRENT_RTS_THRESHOLD			Adapter->Mds.TxRTSThreshold
+#define CURRENT_RTS_THRESHOLD			adapter->Mds.TxRTSThreshold
 
-#define MIB_GS_XMIT_OK_INC				Adapter->sLocalPara.GS_XMIT_OK++
-#define MIB_GS_RCV_OK_INC				Adapter->sLocalPara.GS_RCV_OK++
-#define MIB_GS_XMIT_ERROR_INC			Adapter->sLocalPara.GS_XMIT_ERROR
+#define MIB_GS_XMIT_OK_INC				adapter->sLocalPara.GS_XMIT_OK++
+#define MIB_GS_RCV_OK_INC				adapter->sLocalPara.GS_RCV_OK++
+#define MIB_GS_XMIT_ERROR_INC			adapter->sLocalPara.GS_XMIT_ERROR
 
 //---------- TX -----------------------------------
 #define ETHERNET_TX_DESCRIPTORS         MAX_USB_TX_BUFFER_NUMBER
@@ -96,9 +93,9 @@ typedef struct _MDS
 	u8	ScanTxPause;	//data Tx pause because the scanning is progressing, but probe request Tx won't.
 	u8	TxPause;//For pause the Mds_Tx modult
 
-	OS_ATOMIC	TxThreadCount;//For thread counting 931130.4.v
+	atomic_t	TxThreadCount;//For thread counting 931130.4.v
 //950301 delete due to HW
-//	OS_ATOMIC	TxConcurrentCount;//931130.4.w
+//	atomic_t	TxConcurrentCount;//931130.4.w
 
 	u16	TxResult[ ((MAX_USB_TX_DESCRIPTOR + 1) & ~0x01) ];//Collect the sending result of Mpdu
 
@@ -132,9 +129,6 @@ typedef struct _MDS
 	u8		bMICfailCount;
 	u8		boCounterMeasureBlock;
 	u8		reserved_4[2];
-
-	//NDIS_MINIPORT_TIMER	nTimer;
-	OS_TIMER	nTimer;
 
 	u32	TxTsc; // 20060214
 	u32	TxTsc_2; // 20060214
@@ -180,4 +174,4 @@ typedef struct _RXLAYER1
 
 }RXLAYER1, * PRXLAYER1;
 
-
+#endif

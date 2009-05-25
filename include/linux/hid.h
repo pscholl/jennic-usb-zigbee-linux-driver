@@ -270,6 +270,7 @@ struct hid_item {
 
 #define HID_QUIRK_INVERT			0x00000001
 #define HID_QUIRK_NOTOUCH			0x00000002
+#define HID_QUIRK_IGNORE			0x00000004
 #define HID_QUIRK_NOGET				0x00000008
 #define HID_QUIRK_BADPAD			0x00000020
 #define HID_QUIRK_MULTI_INPUT			0x00000040
@@ -403,15 +404,6 @@ struct hid_output_fifo {
 #define HID_STAT_ADDED		1
 #define HID_STAT_PARSED		2
 
-#define HID_CTRL_RUNNING	1
-#define HID_OUT_RUNNING		2
-#define HID_IN_RUNNING		3
-#define HID_RESET_PENDING	4
-#define HID_SUSPENDED		5
-#define HID_CLEAR_HALT		6
-#define HID_DISCONNECTED	7
-#define HID_STARTED		8
-
 struct hid_input {
 	struct list_head list;
 	struct hid_report *report;
@@ -540,6 +532,8 @@ struct hid_usage_id {
  * @name: driver name (e.g. "Footech_bar-wheel")
  * @id_table: which devices is this driver for (must be non-NULL for probe
  * 	      to be called)
+ * @dyn_list: list of dynamically added device ids
+ * @dyn_lock: lock protecting @dyn_list
  * @probe: new device inserted
  * @remove: device removed (NULL if not a hot-plug capable driver)
  * @report_table: on which reports to call raw_event (NULL means all)
@@ -566,6 +560,9 @@ struct hid_usage_id {
 struct hid_driver {
 	char *name;
 	const struct hid_device_id *id_table;
+
+	struct list_head dyn_list;
+	spinlock_t dyn_lock;
 
 	int (*probe)(struct hid_device *dev, const struct hid_device_id *id);
 	void (*remove)(struct hid_device *dev);
@@ -607,11 +604,16 @@ struct hid_ll_driver {
 	int (*open)(struct hid_device *hdev);
 	void (*close)(struct hid_device *hdev);
 
+	int (*power)(struct hid_device *hdev, int level);
+
 	int (*hidinput_input_event) (struct input_dev *idev, unsigned int type,
 			unsigned int code, int value);
 
 	int (*parse)(struct hid_device *hdev);
 };
+
+#define	PM_HINT_FULLON	1<<5
+#define PM_HINT_NORMAL	1<<1
 
 /* Applications from HID Usage Tables 4/8/99 Version 1.1 */
 /* We ignore a few input applications that are not widely used */
@@ -645,6 +647,7 @@ int hidinput_find_field(struct hid_device *hid, unsigned int type, unsigned int 
 void hid_output_report(struct hid_report *report, __u8 *data);
 struct hid_device *hid_allocate_device(void);
 int hid_parse_report(struct hid_device *hid, __u8 *start, unsigned size);
+int hid_check_keys_pressed(struct hid_device *hid);
 int hid_connect(struct hid_device *hid, unsigned int connect_mask);
 
 /**
@@ -794,18 +797,6 @@ dbg_hid(const char *fmt, ...)
 #define err_hid(format, arg...) printk(KERN_ERR "%s: " format "\n" , \
 		__FILE__ , ## arg)
 #endif /* HID_FF */
-
-#ifdef CONFIG_HID_COMPAT
-#define HID_COMPAT_LOAD_DRIVER(name)	\
-void hid_compat_##name(void) { }	\
-EXPORT_SYMBOL(hid_compat_##name)
-#else
-#define HID_COMPAT_LOAD_DRIVER(name)
-#endif /* HID_COMPAT */
-#define HID_COMPAT_CALL_DRIVER(name)	do {	\
-	extern void hid_compat_##name(void);	\
-	hid_compat_##name();			\
-} while (0)
 
 #endif
 

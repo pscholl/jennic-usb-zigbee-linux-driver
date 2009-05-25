@@ -157,6 +157,7 @@ ppp_asynctty_open(struct tty_struct *tty)
 {
 	struct asyncppp *ap;
 	int err;
+	int speed;
 
 	if (tty->ops->write == NULL)
 		return -EOPNOTSUPP;
@@ -187,6 +188,8 @@ ppp_asynctty_open(struct tty_struct *tty)
 	ap->chan.private = ap;
 	ap->chan.ops = &async_ops;
 	ap->chan.mtu = PPP_MRU;
+	speed = tty_get_baud_rate(tty);
+	ap->chan.speed = speed;
 	err = ppp_register_channel(&ap->chan);
 	if (err)
 		goto out_free;
@@ -233,11 +236,9 @@ ppp_asynctty_close(struct tty_struct *tty)
 	tasklet_kill(&ap->tsk);
 
 	ppp_unregister_channel(&ap->chan);
-	if (ap->rpkt)
-		kfree_skb(ap->rpkt);
+	kfree_skb(ap->rpkt);
 	skb_queue_purge(&ap->rqueue);
-	if (ap->tpkt)
-		kfree_skb(ap->tpkt);
+	kfree_skb(ap->tpkt);
 	kfree(ap);
 }
 
@@ -293,9 +294,6 @@ ppp_asynctty_ioctl(struct tty_struct *tty, struct file *file,
 	err = -EFAULT;
 	switch (cmd) {
 	case PPPIOCGCHAN:
-		err = -ENXIO;
-		if (!ap)
-			break;
 		err = -EFAULT;
 		if (put_user(ppp_channel_index(&ap->chan), p))
 			break;
@@ -303,9 +301,6 @@ ppp_asynctty_ioctl(struct tty_struct *tty, struct file *file,
 		break;
 
 	case PPPIOCGUNIT:
-		err = -ENXIO;
-		if (!ap)
-			break;
 		err = -EFAULT;
 		if (put_user(ppp_unit_number(&ap->chan), p))
 			break;

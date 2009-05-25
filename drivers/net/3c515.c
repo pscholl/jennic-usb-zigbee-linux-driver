@@ -563,6 +563,20 @@ no_pnp:
 	return NULL;
 }
 
+
+static const struct net_device_ops netdev_ops = {
+	.ndo_open		= corkscrew_open,
+	.ndo_stop		= corkscrew_close,
+	.ndo_start_xmit		= corkscrew_start_xmit,
+	.ndo_tx_timeout		= corkscrew_timeout,
+	.ndo_get_stats		= corkscrew_get_stats,
+	.ndo_set_multicast_list = set_rx_mode,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
+
 static int corkscrew_setup(struct net_device *dev, int ioaddr,
 			    struct pnp_dev *idev, int card_number)
 {
@@ -570,7 +584,6 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 	unsigned int eeprom[0x40], checksum = 0;	/* EEPROM contents */
 	int i;
 	int irq;
-	DECLARE_MAC_BUF(mac);
 
 #ifdef __ISAPNP__
 	if (idev) {
@@ -636,7 +649,7 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 	checksum = (checksum ^ (checksum >> 8)) & 0xff;
 	if (checksum != 0x00)
 		printk(" ***INVALID CHECKSUM %4.4x*** ", checksum);
-	printk(" %s", print_mac(mac, dev->dev_addr));
+	printk(" %pM", dev->dev_addr);
 	if (eeprom[16] == 0x11c7) {	/* Corkscrew */
 		if (request_dma(dev->dma, "3c515")) {
 			printk(", DMA %d allocation failed", dev->dma);
@@ -682,13 +695,8 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 	vp->full_bus_master_rx = (vp->capabilities & 0x20) ? 1 : 0;
 
 	/* The 3c51x-specific entries in the device structure. */
-	dev->open = &corkscrew_open;
-	dev->hard_start_xmit = &corkscrew_start_xmit;
-	dev->tx_timeout = &corkscrew_timeout;
+	dev->netdev_ops = &netdev_ops;
 	dev->watchdog_timeo = (400 * HZ) / 1000;
-	dev->stop = &corkscrew_close;
-	dev->get_stats = &corkscrew_get_stats;
-	dev->set_multicast_list = &set_rx_mode;
 	dev->ethtool_ops = &netdev_ethtool_ops;
 
 	return register_netdev(dev);
@@ -1302,7 +1310,6 @@ static int corkscrew_rx(struct net_device *dev)
 				outw(RxDiscard, ioaddr + EL3_CMD);	/* Pop top Rx packet. */
 				skb->protocol = eth_type_trans(skb, dev);
 				netif_rx(skb);
-				dev->last_rx = jiffies;
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += pkt_len;
 				/* Wait a limited time to go to next packet. */
@@ -1389,7 +1396,6 @@ static int boomerang_rx(struct net_device *dev)
 			}
 			skb->protocol = eth_type_trans(skb, dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 		}
 		entry = (++vp->cur_rx) % RX_RING_SIZE;
@@ -1580,11 +1586,3 @@ void cleanup_module(void)
 	}
 }
 #endif				/* MODULE */
-
-/*
- * Local variables:
- *  compile-command: "gcc -DMODULE -D__KERNEL__ -Wall -Wstrict-prototypes -O6 -c 3c515.c"
- *  c-indent-level: 4
- *  tab-width: 4
- * End:
- */

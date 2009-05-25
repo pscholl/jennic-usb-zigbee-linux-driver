@@ -72,27 +72,7 @@ typedef struct xfs_da_intnode {
 typedef struct xfs_da_node_hdr xfs_da_node_hdr_t;
 typedef struct xfs_da_node_entry xfs_da_node_entry_t;
 
-#define XFS_DA_MAXHASH	((xfs_dahash_t)-1) /* largest valid hash value */
-
 #define	XFS_LBSIZE(mp)	(mp)->m_sb.sb_blocksize
-#define	XFS_LBLOG(mp)	(mp)->m_sb.sb_blocklog
-
-#define	XFS_DA_MAKE_BNOENTRY(mp,bno,entry)	\
-	(((bno) << (mp)->m_dircook_elog) | (entry))
-#define	XFS_DA_MAKE_COOKIE(mp,bno,entry,hash)	\
-	(((xfs_off_t)XFS_DA_MAKE_BNOENTRY(mp, bno, entry) << 32) | (hash))
-#define	XFS_DA_COOKIE_HASH(mp,cookie)		((xfs_dahash_t)cookie)
-#define	XFS_DA_COOKIE_BNO(mp,cookie)		\
-	((((xfs_off_t)(cookie) >> 31) == -1LL ? \
-		(xfs_dablk_t)0 : \
-		(xfs_dablk_t)((xfs_off_t)(cookie) >> \
-				((mp)->m_dircook_elog + 32))))
-#define	XFS_DA_COOKIE_ENTRY(mp,cookie)		\
-	((((xfs_off_t)(cookie) >> 31) == -1LL ?	\
-		(xfs_dablk_t)0 : \
-		(xfs_dablk_t)(((xfs_off_t)(cookie) >> 32) & \
-				((1 << (mp)->m_dircook_elog) - 1))))
-
 
 /*========================================================================
  * Btree searching and modification structure definitions.
@@ -111,9 +91,9 @@ enum xfs_dacmp {
  * Structure to ease passing around component names.
  */
 typedef struct xfs_da_args {
-	const uchar_t	*name;		/* string (maybe not NULL terminated) */
+	const __uint8_t	*name;		/* string (maybe not NULL terminated) */
 	int		namelen;	/* length of string (maybe no NULL) */
-	uchar_t		*value;		/* set of bytes (maybe contain NULLs) */
+	__uint8_t	*value;		/* set of bytes (maybe contain NULLs) */
 	int		valuelen;	/* length of value */
 	int		flags;		/* argument flags (eg: ATTR_NOCREATE) */
 	xfs_dahash_t	hashval;	/* hash value of name */
@@ -205,7 +185,7 @@ typedef struct xfs_da_state {
 	unsigned char		inleaf;		/* insert into 1->lf, 0->splf */
 	unsigned char		extravalid;	/* T/F: extrablk is in use */
 	unsigned char		extraafter;	/* T/F: extrablk is after new */
-	xfs_da_state_blk_t	extrablk;	/* for double-splits on leafs */
+	xfs_da_state_blk_t	extrablk;	/* for double-splits on leaves */
 						/* for dirv2 extrablk is data */
 } xfs_da_state_t;
 
@@ -226,9 +206,8 @@ struct xfs_nameops {
 };
 
 
-#ifdef __KERNEL__
 /*========================================================================
- * Function prototypes for the kernel.
+ * Function prototypes.
  *========================================================================*/
 
 /*
@@ -272,7 +251,7 @@ xfs_daddr_t	xfs_da_reada_buf(struct xfs_trans *trans, struct xfs_inode *dp,
 int	xfs_da_shrink_inode(xfs_da_args_t *args, xfs_dablk_t dead_blkno,
 					  xfs_dabuf_t *dead_buf);
 
-uint xfs_da_hashname(const uchar_t *name_string, int name_length);
+uint xfs_da_hashname(const __uint8_t *name_string, int name_length);
 enum xfs_dacmp xfs_da_compname(struct xfs_da_args *args,
 				const char *name, int len);
 
@@ -289,6 +268,6 @@ xfs_daddr_t xfs_da_blkno(xfs_dabuf_t *dabuf);
 
 extern struct kmem_zone *xfs_da_state_zone;
 extern struct kmem_zone *xfs_dabuf_zone;
-#endif	/* __KERNEL__ */
+extern const struct xfs_nameops xfs_default_nameops;
 
 #endif	/* __XFS_DA_BTREE_H__ */

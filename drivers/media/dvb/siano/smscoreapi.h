@@ -29,13 +29,13 @@
 #include <linux/scatterlist.h>
 #include <linux/types.h>
 #include <asm/page.h>
+#include <linux/mutex.h>
 
 #include "dmxdev.h"
 #include "dvbdev.h"
 #include "dvb_demux.h"
 #include "dvb_frontend.h"
 
-#include <linux/mutex.h>
 
 #define kmutex_init(_p_) mutex_init(_p_)
 #define kmutex_lock(_p_) mutex_lock(_p_)
@@ -186,6 +186,8 @@ struct smsclient_params_t {
 #define MSG_SW_RELOAD_EXEC_REQ				704
 #define MSG_SW_RELOAD_EXEC_RES				705
 #define MSG_SMS_SPI_INT_LINE_SET_REQ		710
+#define MSG_SMS_GPIO_CONFIG_EX_REQ			712
+#define MSG_SMS_GPIO_CONFIG_EX_RES			713
 #define MSG_SMS_ISDBT_TUNE_REQ				776
 #define MSG_SMS_ISDBT_TUNE_RES				777
 
@@ -341,25 +343,30 @@ struct SmsMsgStatisticsInfo_ST {
 };
 
 
-struct smsdvb_client_t {
-	struct list_head entry;
+struct smscore_gpio_config {
+#define SMS_GPIO_DIRECTION_INPUT  0
+#define SMS_GPIO_DIRECTION_OUTPUT 1
+	u8 direction;
 
-	struct smscore_device_t	*coredev;
-	struct smscore_client_t	*smsclient;
+#define SMS_GPIO_PULLUPDOWN_NONE     0
+#define SMS_GPIO_PULLUPDOWN_PULLDOWN 1
+#define SMS_GPIO_PULLUPDOWN_PULLUP   2
+#define SMS_GPIO_PULLUPDOWN_KEEPER   3
+	u8 pullupdown;
 
-	struct dvb_adapter	adapter;
-	struct dvb_demux	demux;
-	struct dmxdev		dmxdev;
-	struct dvb_frontend	frontend;
+#define SMS_GPIO_INPUTCHARACTERISTICS_NORMAL  0
+#define SMS_GPIO_INPUTCHARACTERISTICS_SCHMITT 1
+	u8 inputcharacteristics;
 
-	fe_status_t		fe_status;
-	int			fe_ber, fe_snr, fe_signal_strength;
+#define SMS_GPIO_OUTPUTSLEWRATE_FAST 0
+#define SMS_GPIO_OUTPUTSLEWRATE_SLOW 1
+	u8 outputslewrate;
 
-	struct completion	tune_done, stat_done;
-
-	/* todo: save freq/band instead whole struct */
-	struct dvb_frontend_parameters fe_params;
-
+#define SMS_GPIO_OUTPUTDRIVING_4mA  0
+#define SMS_GPIO_OUTPUTDRIVING_8mA  1
+#define SMS_GPIO_OUTPUTDRIVING_12mA 2
+#define SMS_GPIO_OUTPUTDRIVING_16mA 3
+	u8 outputdriving;
 };
 
 extern void smscore_registry_setmode(char *devpath, int mode);
@@ -390,26 +397,30 @@ extern int smsclient_sendrequest(struct smscore_client_t *client,
 extern void smscore_onresponse(struct smscore_device_t *coredev,
 			       struct smscore_buffer_t *cb);
 
+extern int smscore_get_common_buffer_size(struct smscore_device_t *coredev);
+extern int smscore_map_common_buffer(struct smscore_device_t *coredev,
+				      struct vm_area_struct *vma);
+extern int smscore_get_fw_filename(struct smscore_device_t *coredev,
+				   int mode, char *filename);
+extern int smscore_send_fw_file(struct smscore_device_t *coredev,
+				u8 *ufwbuf, int size);
 
 extern
 struct smscore_buffer_t *smscore_getbuffer(struct smscore_device_t *coredev);
 extern void smscore_putbuffer(struct smscore_device_t *coredev,
 			      struct smscore_buffer_t *cb);
 
+int smscore_configure_gpio(struct smscore_device_t *coredev, u32 pin,
+			   struct smscore_gpio_config *pinconfig);
+int smscore_set_gpio(struct smscore_device_t *coredev, u32 pin, int level);
+
 void smscore_set_board_id(struct smscore_device_t *core, int id);
 int smscore_get_board_id(struct smscore_device_t *core);
 
-/* smsdvb.c */
-int smsdvb_register(void);
-void smsdvb_unregister(void);
+int smscore_led_state(struct smscore_device_t *core, int led);
 
-/* smsusb.c */
-int smsusb_register(void);
-void smsusb_unregister(void);
 
 /* ------------------------------------------------------------------------ */
-
-extern int sms_debug;
 
 #define DBG_INFO 1
 #define DBG_ADV  2
@@ -418,7 +429,7 @@ extern int sms_debug;
 	printk(kern "%s: " fmt "\n", __func__, ##arg)
 
 #define dprintk(kern, lvl, fmt, arg...) do {\
-	if (sms_debug & lvl) \
+	if (sms_dbg & lvl) \
 		sms_printk(kern, fmt, ##arg); } while (0)
 
 #define sms_log(fmt, arg...) sms_printk(KERN_INFO, fmt, ##arg)

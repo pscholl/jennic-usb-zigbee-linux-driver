@@ -22,8 +22,6 @@
 #include <asm/mach/map.h>
 
 #include <mach/pxa2xx-regs.h>
-#include <mach/mfp-pxa27x.h>
-#include <mach/pxa-regs.h>
 #include <mach/audio.h>
 #include <mach/pxafb.h>
 
@@ -96,7 +94,7 @@ static struct resource cmx270_dm9000_resource[] = {
 };
 
 static struct dm9000_plat_data cmx270_dm9000_platdata = {
-	.flags		= DM9000_PLATF_32BITONLY,
+	.flags		= DM9000_PLATF_32BITONLY | DM9000_PLATF_NO_EEPROM,
 };
 
 static struct platform_device cmx2xx_dm9000_device = {
@@ -123,7 +121,7 @@ static inline void cmx2xx_init_dm9000(void) {}
 /* UCB1400 touchscreen controller */
 #if defined(CONFIG_TOUCHSCREEN_UCB1400) || defined(CONFIG_TOUCHSCREEN_UCB1400_MODULE)
 static struct platform_device cmx2xx_ts_device = {
-	.name		= "ucb1400_ts",
+	.name		= "ucb1400_core",
 	.id		= -1,
 };
 
@@ -210,10 +208,8 @@ static struct pxafb_mode_info generic_stn_320x240_mode = {
 static struct pxafb_mach_info generic_stn_320x240 = {
 	.modes		= &generic_stn_320x240_mode,
 	.num_modes	= 1,
-	.lccr0		= 0,
-	.lccr3		= (LCCR3_PixClkDiv(0x03) |
-			   LCCR3_Acb(0xff) |
-			   LCCR3_PCP),
+	.lcd_conn	= LCD_COLOR_STN_8BPP | LCD_PCLK_EDGE_FALL |\
+			  LCD_AC_BIAS_FREQ(0xff),
 	.cmap_inverse	= 0,
 	.cmap_static	= 0,
 };
@@ -236,10 +232,8 @@ static struct pxafb_mode_info generic_tft_640x480_mode = {
 static struct pxafb_mach_info generic_tft_640x480 = {
 	.modes		= &generic_tft_640x480_mode,
 	.num_modes	= 1,
-	.lccr0		= (LCCR0_PAS),
-	.lccr3		= (LCCR3_PixClkDiv(0x01) |
-			   LCCR3_Acb(0xff) |
-			   LCCR3_PCP),
+	.lcd_conn	= LCD_COLOR_TFT_8BPP | LCD_PCLK_EDGE_FALL |\
+			  LCD_AC_BIAS_FREQ(0xff),
 	.cmap_inverse	= 0,
 	.cmap_static	= 0,
 };
@@ -263,9 +257,7 @@ static struct pxafb_mode_info generic_crt_640x480_mode = {
 static struct pxafb_mach_info generic_crt_640x480 = {
 	.modes		= &generic_crt_640x480_mode,
 	.num_modes	= 1,
-	.lccr0		= (LCCR0_PAS),
-	.lccr3		= (LCCR3_PixClkDiv(0x01) |
-			   LCCR3_Acb(0xff)),
+	.lcd_conn	= LCD_COLOR_TFT_8BPP | LCD_AC_BIAS_FREQ(0xff),
 	.cmap_inverse	= 0,
 	.cmap_static	= 0,
 };
@@ -289,9 +281,7 @@ static struct pxafb_mode_info generic_crt_800x600_mode = {
 static struct pxafb_mach_info generic_crt_800x600 = {
 	.modes		= &generic_crt_800x600_mode,
 	.num_modes	= 1,
-	.lccr0		= (LCCR0_PAS),
-	.lccr3		= (LCCR3_PixClkDiv(0x02) |
-			   LCCR3_Acb(0xff)),
+	.lcd_conn	= LCD_COLOR_TFT_8BPP | LCD_AC_BIAS_FREQ(0xff),
 	.cmap_inverse	= 0,
 	.cmap_static	= 0,
 };
@@ -314,10 +304,7 @@ static struct pxafb_mode_info generic_tft_320x240_mode = {
 static struct pxafb_mach_info generic_tft_320x240 = {
 	.modes		= &generic_tft_320x240_mode,
 	.num_modes	= 1,
-	.lccr0		= (LCCR0_PAS),
-	.lccr3		= (LCCR3_PixClkDiv(0x06) |
-			   LCCR3_Acb(0xff) |
-			   LCCR3_PCP),
+	.lcd_conn	= LCD_COLOR_TFT_16BPP | LCD_AC_BIAS_FREQ(0xff),
 	.cmap_inverse	= 0,
 	.cmap_static	= 0,
 };
@@ -341,9 +328,7 @@ static struct pxafb_mode_info generic_stn_640x480_mode = {
 static struct pxafb_mach_info generic_stn_640x480 = {
 	.modes		= &generic_stn_640x480_mode,
 	.num_modes	= 1,
-	.lccr0		= 0,
-	.lccr3		= (LCCR3_PixClkDiv(0x02) |
-			   LCCR3_Acb(0xff)),
+	.lcd_conn	= LCD_COLOR_STN_8BPP | LCD_AC_BIAS_FREQ(0xff),
 	.cmap_inverse	= 0,
 	.cmap_static	= 0,
 };

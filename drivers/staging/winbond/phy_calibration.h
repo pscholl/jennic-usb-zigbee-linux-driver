@@ -1,3 +1,8 @@
+#ifndef __WINBOND_PHY_CALIBRATION_H
+#define __WINBOND_PHY_CALIBRATION_H
+
+#include "wbhal_f.h"
+
 // 20031229 Turbo add
 #define REG_AGC_CTRL1               0x1000
 #define REG_AGC_CTRL2               0x1004
@@ -96,6 +101,7 @@
 //#define MASK_IQCAL_IMAGE_Q         0x03FFE000
 //#define SHIFT_IQCAL_IMAGE_Q(x)     ((x)>>13)
 
-void phy_set_rf_data(  phw_data_t pHwData,  u32 index,  u32 value );
+void phy_set_rf_data(  struct hw_data * pHwData,  u32 index,  u32 value );
 #define phy_init_rf( _A )	//RFSynthesizer_initial( _A )
 
+#endif

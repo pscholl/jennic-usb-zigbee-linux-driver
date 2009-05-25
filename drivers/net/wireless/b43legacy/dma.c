@@ -846,7 +846,7 @@ static u64 supported_dma_mask(struct b43legacy_wldev *dev)
 
 	tmp = b43legacy_read32(dev, SSB_TMSHIGH);
 	if (tmp & SSB_TMSHIGH_DMA64)
-		return DMA_64BIT_MASK;
+		return DMA_BIT_MASK(64);
 	mmio_base = b43legacy_dmacontroller_base(0, 0);
 	b43legacy_write32(dev,
 			mmio_base + B43legacy_DMA32_TXCTL,
@@ -854,18 +854,18 @@ static u64 supported_dma_mask(struct b43legacy_wldev *dev)
 	tmp = b43legacy_read32(dev, mmio_base +
 			       B43legacy_DMA32_TXCTL);
 	if (tmp & B43legacy_DMA32_TXADDREXT_MASK)
-		return DMA_32BIT_MASK;
+		return DMA_BIT_MASK(32);
 
-	return DMA_30BIT_MASK;
+	return DMA_BIT_MASK(30);
 }
 
 static enum b43legacy_dmatype dma_mask_to_engine_type(u64 dmamask)
 {
-	if (dmamask == DMA_30BIT_MASK)
+	if (dmamask == DMA_BIT_MASK(30))
 		return B43legacy_DMA_30BIT;
-	if (dmamask == DMA_32BIT_MASK)
+	if (dmamask == DMA_BIT_MASK(32))
 		return B43legacy_DMA_32BIT;
-	if (dmamask == DMA_64BIT_MASK)
+	if (dmamask == DMA_BIT_MASK(64))
 		return B43legacy_DMA_64BIT;
 	B43legacy_WARN_ON(1);
 	return B43legacy_DMA_30BIT;
@@ -919,7 +919,7 @@ struct b43legacy_dmaring *b43legacy_setup_dmaring(struct b43legacy_wldev *dev,
 			if (!ring->txhdr_cache)
 				goto err_kfree_meta;
 
-				dma_test = ssb_dma_map_single(dev->dev,
+			dma_test = ssb_dma_map_single(dev->dev,
 					ring->txhdr_cache,
 					sizeof(struct b43legacy_txhdr_fw3),
 					DMA_TO_DEVICE);
@@ -1042,13 +1042,13 @@ static int b43legacy_dma_set_mask(struct b43legacy_wldev *dev, u64 mask)
 		err = ssb_dma_set_mask(dev->dev, mask);
 		if (!err)
 			break;
-		if (mask == DMA_64BIT_MASK) {
-			mask = DMA_32BIT_MASK;
+		if (mask == DMA_BIT_MASK(64)) {
+			mask = DMA_BIT_MASK(32);
 			fallback = 1;
 			continue;
 		}
-		if (mask == DMA_32BIT_MASK) {
-			mask = DMA_30BIT_MASK;
+		if (mask == DMA_BIT_MASK(32)) {
+			mask = DMA_BIT_MASK(30);
 			fallback = 1;
 			continue;
 		}
@@ -1411,6 +1411,7 @@ void b43legacy_dma_handle_txstatus(struct b43legacy_wldev *dev,
 	struct b43legacy_dmaring *ring;
 	struct b43legacy_dmadesc_generic *desc;
 	struct b43legacy_dmadesc_meta *meta;
+	int retry_limit;
 	int slot;
 
 	ring = parse_cookie(dev, status->cookie, &slot);
@@ -1437,25 +1438,42 @@ void b43legacy_dma_handle_txstatus(struct b43legacy_wldev *dev,
 			struct ieee80211_tx_info *info;
 			BUG_ON(!meta->skb);
 			info = IEEE80211_SKB_CB(meta->skb);
+
+			/* preserve the confiured retry limit before clearing the status
+			 * The xmit function has overwritten the rc's value with the actual
+			 * retry limit done by the hardware */
+			retry_limit = info->status.rates[0].count;
+			ieee80211_tx_info_clear_status(info);
+
+			if (status->acked)
+				info->flags |= IEEE80211_TX_STAT_ACK;
+
+			if (status->rts_count > dev->wl->hw->conf.short_frame_max_tx_count) {
+				/*
+				 * If the short retries (RTS, not data frame) have exceeded
+				 * the limit, the hw will not have tried the selected rate,
+				 * but will have used the fallback rate instead.
+				 * Don't let the rate control count attempts for the selected
+				 * rate in this case, otherwise the statistics will be off.
+				 */
+				info->status.rates[0].count = 0;
+				info->status.rates[1].count = status->frame_count;
+			} else {
+				if (status->frame_count > retry_limit) {
+					info->status.rates[0].count = retry_limit;
+					info->status.rates[1].count = status->frame_count -
+							retry_limit;
+
+				} else {
+					info->status.rates[0].count = status->frame_count;
+					info->status.rates[1].idx = -1;
+				}
+			}
+
 			/* Call back to inform the ieee80211 subsystem about the
 			 * status of the transmission.
 			 * Some fields of txstat are already filled in dma_tx().
 			 */
-
-			memset(&info->status, 0, sizeof(info->status));
-
-			if (status->acked) {
-				info->flags |= IEEE80211_TX_STAT_ACK;
-			} else {
-				if (!(info->flags & IEEE80211_TX_CTL_NO_ACK))
-					 info->status.excessive_retries = 1;
-			}
-			if (status->frame_count == 0) {
-				/* The frame was not transmitted at all. */
-				info->status.retry_count = 0;
-			} else
-				info->status.retry_count = status->frame_count
-							   - 1;
 			ieee80211_tx_status_irqsafe(dev->wl->hw, meta->skb);
 			/* skb is freed by ieee80211_tx_status_irqsafe() */
 			meta->skb = NULL;

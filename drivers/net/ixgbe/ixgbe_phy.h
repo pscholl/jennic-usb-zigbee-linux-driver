@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   Intel 10 Gigabit PCI Express Linux driver
-  Copyright(c) 1999 - 2008 Intel Corporation.
+  Copyright(c) 1999 - 2009 Intel Corporation.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -54,14 +54,27 @@
 #define IXGBE_I2C_EEPROM_STATUS_IN_PROGRESS  0x3
 
 /* Bit-shift macros */
-#define IXGBE_SFF_VENDOR_OUI_BYTE0_SHIFT    12
-#define IXGBE_SFF_VENDOR_OUI_BYTE1_SHIFT    8
-#define IXGBE_SFF_VENDOR_OUI_BYTE2_SHIFT    4
+#define IXGBE_SFF_VENDOR_OUI_BYTE0_SHIFT    24
+#define IXGBE_SFF_VENDOR_OUI_BYTE1_SHIFT    16
+#define IXGBE_SFF_VENDOR_OUI_BYTE2_SHIFT    8
 
 /* Vendor OUIs: format of OUI is 0x[byte0][byte1][byte2][00] */
 #define IXGBE_SFF_VENDOR_OUI_TYCO     0x00407600
 #define IXGBE_SFF_VENDOR_OUI_FTL      0x00906500
 #define IXGBE_SFF_VENDOR_OUI_AVAGO    0x00176A00
+#define IXGBE_SFF_VENDOR_OUI_INTEL    0x001B2100
+
+/* I2C SDA and SCL timing parameters for standard mode */
+#define IXGBE_I2C_T_HD_STA  4
+#define IXGBE_I2C_T_LOW     5
+#define IXGBE_I2C_T_HIGH    4
+#define IXGBE_I2C_T_SU_STA  5
+#define IXGBE_I2C_T_HD_DATA 5
+#define IXGBE_I2C_T_SU_DATA 1
+#define IXGBE_I2C_T_RISE    1
+#define IXGBE_I2C_T_FALL    1
+#define IXGBE_I2C_T_SU_STO  4
+#define IXGBE_I2C_T_BUF     5
 
 
 s32 ixgbe_init_phy_ops_generic(struct ixgbe_hw *hw);
@@ -77,4 +90,24 @@ s32 ixgbe_setup_phy_link_speed_generic(struct ixgbe_hw *hw,
                                        bool autoneg,
                                        bool autoneg_wait_to_complete);
 
+/* PHY specific */
+s32 ixgbe_check_phy_link_tnx(struct ixgbe_hw *hw,
+                             ixgbe_link_speed *speed,
+                             bool *link_up);
+s32 ixgbe_get_phy_firmware_version_tnx(struct ixgbe_hw *hw,
+                                       u16 *firmware_version);
+
+s32 ixgbe_reset_phy_nl(struct ixgbe_hw *hw);
+s32 ixgbe_identify_sfp_module_generic(struct ixgbe_hw *hw);
+s32 ixgbe_get_sfp_init_sequence_offsets(struct ixgbe_hw *hw,
+                                        u16 *list_offset,
+                                        u16 *data_offset);
+s32 ixgbe_read_i2c_byte_generic(struct ixgbe_hw *hw, u8 byte_offset,
+                                u8 dev_addr, u8 *data);
+s32 ixgbe_write_i2c_byte_generic(struct ixgbe_hw *hw, u8 byte_offset,
+                                 u8 dev_addr, u8 data);
+s32 ixgbe_read_i2c_eeprom_generic(struct ixgbe_hw *hw, u8 byte_offset,
+                                  u8 *eeprom_data);
+s32 ixgbe_write_i2c_eeprom_generic(struct ixgbe_hw *hw, u8 byte_offset,
+                                   u8 eeprom_data);
 #endif /* _IXGBE_PHY_H_ */

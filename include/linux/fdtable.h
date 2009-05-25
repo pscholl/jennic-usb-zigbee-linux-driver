@@ -5,12 +5,14 @@
 #ifndef __LINUX_FDTABLE_H
 #define __LINUX_FDTABLE_H
 
-#include <asm/atomic.h>
 #include <linux/posix_types.h>
 #include <linux/compiler.h>
 #include <linux/spinlock.h>
 #include <linux/rcupdate.h>
 #include <linux/types.h>
+#include <linux/init.h>
+
+#include <asm/atomic.h>
 
 /*
  * The default fd array needs to be at least BITS_PER_LONG,
@@ -56,8 +58,6 @@ struct files_struct {
 };
 
 #define files_fdtable(files) (rcu_dereference((files)->fdt))
-
-extern struct kmem_cache *filp_cachep;
 
 struct file_operations;
 struct vfsmount;

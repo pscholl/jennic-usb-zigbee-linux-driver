@@ -265,7 +265,7 @@ static int fast_reg_read_chunks(struct svcxprt_rdma *xprt,
 		frmr->page_list->page_list[page_no] =
 			ib_dma_map_single(xprt->sc_cm_id->device,
 					  page_address(rqstp->rq_arg.pages[page_no]),
-					  PAGE_SIZE, DMA_TO_DEVICE);
+					  PAGE_SIZE, DMA_FROM_DEVICE);
 		if (ib_dma_mapping_error(xprt->sc_cm_id->device,
 					 frmr->page_list->page_list[page_no]))
 			goto fatal_err;
@@ -646,8 +646,7 @@ int svc_rdma_recvfrom(struct svc_rqst *rqstp)
 	ret = rdma_read_xdr(rdma_xprt, rmsgp, rqstp, ctxt);
 	if (ret > 0) {
 		/* read-list posted, defer until data received from client. */
-		svc_xprt_received(xprt);
-		return 0;
+		goto defer;
 	}
 	if (ret < 0) {
 		/* Post of read-list failed, free context. */
@@ -679,6 +678,7 @@ int svc_rdma_recvfrom(struct svc_rqst *rqstp)
 	 * close bit and call svc_xprt_delete
 	 */
 	set_bit(XPT_CLOSE, &xprt->xpt_flags);
+defer:
 	svc_xprt_received(xprt);
 	return 0;
 }

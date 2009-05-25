@@ -378,7 +378,6 @@ int zd_write_mac_addr(struct zd_chip *chip, const u8 *mac_addr)
 		[0] = { .addr = CR_MAC_ADDR_P1 },
 		[1] = { .addr = CR_MAC_ADDR_P2 },
 	};
-	DECLARE_MAC_BUF(mac);
 
 	if (mac_addr) {
 		reqs[0].value = (mac_addr[3] << 24)
@@ -387,8 +386,7 @@ int zd_write_mac_addr(struct zd_chip *chip, const u8 *mac_addr)
 			      |  mac_addr[0];
 		reqs[1].value = (mac_addr[5] <<  8)
 			      |  mac_addr[4];
-		dev_dbg_f(zd_chip_dev(chip),
-			"mac addr %s\n", print_mac(mac, mac_addr));
+		dev_dbg_f(zd_chip_dev(chip), "mac addr %pM\n", mac_addr);
 	} else {
 		dev_dbg_f(zd_chip_dev(chip), "set NULL mac\n");
 	}
@@ -1617,4 +1615,25 @@ int zd_chip_set_multicast_hash(struct zd_chip *chip,
 	};
 
 	return zd_iowrite32a(chip, ioreqs, ARRAY_SIZE(ioreqs));
+}
+
+u64 zd_chip_get_tsf(struct zd_chip *chip)
+{
+	int r;
+	static const zd_addr_t aw_pt_bi_addr[] =
+		{ CR_TSF_LOW_PART, CR_TSF_HIGH_PART };
+	u32 values[2];
+	u64 tsf;
+
+	mutex_lock(&chip->mutex);
+	r = zd_ioread32v_locked(chip, values, (const zd_addr_t *)aw_pt_bi_addr,
+	                        ARRAY_SIZE(aw_pt_bi_addr));
+	mutex_unlock(&chip->mutex);
+	if (r)
+		return 0;
+
+	tsf = values[1];
+	tsf = (tsf << 32) | values[0];
+
+	return tsf;
 }

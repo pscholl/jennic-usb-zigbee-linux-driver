@@ -144,9 +144,9 @@ static int add_new_node(struct hda_codec *codec, struct hda_gspec *spec, hda_nid
 	node->type = (node->wid_caps & AC_WCAP_TYPE) >> AC_WCAP_TYPE_SHIFT;
 
 	if (node->type == AC_WID_PIN) {
-		node->pin_caps = snd_hda_param_read(codec, node->nid, AC_PAR_PIN_CAP);
+		node->pin_caps = snd_hda_query_pin_caps(codec, node->nid);
 		node->pin_ctl = snd_hda_codec_read(codec, node->nid, 0, AC_VERB_GET_PIN_WIDGET_CONTROL, 0);
-		node->def_cfg = snd_hda_codec_read(codec, node->nid, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
+		node->def_cfg = snd_hda_codec_get_pincfg(codec, node->nid);
 	}
 
 	if (node->wid_caps & AC_WCAP_OUT_AMP) {
@@ -723,7 +723,8 @@ static int create_mixer(struct hda_codec *codec, struct hda_gnode *node,
 		if (is_loopback)
 			add_input_loopback(codec, node->nid, HDA_INPUT, index);
 		snd_printdd("[%s] NID=0x%x, DIR=IN, IDX=0x%x\n", name, node->nid, index);
-		if ((err = snd_ctl_add(codec->bus->card, snd_ctl_new1(&knew, codec))) < 0)
+		err = snd_hda_ctl_add(codec, snd_ctl_new1(&knew, codec));
+		if (err < 0)
 			return err;
 		created = 1;
 	} else if ((node->wid_caps & AC_WCAP_OUT_AMP) &&
@@ -732,7 +733,8 @@ static int create_mixer(struct hda_codec *codec, struct hda_gnode *node,
 		if (is_loopback)
 			add_input_loopback(codec, node->nid, HDA_OUTPUT, 0);
 		snd_printdd("[%s] NID=0x%x, DIR=OUT\n", name, node->nid);
-		if ((err = snd_ctl_add(codec->bus->card, snd_ctl_new1(&knew, codec))) < 0)
+		err = snd_hda_ctl_add(codec, snd_ctl_new1(&knew, codec));
+		if (err < 0)
 			return err;
 		created = 1;
 	}
@@ -745,14 +747,16 @@ static int create_mixer(struct hda_codec *codec, struct hda_gnode *node,
 	    (node->amp_in_caps & AC_AMPCAP_NUM_STEPS)) {
 		knew = (struct snd_kcontrol_new)HDA_CODEC_VOLUME(name, node->nid, index, HDA_INPUT);
 		snd_printdd("[%s] NID=0x%x, DIR=IN, IDX=0x%x\n", name, node->nid, index);
-		if ((err = snd_ctl_add(codec->bus->card, snd_ctl_new1(&knew, codec))) < 0)
+		err = snd_hda_ctl_add(codec, snd_ctl_new1(&knew, codec));
+		if (err < 0)
 			return err;
 		created = 1;
 	} else if ((node->wid_caps & AC_WCAP_OUT_AMP) &&
 		   (node->amp_out_caps & AC_AMPCAP_NUM_STEPS)) {
 		knew = (struct snd_kcontrol_new)HDA_CODEC_VOLUME(name, node->nid, 0, HDA_OUTPUT);
 		snd_printdd("[%s] NID=0x%x, DIR=OUT\n", name, node->nid);
-		if ((err = snd_ctl_add(codec->bus->card, snd_ctl_new1(&knew, codec))) < 0)
+		err = snd_hda_ctl_add(codec, snd_ctl_new1(&knew, codec));
+		if (err < 0)
 			return err;
 		created = 1;
 	}
@@ -849,8 +853,8 @@ static int build_input_controls(struct hda_codec *codec)
 	}
 
 	/* create input MUX if multiple sources are available */
-	if ((err = snd_ctl_add(codec->bus->card,
-			       snd_ctl_new1(&cap_sel, codec))) < 0)
+	err = snd_hda_ctl_add(codec, snd_ctl_new1(&cap_sel, codec));
+	if (err < 0)
 		return err;
 
 	/* no volume control? */
@@ -867,8 +871,8 @@ static int build_input_controls(struct hda_codec *codec)
 			HDA_CODEC_VOLUME(name, adc_node->nid,
 					 spec->input_mux.items[i].index,
 					 HDA_INPUT);
-		if ((err = snd_ctl_add(codec->bus->card,
-				       snd_ctl_new1(&knew, codec))) < 0)
+		err = snd_hda_ctl_add(codec, snd_ctl_new1(&knew, codec));
+		if (err < 0)
 			return err;
 	}
 
@@ -1097,3 +1101,4 @@ int snd_hda_parse_generic_codec(struct hda_codec *codec)
 	snd_hda_generic_free(codec);
 	return err;
 }
+EXPORT_SYMBOL(snd_hda_parse_generic_codec);

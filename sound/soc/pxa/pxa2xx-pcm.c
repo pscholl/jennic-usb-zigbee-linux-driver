@@ -61,15 +61,15 @@ static int pxa2xx_pcm_hw_free(struct snd_pcm_substream *substream)
 
 	__pxa2xx_pcm_hw_free(substream);
 
-	if (prtd->dma_ch) {
+	if (prtd->dma_ch >= 0) {
 		pxa_free_dma(prtd->dma_ch);
-		prtd->dma_ch = 0;
+		prtd->dma_ch = -1;
 	}
 
 	return 0;
 }
 
-struct snd_pcm_ops pxa2xx_pcm_ops = {
+static struct snd_pcm_ops pxa2xx_pcm_ops = {
 	.open		= __pxa2xx_pcm_open,
 	.close		= __pxa2xx_pcm_close,
 	.ioctl		= snd_pcm_lib_ioctl,
@@ -81,7 +81,7 @@ struct snd_pcm_ops pxa2xx_pcm_ops = {
 	.mmap		= pxa2xx_pcm_mmap,
 };
 
-static u64 pxa2xx_pcm_dmamask = DMA_32BIT_MASK;
+static u64 pxa2xx_pcm_dmamask = DMA_BIT_MASK(32);
 
 static int pxa2xx_soc_pcm_new(struct snd_card *card, struct snd_soc_dai *dai,
 	struct snd_pcm *pcm)
@@ -91,7 +91,7 @@ static int pxa2xx_soc_pcm_new(struct snd_card *card, struct snd_soc_dai *dai,
 	if (!card->dev->dma_mask)
 		card->dev->dma_mask = &pxa2xx_pcm_dmamask;
 	if (!card->dev->coherent_dma_mask)
-		card->dev->coherent_dma_mask = DMA_32BIT_MASK;
+		card->dev->coherent_dma_mask = DMA_BIT_MASK(32);
 
 	if (dai->playback.channels_min) {
 		ret = pxa2xx_pcm_preallocate_dma_buffer(pcm,
@@ -117,6 +117,18 @@ struct snd_soc_platform pxa2xx_soc_platform = {
 	.pcm_free	= pxa2xx_pcm_free_dma_buffers,
 };
 EXPORT_SYMBOL_GPL(pxa2xx_soc_platform);
+
+static int __init pxa2xx_soc_platform_init(void)
+{
+	return snd_soc_register_platform(&pxa2xx_soc_platform);
+}
+module_init(pxa2xx_soc_platform_init);
+
+static void __exit pxa2xx_soc_platform_exit(void)
+{
+	snd_soc_unregister_platform(&pxa2xx_soc_platform);
+}
+module_exit(pxa2xx_soc_platform_exit);
 
 MODULE_AUTHOR("Nicolas Pitre");
 MODULE_DESCRIPTION("Intel PXA2xx PCM DMA module");

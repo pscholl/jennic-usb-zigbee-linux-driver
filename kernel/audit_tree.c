@@ -385,6 +385,7 @@ static int tag_chunk(struct inode *inode, struct audit_tree *tree)
 	mutex_lock(&inode->inotify_mutex);
 	if (inotify_clone_watch(&old->watch, &chunk->watch) < 0) {
 		mutex_unlock(&inode->inotify_mutex);
+		put_inotify_watch(&old->watch);
 		free_chunk(chunk);
 		return -ENOSPC;
 	}
@@ -394,6 +395,7 @@ static int tag_chunk(struct inode *inode, struct audit_tree *tree)
 		chunk->dead = 1;
 		inotify_evict_watch(&chunk->watch);
 		mutex_unlock(&inode->inotify_mutex);
+		put_inotify_watch(&old->watch);
 		put_inotify_watch(&chunk->watch);
 		return 0;
 	}
@@ -450,6 +452,7 @@ static void kill_rules(struct audit_tree *tree)
 			audit_log_end(ab);
 			rule->tree = NULL;
 			list_del_rcu(&entry->list);
+			list_del(&entry->rule.list);
 			call_rcu(&entry->rcu, audit_free_rule_rcu);
 		}
 	}
@@ -617,7 +620,7 @@ int audit_make_tree(struct audit_krule *rule, char *pathname, u32 op)
 
 	if (pathname[0] != '/' ||
 	    rule->listnr != AUDIT_FILTER_EXIT ||
-	    op & ~AUDIT_EQUAL ||
+	    op != Audit_equal ||
 	    rule->inode_f || rule->watch || rule->tree)
 		return -EINVAL;
 	rule->tree = alloc_tree(pathname);
@@ -730,9 +733,6 @@ int audit_tag_tree(char *old, char *new)
 	mnt = mntget(path.mnt);
 	dentry = dget(path.dentry);
 	path_put(&path);
-
-	if (dentry == tagged->mnt_root && dentry == mnt->mnt_root)
-		follow_up(&mnt, &dentry);
 
 	list_add_tail(&list, &tagged->mnt_list);
 

@@ -13,7 +13,6 @@
 #include <linux/i2c.h>
 #include <linux/delay.h>
 #include <linux/log2.h>
-#include <linux/gpio.h>
 
 #include <media/v4l2-common.h>
 #include <media/v4l2-chip-ident.h>
@@ -89,9 +88,7 @@ struct mt9v022 {
 	struct i2c_client *client;
 	struct soc_camera_device icd;
 	int model;	/* V4L2_IDENT_MT9V022* codes from v4l2-chip-ident.h */
-	int switch_gpio;
 	u16 chip_control;
-	unsigned char datawidth;
 };
 
 static int reg_read(struct soc_camera_device *icd, const u8 reg)
@@ -209,70 +206,11 @@ static int mt9v022_stop_capture(struct soc_camera_device *icd)
 	return 0;
 }
 
-static int bus_switch_request(struct mt9v022 *mt9v022, struct soc_camera_link *icl)
-{
-#ifdef CONFIG_MT9V022_PCA9536_SWITCH
-	int ret;
-	unsigned int gpio = icl->gpio;
-
-	if (gpio_is_valid(gpio)) {
-		/* We have a data bus switch. */
-		ret = gpio_request(gpio, "mt9v022");
-		if (ret < 0) {
-			dev_err(&mt9v022->client->dev, "Cannot get GPIO %u\n", gpio);
-			return ret;
-		}
-
-		ret = gpio_direction_output(gpio, 0);
-		if (ret < 0) {
-			dev_err(&mt9v022->client->dev,
-				"Cannot set GPIO %u to output\n", gpio);
-			gpio_free(gpio);
-			return ret;
-		}
-	}
-
-	mt9v022->switch_gpio = gpio;
-#else
-	mt9v022->switch_gpio = -EINVAL;
-#endif
-	return 0;
-}
-
-static void bus_switch_release(struct mt9v022 *mt9v022)
-{
-#ifdef CONFIG_MT9V022_PCA9536_SWITCH
-	if (gpio_is_valid(mt9v022->switch_gpio))
-		gpio_free(mt9v022->switch_gpio);
-#endif
-}
-
-static int bus_switch_act(struct mt9v022 *mt9v022, int go8bit)
-{
-#ifdef CONFIG_MT9V022_PCA9536_SWITCH
-	if (!gpio_is_valid(mt9v022->switch_gpio))
-		return -ENODEV;
-
-	gpio_set_value_cansleep(mt9v022->switch_gpio, go8bit);
-	return 0;
-#else
-	return -ENODEV;
-#endif
-}
-
-static int bus_switch_possible(struct mt9v022 *mt9v022)
-{
-#ifdef CONFIG_MT9V022_PCA9536_SWITCH
-	return gpio_is_valid(mt9v022->switch_gpio);
-#else
-	return 0;
-#endif
-}
-
 static int mt9v022_set_bus_param(struct soc_camera_device *icd,
 				 unsigned long flags)
 {
 	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
+	struct soc_camera_link *icl = mt9v022->client->dev.platform_data;
 	unsigned int width_flag = flags & SOCAM_DATAWIDTH_MASK;
 	int ret;
 	u16 pixclk = 0;
@@ -281,20 +219,20 @@ static int mt9v022_set_bus_param(struct soc_camera_device *icd,
 	if (!is_power_of_2(width_flag))
 		return -EINVAL;
 
-	if ((mt9v022->datawidth != 10 && (width_flag == SOCAM_DATAWIDTH_10)) ||
-	    (mt9v022->datawidth != 9  && (width_flag == SOCAM_DATAWIDTH_9)) ||
-	    (mt9v022->datawidth != 8  && (width_flag == SOCAM_DATAWIDTH_8))) {
-		/* Well, we actually only can do 10 or 8 bits... */
-		if (width_flag == SOCAM_DATAWIDTH_9)
-			return -EINVAL;
-
-		ret = bus_switch_act(mt9v022,
-				     width_flag == SOCAM_DATAWIDTH_8);
-		if (ret < 0)
+	if (icl->set_bus_param) {
+		ret = icl->set_bus_param(icl, width_flag);
+		if (ret)
 			return ret;
-
-		mt9v022->datawidth = width_flag == SOCAM_DATAWIDTH_8 ? 8 : 10;
+	} else {
+		/*
+		 * Without board specific bus width settings we only support the
+		 * sensors native bus width
+		 */
+		if (width_flag != SOCAM_DATAWIDTH_10)
+			return -EINVAL;
 	}
+
+	flags = soc_camera_apply_sensor_flags(icl, flags);
 
 	if (flags & SOCAM_PCLK_SAMPLE_RISING)
 		pixclk |= 0x10;
@@ -325,43 +263,26 @@ static int mt9v022_set_bus_param(struct soc_camera_device *icd,
 static unsigned long mt9v022_query_bus_param(struct soc_camera_device *icd)
 {
 	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
-	unsigned int width_flag = SOCAM_DATAWIDTH_10;
+	struct soc_camera_link *icl = mt9v022->client->dev.platform_data;
+	unsigned int width_flag;
 
-	if (bus_switch_possible(mt9v022))
-		width_flag |= SOCAM_DATAWIDTH_8;
+	if (icl->query_bus_param)
+		width_flag = icl->query_bus_param(icl) &
+			SOCAM_DATAWIDTH_MASK;
+	else
+		width_flag = SOCAM_DATAWIDTH_10;
 
 	return SOCAM_PCLK_SAMPLE_RISING | SOCAM_PCLK_SAMPLE_FALLING |
 		SOCAM_HSYNC_ACTIVE_HIGH | SOCAM_HSYNC_ACTIVE_LOW |
 		SOCAM_VSYNC_ACTIVE_HIGH | SOCAM_VSYNC_ACTIVE_LOW |
-		SOCAM_MASTER | SOCAM_SLAVE |
+		SOCAM_DATA_ACTIVE_HIGH | SOCAM_MASTER | SOCAM_SLAVE |
 		width_flag;
 }
 
-static int mt9v022_set_fmt_cap(struct soc_camera_device *icd,
-		__u32 pixfmt, struct v4l2_rect *rect)
+static int mt9v022_set_crop(struct soc_camera_device *icd,
+			    struct v4l2_rect *rect)
 {
-	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
 	int ret;
-
-	/* The caller provides a supported format, as verified per call to
-	 * icd->try_fmt_cap(), datawidth is from our supported format list */
-	switch (pixfmt) {
-	case V4L2_PIX_FMT_GREY:
-	case V4L2_PIX_FMT_Y16:
-		if (mt9v022->model != V4L2_IDENT_MT9V022IX7ATM)
-			return -EINVAL;
-		break;
-	case V4L2_PIX_FMT_SBGGR8:
-	case V4L2_PIX_FMT_SBGGR16:
-		if (mt9v022->model != V4L2_IDENT_MT9V022IX7ATC)
-			return -EINVAL;
-		break;
-	case 0:
-		/* No format change, only geometry */
-		break;
-	default:
-		return -EINVAL;
-	}
 
 	/* Like in example app. Contradicts the datasheet though */
 	ret = reg_read(icd, MT9V022_AEC_AGC_ENABLE);
@@ -400,31 +321,69 @@ static int mt9v022_set_fmt_cap(struct soc_camera_device *icd,
 	return 0;
 }
 
-static int mt9v022_try_fmt_cap(struct soc_camera_device *icd,
-			       struct v4l2_format *f)
+static int mt9v022_set_fmt(struct soc_camera_device *icd,
+			   struct v4l2_format *f)
 {
-	if (f->fmt.pix.height < 32 + icd->y_skip_top)
-		f->fmt.pix.height = 32 + icd->y_skip_top;
-	if (f->fmt.pix.height > 480 + icd->y_skip_top)
-		f->fmt.pix.height = 480 + icd->y_skip_top;
-	if (f->fmt.pix.width < 48)
-		f->fmt.pix.width = 48;
-	if (f->fmt.pix.width > 752)
-		f->fmt.pix.width = 752;
-	f->fmt.pix.width &= ~0x03; /* ? */
+	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
+	struct v4l2_pix_format *pix = &f->fmt.pix;
+	struct v4l2_rect rect = {
+		.left	= icd->x_current,
+		.top	= icd->y_current,
+		.width	= pix->width,
+		.height	= pix->height,
+	};
+
+	/* The caller provides a supported format, as verified per call to
+	 * icd->try_fmt(), datawidth is from our supported format list */
+	switch (pix->pixelformat) {
+	case V4L2_PIX_FMT_GREY:
+	case V4L2_PIX_FMT_Y16:
+		if (mt9v022->model != V4L2_IDENT_MT9V022IX7ATM)
+			return -EINVAL;
+		break;
+	case V4L2_PIX_FMT_SBGGR8:
+	case V4L2_PIX_FMT_SBGGR16:
+		if (mt9v022->model != V4L2_IDENT_MT9V022IX7ATC)
+			return -EINVAL;
+		break;
+	case 0:
+		/* No format change, only geometry */
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	/* No support for scaling on this camera, just crop. */
+	return mt9v022_set_crop(icd, &rect);
+}
+
+static int mt9v022_try_fmt(struct soc_camera_device *icd,
+			   struct v4l2_format *f)
+{
+	struct v4l2_pix_format *pix = &f->fmt.pix;
+
+	if (pix->height < 32 + icd->y_skip_top)
+		pix->height = 32 + icd->y_skip_top;
+	if (pix->height > 480 + icd->y_skip_top)
+		pix->height = 480 + icd->y_skip_top;
+	if (pix->width < 48)
+		pix->width = 48;
+	if (pix->width > 752)
+		pix->width = 752;
+	pix->width &= ~0x03; /* ? */
 
 	return 0;
 }
 
 static int mt9v022_get_chip_id(struct soc_camera_device *icd,
-			       struct v4l2_chip_ident *id)
+			       struct v4l2_dbg_chip_ident *id)
 {
 	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
 
-	if (id->match_type != V4L2_CHIP_MATCH_I2C_ADDR)
+	if (id->match.type != V4L2_CHIP_MATCH_I2C_ADDR)
 		return -EINVAL;
 
-	if (id->match_chip != mt9v022->client->addr)
+	if (id->match.addr != mt9v022->client->addr)
 		return -ENODEV;
 
 	id->ident	= mt9v022->model;
@@ -435,16 +394,17 @@ static int mt9v022_get_chip_id(struct soc_camera_device *icd,
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 static int mt9v022_get_register(struct soc_camera_device *icd,
-				struct v4l2_register *reg)
+				struct v4l2_dbg_register *reg)
 {
 	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
 
-	if (reg->match_type != V4L2_CHIP_MATCH_I2C_ADDR || reg->reg > 0xff)
+	if (reg->match.type != V4L2_CHIP_MATCH_I2C_ADDR || reg->reg > 0xff)
 		return -EINVAL;
 
-	if (reg->match_chip != mt9v022->client->addr)
+	if (reg->match.addr != mt9v022->client->addr)
 		return -ENODEV;
 
+	reg->size = 2;
 	reg->val = reg_read(icd, reg->reg);
 
 	if (reg->val > 0xffff)
@@ -454,14 +414,14 @@ static int mt9v022_get_register(struct soc_camera_device *icd,
 }
 
 static int mt9v022_set_register(struct soc_camera_device *icd,
-				struct v4l2_register *reg)
+				struct v4l2_dbg_register *reg)
 {
 	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
 
-	if (reg->match_type != V4L2_CHIP_MATCH_I2C_ADDR || reg->reg > 0xff)
+	if (reg->match.type != V4L2_CHIP_MATCH_I2C_ADDR || reg->reg > 0xff)
 		return -EINVAL;
 
-	if (reg->match_chip != mt9v022->client->addr)
+	if (reg->match.addr != mt9v022->client->addr)
 		return -ENODEV;
 
 	if (reg_write(icd, reg->reg, reg->val) < 0)
@@ -538,8 +498,9 @@ static struct soc_camera_ops mt9v022_ops = {
 	.release		= mt9v022_release,
 	.start_capture		= mt9v022_start_capture,
 	.stop_capture		= mt9v022_stop_capture,
-	.set_fmt_cap		= mt9v022_set_fmt_cap,
-	.try_fmt_cap		= mt9v022_try_fmt_cap,
+	.set_crop		= mt9v022_set_crop,
+	.set_fmt		= mt9v022_set_fmt,
+	.try_fmt		= mt9v022_try_fmt,
 	.set_bus_param		= mt9v022_set_bus_param,
 	.query_bus_param	= mt9v022_query_bus_param,
 	.controls		= mt9v022_controls,
@@ -690,8 +651,10 @@ static int mt9v022_set_control(struct soc_camera_device *icd,
 static int mt9v022_video_probe(struct soc_camera_device *icd)
 {
 	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
+	struct soc_camera_link *icl = mt9v022->client->dev.platform_data;
 	s32 data;
 	int ret;
+	unsigned long flags;
 
 	if (!icd->dev.parent ||
 	    to_soc_camera_host(icd->dev.parent)->nr != icd->iface)
@@ -725,22 +688,36 @@ static int mt9v022_video_probe(struct soc_camera_device *icd)
 		ret = reg_write(icd, MT9V022_PIXEL_OPERATION_MODE, 4 | 0x11);
 		mt9v022->model = V4L2_IDENT_MT9V022IX7ATC;
 		icd->formats = mt9v022_colour_formats;
-		if (mt9v022->client->dev.platform_data)
-			icd->num_formats = ARRAY_SIZE(mt9v022_colour_formats);
-		else
-			icd->num_formats = 1;
 	} else {
 		ret = reg_write(icd, MT9V022_PIXEL_OPERATION_MODE, 0x11);
 		mt9v022->model = V4L2_IDENT_MT9V022IX7ATM;
 		icd->formats = mt9v022_monochrome_formats;
-		if (mt9v022->client->dev.platform_data)
-			icd->num_formats = ARRAY_SIZE(mt9v022_monochrome_formats);
-		else
-			icd->num_formats = 1;
 	}
 
-	if (!ret)
-		ret = soc_camera_video_start(icd);
+	if (ret < 0)
+		goto eisis;
+
+	icd->num_formats = 0;
+
+	/*
+	 * This is a 10bit sensor, so by default we only allow 10bit.
+	 * The platform may support different bus widths due to
+	 * different routing of the data lines.
+	 */
+	if (icl->query_bus_param)
+		flags = icl->query_bus_param(icl);
+	else
+		flags = SOCAM_DATAWIDTH_10;
+
+	if (flags & SOCAM_DATAWIDTH_10)
+		icd->num_formats++;
+	else
+		icd->formats++;
+
+	if (flags & SOCAM_DATAWIDTH_8)
+		icd->num_formats++;
+
+	ret = soc_camera_video_start(icd);
 	if (ret < 0)
 		goto eisis;
 
@@ -760,8 +737,8 @@ static void mt9v022_video_remove(struct soc_camera_device *icd)
 	struct mt9v022 *mt9v022 = container_of(icd, struct mt9v022, icd);
 
 	dev_dbg(&icd->dev, "Video %x removed: %p, %p\n", mt9v022->client->addr,
-		mt9v022->icd.dev.parent, mt9v022->icd.vdev);
-	soc_camera_video_stop(&mt9v022->icd);
+		icd->dev.parent, icd->vdev);
+	soc_camera_video_stop(icd);
 }
 
 static int mt9v022_probe(struct i2c_client *client,
@@ -805,14 +782,6 @@ static int mt9v022_probe(struct i2c_client *client,
 	icd->height_max	= 480;
 	icd->y_skip_top	= 1;
 	icd->iface	= icl->bus_id;
-	/* Default datawidth - this is the only width this camera (normally)
-	 * supports. It is only with extra logic that it can support
-	 * other widths. Therefore it seems to be a sensible default. */
-	mt9v022->datawidth = 10;
-
-	ret = bus_switch_request(mt9v022, icl);
-	if (ret)
-		goto eswinit;
 
 	ret = soc_camera_device_register(icd);
 	if (ret)
@@ -821,8 +790,6 @@ static int mt9v022_probe(struct i2c_client *client,
 	return 0;
 
 eisdr:
-	bus_switch_release(mt9v022);
-eswinit:
 	kfree(mt9v022);
 	return ret;
 }
@@ -832,7 +799,6 @@ static int mt9v022_remove(struct i2c_client *client)
 	struct mt9v022 *mt9v022 = i2c_get_clientdata(client);
 
 	soc_camera_device_unregister(&mt9v022->icd);
-	bus_switch_release(mt9v022);
 	kfree(mt9v022);
 
 	return 0;

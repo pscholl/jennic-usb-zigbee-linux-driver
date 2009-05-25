@@ -38,13 +38,11 @@
 #include <asm/mach/map.h>
 #include <asm/mach/irq.h>
 #include <asm/mach/flash.h>
+
+#include <mach/pxa25x.h>
 #include <mach/mmc.h>
 #include <mach/udc.h>
 #include <mach/gumstix.h>
-
-#include <mach/pxa-regs.h>
-#include <mach/pxa2xx-regs.h>
-#include <mach/mfp-pxa25x.h>
 
 #include "generic.h"
 
@@ -184,14 +182,27 @@ static unsigned long gumstix_pin_config[] __initdata = {
 	GPIO6_MMC_CLK,
 	GPIO53_MMC_CLK,
 	GPIO8_MMC_CS0,
-	/* these are used by AM200EPD */
-	GPIO51_GPIO,
-	GPIO49_GPIO,
-	GPIO48_GPIO,
-	GPIO32_GPIO,
-	GPIO17_GPIO,
-	GPIO16_GPIO,
 };
+
+int __attribute__((weak)) am200_init(void)
+{
+	return 0;
+}
+
+int __attribute__((weak)) am300_init(void)
+{
+	return 0;
+}
+
+static void __init carrier_board_init(void)
+{
+	/*
+	 * put carrier/expansion board init here if
+	 * they cannot be detected programatically
+	 */
+	am200_init();
+	am300_init();
+}
 
 static void __init gumstix_init(void)
 {
@@ -201,6 +212,7 @@ static void __init gumstix_init(void)
 	gumstix_udc_init();
 	gumstix_mmc_init();
 	(void) platform_add_devices(devices, ARRAY_SIZE(devices));
+	carrier_board_init();
 }
 
 MACHINE_START(GUMSTIX, "Gumstix")

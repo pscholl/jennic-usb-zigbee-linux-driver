@@ -133,45 +133,6 @@ out:
 	return rc;
 }
 
-static int
-ecryptfs_send_message_locked(char *data, int data_len, u8 msg_type,
-			     struct ecryptfs_msg_ctx **msg_ctx);
-
-/**
- * ecryptfs_send_raw_message
- * @msg_type: Message type
- * @daemon: Daemon struct for recipient of message
- *
- * A raw message is one that does not include an ecryptfs_message
- * struct. It simply has a type.
- *
- * Must be called with ecryptfs_daemon_hash_mux held.
- *
- * Returns zero on success; non-zero otherwise
- */
-static int ecryptfs_send_raw_message(u8 msg_type,
-				     struct ecryptfs_daemon *daemon)
-{
-	struct ecryptfs_msg_ctx *msg_ctx;
-	int rc;
-
-	rc = ecryptfs_send_message_locked(NULL, 0, msg_type, &msg_ctx);
-	if (rc) {
-		printk(KERN_ERR "%s: Error whilst attempting to send "
-		       "message to ecryptfsd; rc = [%d]\n", __func__, rc);
-		goto out;
-	}
-	/* Raw messages are logically context-free (e.g., no
-	 * reply is expected), so we set the state of the
-	 * ecryptfs_msg_ctx object to indicate that it should
-	 * be freed as soon as the message is sent. */
-	mutex_lock(&msg_ctx->mux);
-	msg_ctx->state = ECRYPTFS_MSG_CTX_STATE_NO_REPLY;
-	mutex_unlock(&msg_ctx->mux);
-out:
-	return rc;
-}
-
 /**
  * ecryptfs_spawn_daemon - Create and initialize a new daemon struct
  * @daemon: Pointer to set to newly allocated daemon struct
@@ -193,7 +154,7 @@ ecryptfs_spawn_daemon(struct ecryptfs_daemon **daemon, uid_t euid,
 	(*daemon) = kzalloc(sizeof(**daemon), GFP_KERNEL);
 	if (!(*daemon)) {
 		rc = -ENOMEM;
-		printk(KERN_ERR "%s: Failed to allocate [%Zd] bytes of "
+		printk(KERN_ERR "%s: Failed to allocate [%zd] bytes of "
 		       "GFP_KERNEL memory\n", __func__, sizeof(**daemon));
 		goto out;
 	}
@@ -208,49 +169,6 @@ ecryptfs_spawn_daemon(struct ecryptfs_daemon **daemon, uid_t euid,
 	hlist_add_head(&(*daemon)->euid_chain,
 		       &ecryptfs_daemon_hash[ecryptfs_uid_hash(euid)]);
 out:
-	return rc;
-}
-
-/**
- * ecryptfs_process_helo
- * @euid: The user ID owner of the message
- * @user_ns: The namespace in which @euid applies
- * @pid: The process ID for the userspace program that sent the
- *       message
- *
- * Adds the euid and pid values to the daemon euid hash.  If an euid
- * already has a daemon pid registered, the daemon will be
- * unregistered before the new daemon is put into the hash list.
- * Returns zero after adding a new daemon to the hash list;
- * non-zero otherwise.
- */
-int ecryptfs_process_helo(uid_t euid, struct user_namespace *user_ns,
-			  struct pid *pid)
-{
-	struct ecryptfs_daemon *new_daemon;
-	struct ecryptfs_daemon *old_daemon;
-	int rc;
-
-	mutex_lock(&ecryptfs_daemon_hash_mux);
-	rc = ecryptfs_find_daemon_by_euid(&old_daemon, euid, user_ns);
-	if (rc != 0) {
-		printk(KERN_WARNING "Received request from user [%d] "
-		       "to register daemon [0x%p]; unregistering daemon "
-		       "[0x%p]\n", euid, pid, old_daemon->pid);
-		rc = ecryptfs_send_raw_message(ECRYPTFS_MSG_QUIT, old_daemon);
-		if (rc)
-			printk(KERN_WARNING "Failed to send QUIT "
-			       "message to daemon [0x%p]; rc = [%d]\n",
-			       old_daemon->pid, rc);
-		hlist_del(&old_daemon->euid_chain);
-		kfree(old_daemon);
-	}
-	rc = ecryptfs_spawn_daemon(&new_daemon, euid, user_ns, pid);
-	if (rc)
-		printk(KERN_ERR "%s: The gods are displeased with this attempt "
-		       "to create a new daemon object for euid [%d]; pid "
-		       "[0x%p]; rc = [%d]\n", __func__, euid, pid, rc);
-	mutex_unlock(&ecryptfs_daemon_hash_mux);
 	return rc;
 }
 
@@ -291,8 +209,7 @@ int ecryptfs_exorcise_daemon(struct ecryptfs_daemon *daemon)
 	if (daemon->user_ns)
 		put_user_ns(daemon->user_ns);
 	mutex_unlock(&daemon->mux);
-	memset(daemon, 0, sizeof(*daemon));
-	kfree(daemon);
+	kzfree(daemon);
 out:
 	return rc;
 }
@@ -360,7 +277,8 @@ int ecryptfs_process_response(struct ecryptfs_message *msg, uid_t euid,
 	struct ecryptfs_msg_ctx *msg_ctx;
 	size_t msg_size;
 	struct nsproxy *nsproxy;
-	struct user_namespace *current_user_ns;
+	struct user_namespace *tsk_user_ns;
+	uid_t ctx_euid;
 	int rc;
 
 	if (msg->index >= ecryptfs_message_buf_len) {
@@ -384,9 +302,9 @@ int ecryptfs_process_response(struct ecryptfs_message *msg, uid_t euid,
 		mutex_unlock(&ecryptfs_daemon_hash_mux);
 		goto wake_up;
 	}
-	current_user_ns = nsproxy->user_ns;
-	rc = ecryptfs_find_daemon_by_euid(&daemon, msg_ctx->task->euid,
-					  current_user_ns);
+	tsk_user_ns = __task_cred(msg_ctx->task)->user->user_ns;
+	ctx_euid = task_euid(msg_ctx->task);
+	rc = ecryptfs_find_daemon_by_euid(&daemon, ctx_euid, tsk_user_ns);
 	rcu_read_unlock();
 	mutex_unlock(&ecryptfs_daemon_hash_mux);
 	if (rc) {
@@ -394,28 +312,28 @@ int ecryptfs_process_response(struct ecryptfs_message *msg, uid_t euid,
 		printk(KERN_WARNING "%s: User [%d] received a "
 		       "message response from process [0x%p] but does "
 		       "not have a registered daemon\n", __func__,
-		       msg_ctx->task->euid, pid);
+		       ctx_euid, pid);
 		goto wake_up;
 	}
-	if (msg_ctx->task->euid != euid) {
+	if (ctx_euid != euid) {
 		rc = -EBADMSG;
 		printk(KERN_WARNING "%s: Received message from user "
 		       "[%d]; expected message from user [%d]\n", __func__,
-		       euid, msg_ctx->task->euid);
+		       euid, ctx_euid);
 		goto unlock;
 	}
-	if (current_user_ns != user_ns) {
+	if (tsk_user_ns != user_ns) {
 		rc = -EBADMSG;
 		printk(KERN_WARNING "%s: Received message from user_ns "
 		       "[0x%p]; expected message from user_ns [0x%p]\n",
-		       __func__, user_ns, nsproxy->user_ns);
+		       __func__, user_ns, tsk_user_ns);
 		goto unlock;
 	}
 	if (daemon->pid != pid) {
 		rc = -EBADMSG;
 		printk(KERN_ERR "%s: User [%d] sent a message response "
 		       "from an unrecognized process [0x%p]\n",
-		       __func__, msg_ctx->task->euid, pid);
+		       __func__, ctx_euid, pid);
 		goto unlock;
 	}
 	if (msg_ctx->state != ECRYPTFS_MSG_CTX_STATE_PENDING) {
@@ -434,7 +352,7 @@ int ecryptfs_process_response(struct ecryptfs_message *msg, uid_t euid,
 	msg_ctx->msg = kmalloc(msg_size, GFP_KERNEL);
 	if (!msg_ctx->msg) {
 		rc = -ENOMEM;
-		printk(KERN_ERR "%s: Failed to allocate [%Zd] bytes of "
+		printk(KERN_ERR "%s: Failed to allocate [%zd] bytes of "
 		       "GFP_KERNEL memory\n", __func__, msg_size);
 		goto unlock;
 	}
@@ -464,14 +382,14 @@ ecryptfs_send_message_locked(char *data, int data_len, u8 msg_type,
 			     struct ecryptfs_msg_ctx **msg_ctx)
 {
 	struct ecryptfs_daemon *daemon;
+	uid_t euid = current_euid();
 	int rc;
 
-	rc = ecryptfs_find_daemon_by_euid(&daemon, current->euid,
-					  current->nsproxy->user_ns);
+	rc = ecryptfs_find_daemon_by_euid(&daemon, euid, current_user_ns());
 	if (rc || !daemon) {
 		rc = -ENOTCONN;
 		printk(KERN_ERR "%s: User [%d] does not have a daemon "
-		       "registered\n", __func__, current->euid);
+		       "registered\n", __func__, euid);
 		goto out;
 	}
 	mutex_lock(&ecryptfs_msg_ctx_lists_mux);

@@ -15,7 +15,6 @@
 #include <linux/posix_acl.h>
 #include <linux/posix_acl_xattr.h>
 #include <linux/gfs2_ondisk.h>
-#include <linux/lm_interface.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -91,7 +90,7 @@ static int acl_get(struct gfs2_inode *ip, int access, struct posix_acl **acl,
 	struct gfs2_ea_location el_this;
 	int error;
 
-	if (!ip->i_di.di_eattr)
+	if (!ip->i_eattr)
 		return 0;
 
 	memset(&er, 0, sizeof(struct gfs2_ea_request));
@@ -216,7 +215,7 @@ int gfs2_acl_create(struct gfs2_inode *dip, struct gfs2_inode *ip)
 	if (error)
 		return error;
 	if (!acl) {
-		mode &= ~current->fs->umask;
+		mode &= ~current_umask();
 		if (mode != ip->i_inode.i_mode)
 			error = munge_mode(ip, mode);
 		return error;

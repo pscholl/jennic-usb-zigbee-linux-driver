@@ -89,7 +89,7 @@ static void com20020_copy_to_card(struct net_device *dev, int bufnum,
 int com20020_check(struct net_device *dev)
 {
 	int ioaddr = dev->base_addr, status;
-	struct arcnet_local *lp = dev->priv;
+	struct arcnet_local *lp = netdev_priv(dev);
 
 	ARCRESET0;
 	mdelay(RESETtime);
@@ -149,6 +149,14 @@ int com20020_check(struct net_device *dev)
 	return 0;
 }
 
+const struct net_device_ops com20020_netdev_ops = {
+	.ndo_open	= arcnet_open,
+	.ndo_stop	= arcnet_close,
+	.ndo_start_xmit = arcnet_send_packet,
+	.ndo_tx_timeout = arcnet_timeout,
+	.ndo_set_multicast_list = com20020_set_mc_list,
+};
+
 /* Set up the struct net_device associated with this card.  Called after
  * probing succeeds.
  */
@@ -159,7 +167,7 @@ int com20020_found(struct net_device *dev, int shared)
 
 	/* Initialize the rest of the device structure. */
 
-	lp = dev->priv;
+	lp = netdev_priv(dev);
 
 	lp->hw.owner = THIS_MODULE;
 	lp->hw.command = com20020_command;
@@ -169,8 +177,6 @@ int com20020_found(struct net_device *dev, int shared)
 	lp->hw.copy_to_card = com20020_copy_to_card;
 	lp->hw.copy_from_card = com20020_copy_from_card;
 	lp->hw.close = com20020_close;
-
-	dev->set_multicast_list = com20020_set_mc_list;
 
 	if (!dev->dev_addr[0])
 		dev->dev_addr[0] = inb(ioaddr + BUS_ALIGN*8);	/* FIXME: do this some other way! */
@@ -233,7 +239,7 @@ int com20020_found(struct net_device *dev, int shared)
  */
 static int com20020_reset(struct net_device *dev, int really_reset)
 {
-	struct arcnet_local *lp = dev->priv;
+	struct arcnet_local *lp = netdev_priv(dev);
 	u_int ioaddr = dev->base_addr;
 	u_char inbyte;
 
@@ -300,7 +306,7 @@ static int com20020_status(struct net_device *dev)
 
 static void com20020_close(struct net_device *dev)
 {
-	struct arcnet_local *lp = dev->priv;
+	struct arcnet_local *lp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
 
 	/* disable transmitter */
@@ -317,7 +323,7 @@ static void com20020_close(struct net_device *dev)
  */
 static void com20020_set_mc_list(struct net_device *dev)
 {
-	struct arcnet_local *lp = dev->priv;
+	struct arcnet_local *lp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
 
 	if ((dev->flags & IFF_PROMISC) && (dev->flags & IFF_UP)) {	/* Enable promiscuous mode */
@@ -342,6 +348,7 @@ static void com20020_set_mc_list(struct net_device *dev)
     defined(CONFIG_ARCNET_COM20020_CS_MODULE)
 EXPORT_SYMBOL(com20020_check);
 EXPORT_SYMBOL(com20020_found);
+EXPORT_SYMBOL(com20020_netdev_ops);
 #endif
 
 MODULE_LICENSE("GPL");

@@ -22,6 +22,7 @@
 #include <linux/gpio.h>
 #include <linux/leds.h>
 #include <linux/mmc/host.h>
+#include <linux/mtd/physmap.h>
 #include <linux/pm.h>
 #include <linux/backlight.h>
 #include <linux/io.h>
@@ -30,6 +31,7 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/ads7846.h>
 #include <linux/spi/corgi_lcd.h>
+#include <linux/mtd/sharpsl.h>
 
 #include <asm/setup.h>
 #include <asm/memory.h>
@@ -42,9 +44,7 @@
 #include <asm/mach/map.h>
 #include <asm/mach/irq.h>
 
-#include <mach/pxa-regs.h>
-#include <mach/pxa2xx-regs.h>
-#include <mach/mfp-pxa27x.h>
+#include <mach/pxa27x.h>
 #include <mach/pxa27x-udc.h>
 #include <mach/reset.h>
 #include <mach/i2c.h>
@@ -103,6 +103,12 @@ static unsigned long spitz_pin_config[] __initdata = {
 	GPIO57_nIOIS16,
 	GPIO104_PSKTSEL,
 
+	/* I2S */
+	GPIO28_I2S_BITCLK_OUT,
+	GPIO29_I2S_SDATA_IN,
+	GPIO30_I2S_SDATA_OUT,
+	GPIO31_I2S_SYNC,
+
 	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO112_MMC_CMD,
@@ -121,6 +127,10 @@ static unsigned long spitz_pin_config[] __initdata = {
 	GPIO94_GPIO,	/* SPITZ_GPIO_CF_CD */
 	GPIO105_GPIO,	/* SPITZ_GPIO_CF_IRQ */
 	GPIO106_GPIO,	/* SPITZ_GPIO_CF2_IRQ */
+
+	/* I2C */
+	GPIO117_I2C_SCL,
+	GPIO118_I2C_SDA,
 
 	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,
 };
@@ -289,12 +299,22 @@ static struct pxa2xx_spi_master spitz_spi_info = {
 	.num_chipselect	= 3,
 };
 
+static void spitz_wait_for_hsync(void)
+{
+	while (gpio_get_value(SPITZ_GPIO_HSYNC))
+		cpu_relax();
+
+	while (!gpio_get_value(SPITZ_GPIO_HSYNC))
+		cpu_relax();
+}
+
 static struct ads7846_platform_data spitz_ads7846_info = {
 	.model			= 7846,
 	.vref_delay_usecs	= 100,
 	.x_plate_ohms		= 419,
 	.y_plate_ohms		= 486,
 	.gpio_pendown		= SPITZ_GPIO_TP_INT,
+	.wait_for_sync		= spitz_wait_for_hsync,
 };
 
 static void spitz_ads7846_cs(u32 command)
@@ -608,19 +628,99 @@ static struct pxafb_mach_info spitz_pxafb_info = {
 	.lcd_conn	= LCD_COLOR_TFT_16BPP | LCD_ALTERNATE_MAPPING,
 };
 
+static struct mtd_partition sharpsl_nand_partitions[] = {
+	{
+		.name = "System Area",
+		.offset = 0,
+		.size = 7 * 1024 * 1024,
+	},
+	{
+		.name = "Root Filesystem",
+		.offset = 7 * 1024 * 1024,
+	},
+	{
+		.name = "Home Filesystem",
+		.offset = MTDPART_OFS_APPEND,
+		.size = MTDPART_SIZ_FULL,
+	},
+};
+
+static uint8_t scan_ff_pattern[] = { 0xff, 0xff };
+
+static struct nand_bbt_descr sharpsl_bbt = {
+	.options = 0,
+	.offs = 4,
+	.len = 2,
+	.pattern = scan_ff_pattern
+};
+
+static struct sharpsl_nand_platform_data sharpsl_nand_platform_data = {
+	.badblock_pattern	= &sharpsl_bbt,
+	.partitions		= sharpsl_nand_partitions,
+	.nr_partitions		= ARRAY_SIZE(sharpsl_nand_partitions),
+};
+
+static struct resource sharpsl_nand_resources[] = {
+	{
+		.start	= 0x0C000000,
+		.end	= 0x0C000FFF,
+		.flags	= IORESOURCE_MEM,
+	},
+};
+
+static struct platform_device sharpsl_nand_device = {
+	.name		= "sharpsl-nand",
+	.id		= -1,
+	.resource	= sharpsl_nand_resources,
+	.num_resources	= ARRAY_SIZE(sharpsl_nand_resources),
+	.dev.platform_data	= &sharpsl_nand_platform_data,
+};
+
+
+static struct mtd_partition sharpsl_rom_parts[] = {
+	{
+		.name	="Boot PROM Filesystem",
+		.offset	= 0x00140000,
+		.size	= MTDPART_SIZ_FULL,
+	},
+};
+
+static struct physmap_flash_data sharpsl_rom_data = {
+	.width		= 2,
+	.nr_parts	= ARRAY_SIZE(sharpsl_rom_parts),
+	.parts		= sharpsl_rom_parts,
+};
+
+static struct resource sharpsl_rom_resources[] = {
+	{
+		.start	= 0x00000000,
+		.end	= 0x007fffff,
+		.flags	= IORESOURCE_MEM,
+	},
+};
+
+static struct platform_device sharpsl_rom_device = {
+	.name	= "physmap-flash",
+	.id	= -1,
+	.resource = sharpsl_rom_resources,
+	.num_resources = ARRAY_SIZE(sharpsl_rom_resources),
+	.dev.platform_data = &sharpsl_rom_data,
+};
 
 static struct platform_device *devices[] __initdata = {
 	&spitzscoop_device,
 	&spitzkbd_device,
 	&spitzled_device,
+	&sharpsl_nand_device,
+	&sharpsl_rom_device,
 };
 
 static void spitz_poweroff(void)
 {
-	arm_machine_restart('g');
+	arm_machine_restart('g', NULL);
 }
 
-static void spitz_restart(char mode)
+static void spitz_restart(char mode, const char *cmd)
 {
 	/* Bootloader magic for a reboot */
 	if((MSC0 & 0xffff0000) == 0x7ff00000)
@@ -634,6 +734,14 @@ static void __init common_init(void)
 	init_gpio_reset(SPITZ_GPIO_ON_RESET, 1);
 	pm_power_off = spitz_poweroff;
 	arm_pm_restart = spitz_restart;
+
+	if (machine_is_spitz()) {
+		sharpsl_nand_partitions[1].size = 5 * 1024 * 1024;
+	} else if (machine_is_akita()) {
+		sharpsl_nand_partitions[1].size = 58 * 1024 * 1024;
+	} else if (machine_is_borzoi()) {
+		sharpsl_nand_partitions[1].size = 32 * 1024 * 1024;
+	}
 
 	PMCR = 0x00;
 
@@ -679,9 +787,28 @@ static struct i2c_board_info akita_i2c_board_info[] = {
 	},
 };
 
+static struct nand_bbt_descr sharpsl_akita_bbt = {
+	.options = 0,
+	.offs = 4,
+	.len = 1,
+	.pattern = scan_ff_pattern
+};
+
+static struct nand_ecclayout akita_oobinfo = {
+	.eccbytes = 24,
+	.eccpos = {
+		   0x5, 0x1, 0x2, 0x3, 0x6, 0x7, 0x15, 0x11,
+		   0x12, 0x13, 0x16, 0x17, 0x25, 0x21, 0x22, 0x23,
+		   0x26, 0x27, 0x35, 0x31, 0x32, 0x33, 0x36, 0x37},
+	.oobfree = {{0x08, 0x09}}
+};
+
 static void __init akita_init(void)
 {
 	spitz_ficp_platform_data.transceiver_mode = akita_irda_transceiver_mode;
+
+	sharpsl_nand_platform_data.badblock_pattern = &sharpsl_akita_bbt;
+	sharpsl_nand_platform_data.ecc_layout = &akita_oobinfo;
 
 	/* We just pretend the second element of the array doesn't exist */
 	spitz_pcmcia_config.num_devs = 1;

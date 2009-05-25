@@ -149,8 +149,8 @@ static struct task_struct *sync_backup_thread;
 /* multicast addr */
 static struct sockaddr_in mcast_addr = {
 	.sin_family		= AF_INET,
-	.sin_port		= __constant_htons(IP_VS_SYNC_PORT),
-	.sin_addr.s_addr	= __constant_htonl(IP_VS_SYNC_GROUP),
+	.sin_port		= cpu_to_be16(IP_VS_SYNC_PORT),
+	.sin_addr.s_addr	= cpu_to_be32(IP_VS_SYNC_GROUP),
 };
 
 
@@ -580,8 +580,8 @@ static int bind_mcastif_addr(struct socket *sock, char *ifname)
 		IP_VS_ERR("You probably need to specify IP address on "
 			  "multicast interface.\n");
 
-	IP_VS_DBG(7, "binding socket with (%s) %u.%u.%u.%u\n",
-		  ifname, NIPQUAD(addr));
+	IP_VS_DBG(7, "binding socket with (%s) %pI4\n",
+		  ifname, &addr);
 
 	/* Now bind the socket with the address of multicast interface */
 	sin.sin_family	     = AF_INET;

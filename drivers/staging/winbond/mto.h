@@ -11,6 +11,10 @@
 #ifndef __MTO_H__
 #define __MTO_H__
 
+#include <linux/types.h>
+
+struct wbsoft_priv;
+
 #define MTO_DEFAULT_TH_CNT              5
 #define MTO_DEFAULT_TH_SQ3              112  //OLD IS 13 reference JohnXu
 #define MTO_DEFAULT_TH_IDLE_SLOT        15
@@ -129,17 +133,14 @@ typedef struct _MTO_PARAMETERS
 } MTO_PARAMETERS, *PMTO_PARAMETERS;
 
 
-#define MTO_FUNC_INPUT              PWB32_ADAPTER	Adapter
-#define MTO_FUNC_INPUT_DATA         Adapter
-#define MTO_DATA()                  (Adapter->sMtoPara)
-#define MTO_HAL()                   (&Adapter->sHwData)
+#define MTO_DATA()                  (adapter->sMtoPara)
+#define MTO_HAL()                   (&adapter->sHwData)
 #define MTO_SET_PREAMBLE_TYPE(x)    // 20040511 Turbo mark LM_PREAMBLE_TYPE(&pcore_data->lm_data) = (x)
-#define MTO_ENABLE					(Adapter->sLocalPara.TxRateMode == RATE_AUTO)
-#define MTO_TXPOWER_FROM_EEPROM		(Adapter->sHwData.PowerIndexFromEEPROM)
-#define LOCAL_ANTENNA_NO()			(Adapter->sLocalPara.bAntennaNo)
-#define LOCAL_IS_CONNECTED()		(Adapter->sLocalPara.wConnectedSTAindex != 0)
-#define LOCAL_IS_IBSS_MODE()		(Adapter->asBSSDescriptElement[Adapter->sLocalPara.wConnectedSTAindex].bBssType == IBSS_NET)
-#define MTO_INITTXRATE_MODE			(Adapter->sHwData.SoftwareSet&0x2)	//bit 1
+#define MTO_ENABLE					(adapter->sLocalPara.TxRateMode == RATE_AUTO)
+#define MTO_TXPOWER_FROM_EEPROM		(adapter->sHwData.PowerIndexFromEEPROM)
+#define LOCAL_ANTENNA_NO()			(adapter->sLocalPara.bAntennaNo)
+#define LOCAL_IS_CONNECTED()		(adapter->sLocalPara.wConnectedSTAindex != 0)
+#define MTO_INITTXRATE_MODE			(adapter->sHwData.SoftwareSet&0x2)	//bit 1
 // 20040510 Turbo add
 #define MTO_TMR_CNT()               MTO_DATA().TmrCnt
 #define MTO_TOGGLE_STATE()          MTO_DATA().ToggleState
@@ -157,7 +158,7 @@ typedef struct _MTO_PARAMETERS
 #define MTO_TMR_PERIODIC()          MTO_DATA().Tmr_Periodic
 
 #define MTO_POWER_CHANGE_ENABLE()   MTO_DATA().PowerChangeEnable
-#define MTO_ANT_DIVERSITY_ENABLE()  Adapter->sLocalPara.boAntennaDiversity
+#define MTO_ANT_DIVERSITY_ENABLE()  adapter->sLocalPara.boAntennaDiversity
 #define MTO_ANT_MAC()               MTO_DATA().Ant_mac
 #define MTO_ANT_DIVERSITY()         MTO_DATA().Ant_div
 #define MTO_CCA_MODE()              MTO_DATA().CCA_Mode
@@ -166,7 +167,6 @@ typedef struct _MTO_PARAMETERS
 #define MTO_PREAMBLE_CHANGE_ENABLE()         MTO_DATA().PreambleChangeEnable
 
 #define MTO_RATE_LEVEL()            MTO_DATA().DataRateLevel
-#define MTO_FALLBACK_RATE_LEVEL()	MTO_DATA().FallbackRateLevel
 #define MTO_OFDM_RATE_LEVEL()		MTO_DATA().OfdmRateLevel
 #define MTO_RATE_CHANGE_ENABLE()    MTO_DATA().DataRateChangeEnable
 #define MTO_FRAG_TH_LEVEL()         MTO_DATA().FragThresholdLevel
@@ -199,11 +199,9 @@ typedef struct _MTO_PARAMETERS
 //------------------------------------------------
 
 
-extern u8   MTO_Data_Rate_Tbl[];
 extern u16  MTO_Frag_Th_Tbl[];
 
 #define MTO_DATA_RATE()          MTO_Data_Rate_Tbl[MTO_RATE_LEVEL()]
-#define MTO_DATA_FALLBACK_RATE() MTO_Data_Rate_Tbl[MTO_FALLBACK_RATE_LEVEL()]	//next level
 #define MTO_FRAG_TH()            MTO_Frag_Th_Tbl[MTO_FRAG_TH_LEVEL()]
 
 typedef struct {
@@ -259,6 +257,13 @@ typedef struct _STATISTICS_INFO {
 	s32   TxBytes;
 	s32   Antenna;
 } STATISTICS_INFO, *PSTATISTICS_INFO;
+
+extern void MTO_Init(struct wbsoft_priv *);
+extern void MTO_PeriodicTimerExpired(struct wbsoft_priv *);
+extern void MTO_SetDTORateRange(struct wbsoft_priv *, u8 *, u8);
+extern u8 MTO_GetTxRate(struct wbsoft_priv *adapter, u32 fpdu_len);
+extern u8 MTO_GetTxFallbackRate(struct wbsoft_priv *adapter);
+extern void MTO_SetTxCount(struct wbsoft_priv *adapter, u8 t0, u8 index);
 
 #endif //__MTO_H__
 

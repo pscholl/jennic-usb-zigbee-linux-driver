@@ -64,7 +64,8 @@
 #include <linux/init.h>
 #include <linux/i2c.h>
 #include <linux/acpi.h>
-#include <asm/io.h>
+#include <linux/io.h>
+#include <linux/dmi.h>
 
 /* I801 SMBus address offsets */
 #define SMBHSTSTS	(0 + i801_smba)
@@ -236,7 +237,7 @@ static int i801_transaction(int xact)
 		status = inb_p(SMBHSTSTS);
 	} while ((status & SMBHSTSTS_HOST_BUSY) && (timeout++ < MAX_TIMEOUT));
 
-	result = i801_check_post(status, timeout >= MAX_TIMEOUT);
+	result = i801_check_post(status, timeout > MAX_TIMEOUT);
 	if (result < 0)
 		return result;
 
@@ -256,9 +257,9 @@ static void i801_wait_hwpec(void)
 	} while ((!(status & SMBHSTSTS_INTR))
 		 && (timeout++ < MAX_TIMEOUT));
 
-	if (timeout >= MAX_TIMEOUT) {
+	if (timeout > MAX_TIMEOUT)
 		dev_dbg(&I801_dev->dev, "PEC Timeout!\n");
-	}
+
 	outb_p(status, SMBHSTSTS);
 }
 
@@ -343,7 +344,7 @@ static int i801_block_transaction_byte_by_byte(union i2c_smbus_data *data,
 		while ((!(status & SMBHSTSTS_BYTE_DONE))
 		       && (timeout++ < MAX_TIMEOUT));
 
-		result = i801_check_post(status, timeout >= MAX_TIMEOUT);
+		result = i801_check_post(status, timeout > MAX_TIMEOUT);
 		if (result < 0)
 			return result;
 
@@ -556,7 +557,6 @@ static const struct i2c_algorithm smbus_algorithm = {
 
 static struct i2c_adapter i801_adapter = {
 	.owner		= THIS_MODULE,
-	.id		= I2C_HW_SMBUS_I801,
 	.class		= I2C_CLASS_HWMON | I2C_CLASS_SPD,
 	.algo		= &smbus_algorithm,
 };
@@ -583,10 +583,115 @@ static struct pci_device_id i801_ids[] = {
 
 MODULE_DEVICE_TABLE (pci, i801_ids);
 
+#if defined CONFIG_INPUT_APANEL || defined CONFIG_INPUT_APANEL_MODULE
+static unsigned char apanel_addr;
+
+/* Scan the system ROM for the signature "FJKEYINF" */
+static __init const void __iomem *bios_signature(const void __iomem *bios)
+{
+	ssize_t offset;
+	const unsigned char signature[] = "FJKEYINF";
+
+	for (offset = 0; offset < 0x10000; offset += 0x10) {
+		if (check_signature(bios + offset, signature,
+				    sizeof(signature)-1))
+			return bios + offset;
+	}
+	return NULL;
+}
+
+static void __init input_apanel_init(void)
+{
+	void __iomem *bios;
+	const void __iomem *p;
+
+	bios = ioremap(0xF0000, 0x10000); /* Can't fail */
+	p = bios_signature(bios);
+	if (p) {
+		/* just use the first address */
+		apanel_addr = readb(p + 8 + 3) >> 1;
+	}
+	iounmap(bios);
+}
+#else
+static void __init input_apanel_init(void) {}
+#endif
+
+#if defined CONFIG_SENSORS_FSCHMD || defined CONFIG_SENSORS_FSCHMD_MODULE
+struct dmi_onboard_device_info {
+	const char *name;
+	u8 type;
+	unsigned short i2c_addr;
+	const char *i2c_type;
+};
+
+static struct dmi_onboard_device_info __devinitdata dmi_devices[] = {
+	{ "Syleus", DMI_DEV_TYPE_OTHER, 0x73, "fscsyl" },
+	{ "Hermes", DMI_DEV_TYPE_OTHER, 0x73, "fscher" },
+	{ "Hades",  DMI_DEV_TYPE_OTHER, 0x73, "fschds" },
+};
+
+static void __devinit dmi_check_onboard_device(u8 type, const char *name,
+					       struct i2c_adapter *adap)
+{
+	int i;
+	struct i2c_board_info info;
+
+	for (i = 0; i < ARRAY_SIZE(dmi_devices); i++) {
+		/* & ~0x80, ignore enabled/disabled bit */
+		if ((type & ~0x80) != dmi_devices[i].type)
+			continue;
+		if (strcmp(name, dmi_devices[i].name))
+			continue;
+
+		memset(&info, 0, sizeof(struct i2c_board_info));
+		info.addr = dmi_devices[i].i2c_addr;
+		strlcpy(info.type, dmi_devices[i].i2c_type, I2C_NAME_SIZE);
+		i2c_new_device(adap, &info);
+		break;
+	}
+}
+
+/* We use our own function to check for onboard devices instead of
+   dmi_find_device() as some buggy BIOS's have the devices we are interested
+   in marked as disabled */
+static void __devinit dmi_check_onboard_devices(const struct dmi_header *dm,
+						void *adap)
+{
+	int i, count;
+
+	if (dm->type != 10)
+		return;
+
+	count = (dm->length - sizeof(struct dmi_header)) / 2;
+	for (i = 0; i < count; i++) {
+		const u8 *d = (char *)(dm + 1) + (i * 2);
+		const char *name = ((char *) dm) + dm->length;
+		u8 type = d[0];
+		u8 s = d[1];
+
+		if (!s)
+			continue;
+		s--;
+		while (s > 0 && name[0]) {
+			name += strlen(name) + 1;
+			s--;
+		}
+		if (name[0] == 0) /* Bogus string reference */
+			continue;
+
+		dmi_check_onboard_device(type, name, adap);
+	}
+}
+#endif
+
 static int __devinit i801_probe(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	unsigned char temp;
 	int err;
+#if defined CONFIG_SENSORS_FSCHMD || defined CONFIG_SENSORS_FSCHMD_MODULE
+	const char *vendor;
+#endif
 
 	I801_dev = dev;
 	i801_features = 0;
@@ -667,6 +772,24 @@ static int __devinit i801_probe(struct pci_dev *dev, const struct pci_device_id 
 		dev_err(&dev->dev, "Failed to add SMBus adapter\n");
 		goto exit_release;
 	}
+
+	/* Register optional slaves */
+#if defined CONFIG_INPUT_APANEL || defined CONFIG_INPUT_APANEL_MODULE
+	if (apanel_addr) {
+		struct i2c_board_info info;
+
+		memset(&info, 0, sizeof(struct i2c_board_info));
+		info.addr = apanel_addr;
+		strlcpy(info.type, "fujitsu_apanel", I2C_NAME_SIZE);
+		i2c_new_device(&i801_adapter, &info);
+	}
+#endif
+#if defined CONFIG_SENSORS_FSCHMD || defined CONFIG_SENSORS_FSCHMD_MODULE
+	vendor = dmi_get_system_info(DMI_BOARD_VENDOR);
+	if (vendor && !strcmp(vendor, "FUJITSU SIEMENS"))
+		dmi_walk(dmi_check_onboard_devices, &i801_adapter);
+#endif
+
 	return 0;
 
 exit_release:
@@ -717,6 +840,7 @@ static struct pci_driver i801_driver = {
 
 static int __init i2c_i801_init(void)
 {
+	input_apanel_init();
 	return pci_register_driver(&i801_driver);
 }
 

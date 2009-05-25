@@ -28,7 +28,6 @@
 #include <asm/errno.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
-#include <linux/miscdevice.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/init.h>
@@ -63,7 +62,7 @@ static int find_boot_record(struct INFTLrecord *inftl)
 	 * otherwise.
 	 */
 	inftl->EraseSize = inftl->mbd.mtd->erasesize;
-        inftl->nb_blocks = inftl->mbd.mtd->size / inftl->EraseSize;
+        inftl->nb_blocks = (u32)inftl->mbd.mtd->size / inftl->EraseSize;
 
 	inftl->MediaUnit = BLOCK_NIL;
 
@@ -187,7 +186,7 @@ static int find_boot_record(struct INFTLrecord *inftl)
 				mh->BlockMultiplierBits);
 			inftl->EraseSize = inftl->mbd.mtd->erasesize <<
 				mh->BlockMultiplierBits;
-			inftl->nb_blocks = inftl->mbd.mtd->size / inftl->EraseSize;
+			inftl->nb_blocks = (u32)inftl->mbd.mtd->size / inftl->EraseSize;
 			block >>= mh->BlockMultiplierBits;
 		}
 

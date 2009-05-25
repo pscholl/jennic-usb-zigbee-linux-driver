@@ -40,6 +40,7 @@
 #include <linux/mutex.h>
 #include <linux/radix-tree.h>
 #include <linux/timer.h>
+#include <linux/workqueue.h>
 
 #include <linux/mlx4/device.h>
 #include <linux/mlx4/driver.h>
@@ -60,12 +61,6 @@ enum {
 	MLX4_MGM_ENTRY_SIZE	=  0x100,
 	MLX4_QP_PER_MGM		= 4 * (MLX4_MGM_ENTRY_SIZE / 16 - 2),
 	MLX4_MTT_ENTRY_PER_SEG	= 8
-};
-
-enum {
-	MLX4_EQ_ASYNC,
-	MLX4_EQ_COMP,
-	MLX4_NUM_EQ
 };
 
 enum {
@@ -205,10 +200,11 @@ struct mlx4_cq_table {
 
 struct mlx4_eq_table {
 	struct mlx4_bitmap	bitmap;
+	char		       *irq_names;
 	void __iomem	       *clr_int;
-	void __iomem	       *uar_map[(MLX4_NUM_EQ + 6) / 4];
+	void __iomem	      **uar_map;
 	u32			clr_mask;
-	struct mlx4_eq		eq[MLX4_NUM_EQ];
+	struct mlx4_eq	       *eq;
 	u64			icm_virt;
 	struct page	       *icm_page;
 	dma_addr_t		icm_dma;
@@ -281,6 +277,13 @@ struct mlx4_port_info {
 	struct mlx4_vlan_table	vlan_table;
 };
 
+struct mlx4_sense {
+	struct mlx4_dev		*dev;
+	u8			do_sense_port[MLX4_MAX_PORTS + 1];
+	u8			sense_allowed[MLX4_MAX_PORTS + 1];
+	struct delayed_work	sense_poll;
+};
+
 struct mlx4_priv {
 	struct mlx4_dev		dev;
 
@@ -310,6 +313,7 @@ struct mlx4_priv {
 	struct mlx4_uar		driver_uar;
 	void __iomem	       *kar;
 	struct mlx4_port_info	port[MLX4_MAX_PORTS + 1];
+	struct mlx4_sense       sense;
 	struct mutex		port_mutex;
 };
 
@@ -317,6 +321,10 @@ static inline struct mlx4_priv *mlx4_priv(struct mlx4_dev *dev)
 {
 	return container_of(dev, struct mlx4_priv, dev);
 }
+
+#define MLX4_SENSE_RANGE	(HZ * 3)
+
+extern struct workqueue_struct *mlx4_wq;
 
 u32 mlx4_bitmap_alloc(struct mlx4_bitmap *bitmap);
 void mlx4_bitmap_free(struct mlx4_bitmap *bitmap, u32 obj);
@@ -327,6 +335,9 @@ int mlx4_bitmap_init(struct mlx4_bitmap *bitmap, u32 num, u32 mask,
 void mlx4_bitmap_cleanup(struct mlx4_bitmap *bitmap);
 
 int mlx4_reset(struct mlx4_dev *dev);
+
+int mlx4_alloc_eq_table(struct mlx4_dev *dev);
+void mlx4_free_eq_table(struct mlx4_dev *dev);
 
 int mlx4_init_pd_table(struct mlx4_dev *dev);
 int mlx4_init_uar_table(struct mlx4_dev *dev);
@@ -348,8 +359,7 @@ void mlx4_cleanup_mcg_table(struct mlx4_dev *dev);
 
 void mlx4_start_catas_poll(struct mlx4_dev *dev);
 void mlx4_stop_catas_poll(struct mlx4_dev *dev);
-int mlx4_catas_init(void);
-void mlx4_catas_cleanup(void);
+void mlx4_catas_init(void);
 int mlx4_restart_one(struct pci_dev *pdev);
 int mlx4_register_device(struct mlx4_dev *dev);
 void mlx4_unregister_device(struct mlx4_dev *dev);
@@ -380,6 +390,17 @@ void mlx4_qp_event(struct mlx4_dev *dev, u32 qpn, int event_type);
 void mlx4_srq_event(struct mlx4_dev *dev, u32 srqn, int event_type);
 
 void mlx4_handle_catas_err(struct mlx4_dev *dev);
+
+void mlx4_do_sense_ports(struct mlx4_dev *dev,
+			 enum mlx4_port_type *stype,
+			 enum mlx4_port_type *defaults);
+void mlx4_start_sense(struct mlx4_dev *dev);
+void mlx4_stop_sense(struct mlx4_dev *dev);
+void mlx4_sense_init(struct mlx4_dev *dev);
+int mlx4_check_port_params(struct mlx4_dev *dev,
+			   enum mlx4_port_type *port_type);
+int mlx4_change_port_types(struct mlx4_dev *dev,
+			   enum mlx4_port_type *port_types);
 
 void mlx4_init_mac_table(struct mlx4_dev *dev, struct mlx4_mac_table *table);
 void mlx4_init_vlan_table(struct mlx4_dev *dev, struct mlx4_vlan_table *table);

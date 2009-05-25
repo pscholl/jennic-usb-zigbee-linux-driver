@@ -78,16 +78,6 @@
 #include <asm/fb.h>
 #include <asm/irq.h>
 #include <asm/system.h>
-#ifdef CONFIG_ATARI
-#include <asm/atariints.h>
-#endif
-#ifdef CONFIG_MAC
-#include <asm/macints.h>
-#endif
-#if defined(__mc68000__)
-#include <asm/machdep.h>
-#include <asm/setup.h>
-#endif
 
 #include "fbcon.h"
 
@@ -158,11 +148,6 @@ static int fbcon_set_origin(struct vc_data *);
 
 #define CURSOR_DRAW_DELAY		(1)
 
-/* # VBL ints between cursor state changes */
-#define ATARI_CURSOR_BLINK_RATE		(42)
-#define MAC_CURSOR_BLINK_RATE		(32)
-#define DEFAULT_CURSOR_BLINK_RATE	(20)
-
 static int vbl_cursor_cnt;
 static int fbcon_cursor_noblink;
 
@@ -209,19 +194,6 @@ static void fbcon_set_all_vcs(struct fb_info *info);
 static void fbcon_start(void);
 static void fbcon_exit(void);
 static struct device *fbcon_device;
-
-#ifdef CONFIG_MAC
-/*
- * On the Macintoy, there may or may not be a working VBL int. We need to probe
- */
-static int vbl_detected;
-
-static irqreturn_t fb_vbl_detect(int irq, void *dummy)
-{
-	vbl_detected++;
-	return IRQ_HANDLED;
-}
-#endif
 
 #ifdef CONFIG_FRAMEBUFFER_CONSOLE_ROTATION
 static inline void fbcon_set_rotation(struct fb_info *info)
@@ -421,20 +393,6 @@ static void fb_flashcursor(struct work_struct *work)
 	release_console_sem();
 }
 
-#if defined(CONFIG_ATARI) || defined(CONFIG_MAC)
-static int cursor_blink_rate;
-static irqreturn_t fb_vbl_handler(int irq, void *dev_id)
-{
-	struct fb_info *info = dev_id;
-
-	if (vbl_cursor_cnt && --vbl_cursor_cnt == 0) {
-		schedule_work(&info->queue);	
-		vbl_cursor_cnt = cursor_blink_rate; 
-	}
-	return IRQ_HANDLED;
-}
-#endif
-	
 static void cursor_timer_handler(unsigned long dev_addr)
 {
 	struct fb_info *info = (struct fb_info *) dev_addr;
@@ -949,9 +907,7 @@ static const char *fbcon_startup(void)
 	struct fb_info *info = NULL;
 	struct fbcon_ops *ops;
 	int rows, cols;
-	int irqres;
 
-	irqres = 1;
 	/*
 	 *  If num_registered_fb is zero, this is a call for the dummy part.
 	 *  The frame buffer devices weren't initialized yet.
@@ -1036,60 +992,6 @@ static const char *fbcon_startup(void)
 	DPRINTK("res:    %dx%d-%d\n", info->var.xres,
 		info->var.yres,
 		info->var.bits_per_pixel);
-
-#ifdef CONFIG_ATARI
-	if (MACH_IS_ATARI) {
-		cursor_blink_rate = ATARI_CURSOR_BLINK_RATE;
-		irqres =
-		    request_irq(IRQ_AUTO_4, fb_vbl_handler,
-				IRQ_TYPE_PRIO, "framebuffer vbl",
-				info);
-	}
-#endif				/* CONFIG_ATARI */
-
-#ifdef CONFIG_MAC
-	/*
-	 * On a Macintoy, the VBL interrupt may or may not be active. 
-	 * As interrupt based cursor is more reliable and race free, we 
-	 * probe for VBL interrupts.
-	 */
-	if (MACH_IS_MAC) {
-		int ct = 0;
-		/*
-		 * Probe for VBL: set temp. handler ...
-		 */
-		irqres = request_irq(IRQ_MAC_VBL, fb_vbl_detect, 0,
-				     "framebuffer vbl", info);
-		vbl_detected = 0;
-
-		/*
-		 * ... and spin for 20 ms ...
-		 */
-		while (!vbl_detected && ++ct < 1000)
-			udelay(20);
-
-		if (ct == 1000)
-			printk
-			    ("fbcon_startup: No VBL detected, using timer based cursor.\n");
-
-		free_irq(IRQ_MAC_VBL, fb_vbl_detect);
-
-		if (vbl_detected) {
-			/*
-			 * interrupt based cursor ok
-			 */
-			cursor_blink_rate = MAC_CURSOR_BLINK_RATE;
-			irqres =
-			    request_irq(IRQ_MAC_VBL, fb_vbl_handler, 0,
-					"framebuffer vbl", info);
-		} else {
-			/*
-			 * VBL not detected: fall through, use timer based cursor
-			 */
-			irqres = 1;
-		}
-	}
-#endif				/* CONFIG_MAC */
 
 	fbcon_add_cursor_timer(info);
 	fbcon_has_exited = 0;
@@ -2361,9 +2263,12 @@ static void fbcon_generic_blank(struct vc_data *vc, struct fb_info *info,
 	}
 
 
+	if (!lock_fb_info(info))
+		return;
 	event.info = info;
 	event.data = &blank;
 	fb_notifier_call_chain(FB_EVENT_CONBLANK, &event);
+	unlock_fb_info(info);
 }
 
 static int fbcon_blank(struct vc_data *vc, int blank, int mode_switch)
@@ -3052,8 +2957,9 @@ static int fbcon_fb_unbind(int idx)
 
 static int fbcon_fb_unregistered(struct fb_info *info)
 {
-	int i, idx = info->node;
+	int i, idx;
 
+	idx = info->node;
 	for (i = first_fb_vc; i <= last_fb_vc; i++) {
 		if (con2fb_map[i] == idx)
 			con2fb_map[i] = -1;
@@ -3077,12 +2983,11 @@ static int fbcon_fb_unregistered(struct fb_info *info)
 		}
 	}
 
-	if (!num_registered_fb)
-		unregister_con_driver(&fb_con);
-
-
 	if (primary_device == idx)
 		primary_device = -1;
+
+	if (!num_registered_fb)
+		unregister_con_driver(&fb_con);
 
 	return 0;
 }
@@ -3119,8 +3024,9 @@ static inline void fbcon_select_primary(struct fb_info *info)
 
 static int fbcon_fb_registered(struct fb_info *info)
 {
-	int ret = 0, i, idx = info->node;
+	int ret = 0, i, idx;
 
+	idx = info->node;
 	fbcon_select_primary(info);
 
 	if (info_idx == -1) {
@@ -3222,7 +3128,7 @@ static void fbcon_get_requirement(struct fb_info *info,
 	}
 }
 
-static int fbcon_event_notify(struct notifier_block *self, 
+static int fbcon_event_notify(struct notifier_block *self,
 			      unsigned long action, void *data)
 {
 	struct fb_event *event = data;
@@ -3230,7 +3136,7 @@ static int fbcon_event_notify(struct notifier_block *self,
 	struct fb_videomode *mode;
 	struct fb_con2fbmap *con2fb;
 	struct fb_blit_caps *caps;
-	int ret = 0;
+	int idx, ret = 0;
 
 	/*
 	 * ignore all events except driver registration and deregistration
@@ -3258,7 +3164,8 @@ static int fbcon_event_notify(struct notifier_block *self,
 		ret = fbcon_mode_deleted(info, mode);
 		break;
 	case FB_EVENT_FB_UNBIND:
-		ret = fbcon_fb_unbind(info->node);
+		idx = info->node;
+		ret = fbcon_fb_unbind(idx);
 		break;
 	case FB_EVENT_FB_REGISTERED:
 		ret = fbcon_fb_registered(info);
@@ -3286,7 +3193,6 @@ static int fbcon_event_notify(struct notifier_block *self,
 		fbcon_get_requirement(info, caps);
 		break;
 	}
-
 done:
 	return ret;
 }
@@ -3518,14 +3424,6 @@ static void fbcon_exit(void)
 
 	if (fbcon_has_exited)
 		return;
-
-#ifdef CONFIG_ATARI
-	free_irq(IRQ_AUTO_4, fb_vbl_handler);
-#endif
-#ifdef CONFIG_MAC
-	if (MACH_IS_MAC && vbl_detected)
-		free_irq(IRQ_MAC_VBL, fb_vbl_handler);
-#endif
 
 	kfree((void *)softback_buf);
 	softback_buf = 0UL;

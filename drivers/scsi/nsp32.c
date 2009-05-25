@@ -2672,7 +2672,7 @@ static int nsp32_detect(struct pci_dev *pdev)
 	/*
 	 * setup DMA 
 	 */
-	if (pci_set_dma_mask(pdev, DMA_32BIT_MASK) != 0) {
+	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32)) != 0) {
 		nsp32_msg (KERN_ERR, "failed to set PCI DMA mask");
 		goto scsi_unregister;
 	}
@@ -3401,8 +3401,7 @@ static int __devinit nsp32_probe(struct pci_dev *pdev, const struct pci_device_i
 	data->IrqNumber   = pdev->irq;
 	data->BaseAddress = pci_resource_start(pdev, 0);
 	data->NumAddress  = pci_resource_len  (pdev, 0);
-	data->MmioAddress = ioremap_nocache(pci_resource_start(pdev, 1),
-					       pci_resource_len  (pdev, 1));
+	data->MmioAddress = pci_ioremap_bar(pdev, 1);
 	data->MmioLength  = pci_resource_len  (pdev, 1);
 
 	pci_set_master(pdev);

@@ -1967,8 +1967,8 @@ megaraid_abort_and_reset(adapter_t *adapter, Scsi_Cmnd *cmd, int aor)
 			scb->state |= aor;
 
 			/*
-			 * Check if this command has firmare owenership. If
-			 * yes, we cannot reset this command. Whenever, f/w
+			 * Check if this command has firmware ownership. If
+			 * yes, we cannot reset this command. Whenever f/w
 			 * completes this command, we will return appropriate
 			 * status from ISR.
 			 */
@@ -2021,7 +2021,7 @@ make_local_pdev(adapter_t *adapter, struct pci_dev **pdev)
 
 	memcpy(*pdev, adapter->dev, sizeof(struct pci_dev));
 
-	if( pci_set_dma_mask(*pdev, DMA_32BIT_MASK) != 0 ) {
+	if( pci_set_dma_mask(*pdev, DMA_BIT_MASK(32)) != 0 ) {
 		kfree(*pdev);
 		return -1;
 	}
@@ -4793,10 +4793,10 @@ megaraid_probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	/* Set the Mode of addressing to 64 bit if we can */
 	if ((adapter->flag & BOARD_64BIT) && (sizeof(dma_addr_t) == 8)) {
-		pci_set_dma_mask(pdev, DMA_64BIT_MASK);
+		pci_set_dma_mask(pdev, DMA_BIT_MASK(64));
 		adapter->has_64bit_addr = 1;
 	} else  {
-		pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+		pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 		adapter->has_64bit_addr = 0;
 	}
 		

@@ -85,8 +85,8 @@ static unsigned long vdso_addr(unsigned long start, unsigned len)
 	unsigned long addr, end;
 	unsigned offset;
 	end = (start + PMD_SIZE - 1) & PMD_MASK;
-	if (end >= TASK_SIZE64)
-		end = TASK_SIZE64;
+	if (end >= TASK_SIZE_MAX)
+		end = TASK_SIZE_MAX;
 	end -= len;
 	/* This loses some more bits than a modulo, but is cheaper */
 	offset = get_random_int() & (PTRS_PER_PTE - 1);
@@ -98,7 +98,7 @@ static unsigned long vdso_addr(unsigned long start, unsigned len)
 
 /* Setup a VMA at program startup for the vsyscall page.
    Not called for compat tasks */
-int arch_setup_additional_pages(struct linux_binprm *bprm, int exstack)
+int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 {
 	struct mm_struct *mm = current->mm;
 	unsigned long addr;

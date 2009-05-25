@@ -716,13 +716,11 @@ static irqreturn_t bmac_rxdma_intr(int irq, void *dev_id)
 			skb_put(skb, nb);
 			skb->protocol = eth_type_trans(skb, dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			++dev->stats.rx_packets;
 			dev->stats.rx_bytes += nb;
 		} else {
 			++dev->stats.rx_dropped;
 		}
-		dev->last_rx = jiffies;
 		if ((skb = bp->rx_bufs[i]) == NULL) {
 			bp->rx_bufs[i] = skb = dev_alloc_skb(RX_BUFLEN+2);
 			if (skb != NULL)
@@ -1064,7 +1062,6 @@ static int miscintcount;
 static irqreturn_t bmac_misc_intr(int irq, void *dev_id)
 {
 	struct net_device *dev = (struct net_device *) dev_id;
-	struct bmac_data *bp = netdev_priv(dev);
 	unsigned int status = bmread(dev, STATUS);
 	if (miscintcount++ < 10) {
 		XXDEBUG(("bmac_misc_intr\n"));
@@ -1242,7 +1239,7 @@ static void bmac_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *inf
 {
 	struct bmac_data *bp = netdev_priv(dev);
 	strcpy(info->driver, "bmac");
-	strcpy(info->bus_info, bp->mdev->ofdev.dev.bus_id);
+	strcpy(info->bus_info, dev_name(&bp->mdev->ofdev.dev));
 }
 
 static const struct ethtool_ops bmac_ethtool_ops = {
@@ -1258,7 +1255,6 @@ static int __devinit bmac_probe(struct macio_dev *mdev, const struct of_device_i
 	unsigned char addr[6];
 	struct net_device *dev;
 	int is_bmac_plus = ((int)match->data) != 0;
-	DECLARE_MAC_BUF(mac);
 
 	if (macio_resource_count(mdev) != 3 || macio_irq_count(mdev) != 3) {
 		printk(KERN_ERR "BMAC: can't use, need 3 addrs and 3 intrs\n");
@@ -1368,8 +1364,8 @@ static int __devinit bmac_probe(struct macio_dev *mdev, const struct of_device_i
 		goto err_out_irq2;
 	}
 
-	printk(KERN_INFO "%s: BMAC%s at %s",
-	       dev->name, (is_bmac_plus ? "+" : ""), print_mac(mac, dev->dev_addr));
+	printk(KERN_INFO "%s: BMAC%s at %pM",
+	       dev->name, (is_bmac_plus ? "+" : ""), dev->dev_addr);
 	XXDEBUG((", base_addr=%#0lx", dev->base_addr));
 	printk("\n");
 

@@ -336,7 +336,7 @@ static int vnet_walk_rx_one(struct vnet_port *port,
 	if (IS_ERR(desc))
 		return PTR_ERR(desc);
 
-	viodbg(DATA, "vio_walk_rx_one desc[%02x:%02x:%08x:%08x:%lx:%lx]\n",
+	viodbg(DATA, "vio_walk_rx_one desc[%02x:%02x:%08x:%08x:%llx:%llx]\n",
 	       desc->hdr.state, desc->hdr.ack,
 	       desc->size, desc->ncookies,
 	       desc->cookies[0].cookie_addr,
@@ -394,14 +394,14 @@ static int vnet_rx(struct vnet_port *port, void *msgbuf)
 	struct vio_dring_state *dr = &port->vio.drings[VIO_DRIVER_RX_RING];
 	struct vio_driver_state *vio = &port->vio;
 
-	viodbg(DATA, "vnet_rx stype_env[%04x] seq[%016lx] rcv_nxt[%016lx]\n",
+	viodbg(DATA, "vnet_rx stype_env[%04x] seq[%016llx] rcv_nxt[%016llx]\n",
 	       pkt->tag.stype_env, pkt->seq, dr->rcv_nxt);
 
 	if (unlikely(pkt->tag.stype_env != VIO_DRING_DATA))
 		return 0;
 	if (unlikely(pkt->seq != dr->rcv_nxt)) {
-		printk(KERN_ERR PFX "RX out of sequence seq[0x%lx] "
-		       "rcv_nxt[0x%lx]\n", pkt->seq, dr->rcv_nxt);
+		printk(KERN_ERR PFX "RX out of sequence seq[0x%llx] "
+		       "rcv_nxt[0x%llx]\n", pkt->seq, dr->rcv_nxt);
 		return 0;
 	}
 
@@ -1012,6 +1012,16 @@ err_out:
 static LIST_HEAD(vnet_list);
 static DEFINE_MUTEX(vnet_list_mutex);
 
+static const struct net_device_ops vnet_ops = {
+	.ndo_open		= vnet_open,
+	.ndo_stop		= vnet_close,
+	.ndo_set_multicast_list	= vnet_set_rx_mode,
+	.ndo_set_mac_address	= vnet_set_mac_addr,
+	.ndo_tx_timeout		= vnet_tx_timeout,
+	.ndo_change_mtu		= vnet_change_mtu,
+	.ndo_start_xmit		= vnet_start_xmit,
+};
+
 static struct vnet * __devinit vnet_new(const u64 *local_mac)
 {
 	struct net_device *dev;
@@ -1040,15 +1050,9 @@ static struct vnet * __devinit vnet_new(const u64 *local_mac)
 	INIT_LIST_HEAD(&vp->list);
 	vp->local_mac = *local_mac;
 
-	dev->open = vnet_open;
-	dev->stop = vnet_close;
-	dev->set_multicast_list = vnet_set_rx_mode;
-	dev->set_mac_address = vnet_set_mac_addr;
-	dev->tx_timeout = vnet_tx_timeout;
+	dev->netdev_ops = &vnet_ops;
 	dev->ethtool_ops = &vnet_ethtool_ops;
 	dev->watchdog_timeo = VNET_TX_TIMEOUT;
-	dev->change_mtu = vnet_change_mtu;
-	dev->hard_start_xmit = vnet_start_xmit;
 
 	err = register_netdev(dev);
 	if (err) {
@@ -1149,7 +1153,6 @@ static int __devinit vnet_port_probe(struct vio_dev *vdev,
 	struct vnet *vp;
 	const u64 *rmac;
 	int len, i, err, switch_port;
-	DECLARE_MAC_BUF(mac);
 
 	print_version();
 
@@ -1214,8 +1217,8 @@ static int __devinit vnet_port_probe(struct vio_dev *vdev,
 
 	dev_set_drvdata(&vdev->dev, port);
 
-	printk(KERN_INFO "%s: PORT ( remote-mac %s%s )\n",
-	       vp->dev->name, print_mac(mac, port->raddr),
+	printk(KERN_INFO "%s: PORT ( remote-mac %pM%s )\n",
+	       vp->dev->name, port->raddr,
 	       switch_port ? " switch-port" : "");
 
 	vio_port_up(&port->vio);

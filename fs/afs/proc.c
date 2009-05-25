@@ -146,7 +146,6 @@ int afs_proc_init(void)
 	proc_afs = proc_mkdir("fs/afs", NULL);
 	if (!proc_afs)
 		goto error_dir;
-	proc_afs->owner = THIS_MODULE;
 
 	p = proc_create("cells", 0, proc_afs, &afs_proc_cells_fops);
 	if (!p)
@@ -646,7 +645,7 @@ static int afs_proc_cell_vlservers_show(struct seq_file *m, void *v)
 	}
 
 	/* display one cell per line on subsequent lines */
-	seq_printf(m, "%u.%u.%u.%u\n", NIPQUAD(addr->s_addr));
+	seq_printf(m, "%pI4\n", &addr->s_addr);
 	return 0;
 }
 
@@ -737,7 +736,7 @@ static int afs_proc_cell_servers_show(struct seq_file *m, void *v)
 	}
 
 	/* display one cell per line on subsequent lines */
-	sprintf(ipaddr, "%u.%u.%u.%u", NIPQUAD(server->addr));
+	sprintf(ipaddr, "%pI4", &server->addr);
 	seq_printf(m, "%3d %-15.15s %5d\n",
 		   atomic_read(&server->usage), ipaddr, server->fs_state);
 

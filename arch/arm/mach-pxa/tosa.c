@@ -25,6 +25,7 @@
 #include <linux/mfd/tmio.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/partitions.h>
+#include <linux/mtd/physmap.h>
 #include <linux/pm.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
@@ -35,8 +36,8 @@
 
 #include <asm/setup.h>
 #include <asm/mach-types.h>
-#include <mach/pxa2xx-regs.h>
-#include <mach/mfp-pxa25x.h>
+
+#include <mach/pxa25x.h>
 #include <mach/reset.h>
 #include <mach/irda.h>
 #include <mach/i2c.h>
@@ -44,6 +45,7 @@
 #include <mach/udc.h>
 #include <mach/tosa_bt.h>
 #include <mach/pxa2xx_spi.h>
+#include <mach/audio.h>
 
 #include <asm/mach/arch.h>
 #include <mach/tosa.h>
@@ -733,6 +735,45 @@ static void tosa_tc6393xb_teardown(struct platform_device *dev)
 	gpio_free(TOSA_GPIO_CARD_VCC_ON);
 }
 
+#ifdef CONFIG_MFD_TC6393XB
+static struct fb_videomode tosa_tc6393xb_lcd_mode[] = {
+	{
+		.xres = 480,
+		.yres = 640,
+		.pixclock = 0x002cdf00,/* PLL divisor */
+		.left_margin = 0x004c,
+		.right_margin = 0x005b,
+		.upper_margin = 0x0001,
+		.lower_margin = 0x000d,
+		.hsync_len = 0x0002,
+		.vsync_len = 0x0001,
+		.sync = FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
+		.vmode = FB_VMODE_NONINTERLACED,
+	},{
+		.xres = 240,
+		.yres = 320,
+		.pixclock = 0x00e7f203,/* PLL divisor */
+		.left_margin = 0x0024,
+		.right_margin = 0x002f,
+		.upper_margin = 0x0001,
+		.lower_margin = 0x000d,
+		.hsync_len = 0x0002,
+		.vsync_len = 0x0001,
+		.sync = FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
+		.vmode = FB_VMODE_NONINTERLACED,
+	}
+};
+
+static struct tmio_fb_data tosa_tc6393xb_fb_config = {
+	.lcd_set_power	= tc6393xb_lcd_set_power,
+	.lcd_mode	= tc6393xb_lcd_mode,
+	.num_modes	= ARRAY_SIZE(tosa_tc6393xb_lcd_mode),
+	.modes		= &tosa_tc6393xb_lcd_mode[0],
+	.height		= 82,
+	.width		= 60,
+};
+#endif
+
 static struct tc6393xb_platform_data tosa_tc6393xb_data = {
 	.scr_pll2cr	= 0x0cc1,
 	.scr_gper	= 0x3300,
@@ -748,6 +789,9 @@ static struct tc6393xb_platform_data tosa_tc6393xb_data = {
 	.resume		= tosa_tc6393xb_resume,
 
 	.nand_data	= &tosa_tc6393xb_nand_config,
+#ifdef CONFIG_MFD_TC6393XB
+	.fb_data	= &tosa_tc6393xb_fb_config,
+#endif
 
 	.resume_restore = 1,
 };
@@ -789,6 +833,36 @@ static struct spi_board_info spi_board_info[] __initdata = {
 	},
 };
 
+static struct mtd_partition sharpsl_rom_parts[] = {
+	{
+		.name	="Boot PROM Filesystem",
+		.offset	= 0x00160000,
+		.size	= MTDPART_SIZ_FULL,
+	},
+};
+
+static struct physmap_flash_data sharpsl_rom_data = {
+	.width		= 2,
+	.nr_parts	= ARRAY_SIZE(sharpsl_rom_parts),
+	.parts		= sharpsl_rom_parts,
+};
+
+static struct resource sharpsl_rom_resources[] = {
+	{
+		.start	= 0x00000000,
+		.end	= 0x007fffff,
+		.flags	= IORESOURCE_MEM,
+	},
+};
+
+static struct platform_device sharpsl_rom_device = {
+	.name	= "physmap-flash",
+	.id	= -1,
+	.resource = sharpsl_rom_resources,
+	.num_resources = ARRAY_SIZE(sharpsl_rom_resources),
+	.dev.platform_data = &sharpsl_rom_data,
+};
+
 static struct platform_device *devices[] __initdata = {
 	&tosascoop_device,
 	&tosascoop_jc_device,
@@ -798,14 +872,15 @@ static struct platform_device *devices[] __initdata = {
 	&tosa_gpio_keys_device,
 	&tosaled_device,
 	&tosa_bt_device,
+	&sharpsl_rom_device,
 };
 
 static void tosa_poweroff(void)
 {
-	arm_machine_restart('g');
+	arm_machine_restart('g', NULL);
 }
 
-static void tosa_restart(char mode)
+static void tosa_restart(char mode, const char *cmd)
 {
 	/* Bootloader magic for a reboot */
 	if((MSC0 & 0xffff0000) == 0x7ff00000)
@@ -840,12 +915,13 @@ static void __init tosa_init(void)
 	pxa_set_udc_info(&udc_info);
 	pxa_set_ficp_info(&tosa_ficp_platform_data);
 	pxa_set_i2c_info(NULL);
+	pxa_set_ac97_info(NULL);
 	platform_scoop_config = &tosa_pcmcia_config;
 
 	pxa2xx_set_spi_info(2, &pxa_ssp_master_info);
 	spi_register_board_info(spi_board_info, ARRAY_SIZE(spi_board_info));
 
-	clk_add_alias("CLK_CK3P6MI", &tc6393xb_device.dev, "GPIO11_CLK", NULL);
+	clk_add_alias("CLK_CK3P6MI", tc6393xb_device.name, "GPIO11_CLK", NULL);
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 }

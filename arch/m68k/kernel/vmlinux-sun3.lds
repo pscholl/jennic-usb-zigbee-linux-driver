@@ -12,7 +12,7 @@ SECTIONS
   . = 0xE002000;
   _text = .;			/* Text and read-only data */
   .text : {
-	*(.text.head)
+	HEAD_TEXT
 	TEXT_TEXT
 	SCHED_TEXT
 	LOCK_TEXT
@@ -33,6 +33,7 @@ SECTIONS
 	} :data
   /* End of data goes *here* so that freeing init code works properly. */
   _edata = .;
+  NOTES
 
   /* will be freed after init */
   . = ALIGN(PAGE_SIZE);	/* Init code and data */

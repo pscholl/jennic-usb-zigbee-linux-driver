@@ -730,7 +730,7 @@ extern int ps3av_cmd_av_get_hw_conf(struct ps3av_pkt_av_get_hw_conf *);
 extern int ps3av_cmd_video_get_monitor_info(struct ps3av_pkt_av_get_monitor_info *,
 					    u32);
 
-extern int ps3av_set_video_mode(u32);
+extern int ps3av_set_video_mode(int);
 extern int ps3av_set_audio_mode(u32, u32, u32, u32, u32);
 extern int ps3av_get_auto_mode(void);
 extern int ps3av_get_mode(void);
@@ -740,8 +740,4 @@ extern int ps3av_audio_mute(int);
 extern int ps3av_audio_mute_analog(int);
 extern int ps3av_dev_open(void);
 extern int ps3av_dev_close(void);
-extern void ps3av_register_flip_ctl(void (*flip_ctl)(int on, void *data),
-				    void *flip_data);
-extern void ps3av_flip_ctl(int on);
-
 #endif	/* _ASM_POWERPC_PS3AV_H_ */

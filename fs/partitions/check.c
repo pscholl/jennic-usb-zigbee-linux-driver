@@ -19,6 +19,7 @@
 #include <linux/kmod.h>
 #include <linux/ctype.h>
 #include <linux/genhd.h>
+#include <linux/blktrace_api.h>
 
 #include "check.h"
 
@@ -294,6 +295,9 @@ static struct attribute_group part_attr_group = {
 
 static struct attribute_group *part_attr_groups[] = {
 	&part_attr_group,
+#ifdef CONFIG_BLK_DEV_IO_TRACE
+	&blk_trace_attr_group,
+#endif
 	NULL
 };
 
@@ -334,6 +338,7 @@ void delete_partition(struct gendisk *disk, int partno)
 
 	blk_free_devt(part_devt(part));
 	rcu_assign_pointer(ptbl->part[partno], NULL);
+	rcu_assign_pointer(ptbl->last_lookup, NULL);
 	kobject_put(part->holder_dir);
 	device_del(part_to_dev(part));
 
@@ -384,9 +389,9 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 
 	dname = dev_name(ddev);
 	if (isdigit(dname[strlen(dname) - 1]))
-		snprintf(pdev->bus_id, BUS_ID_SIZE, "%sp%d", dname, partno);
+		dev_set_name(pdev, "%sp%d", dname, partno);
 	else
-		snprintf(pdev->bus_id, BUS_ID_SIZE, "%s%d", dname, partno);
+		dev_set_name(pdev, "%s%d", dname, partno);
 
 	device_initialize(pdev);
 	pdev->class = &block_class;
@@ -399,7 +404,7 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 	pdev->devt = devt;
 
 	/* delay uevent until 'holders' subdir is created */
-	pdev->uevent_suppress = 1;
+	dev_set_uevent_suppress(pdev, 1);
 	err = device_add(pdev);
 	if (err)
 		goto out_put;
@@ -409,7 +414,7 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 	if (!p->holder_dir)
 		goto out_del;
 
-	pdev->uevent_suppress = 0;
+	dev_set_uevent_suppress(pdev, 0);
 	if (flags & ADDPART_FLAG_WHOLEDISK) {
 		err = device_create_file(pdev, &dev_attr_whole_disk);
 		if (err)
@@ -421,7 +426,7 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 	rcu_assign_pointer(ptbl->part[partno], p);
 
 	/* suppress uevent if the disk supresses it */
-	if (!ddev->uevent_suppress)
+	if (!dev_get_uevent_suppress(pdev))
 		kobject_uevent(&pdev->kobj, KOBJ_ADD);
 
 	return p;
@@ -447,19 +452,14 @@ void register_disk(struct gendisk *disk)
 	struct block_device *bdev;
 	struct disk_part_iter piter;
 	struct hd_struct *part;
-	char *s;
 	int err;
 
 	ddev->parent = disk->driverfs_dev;
 
-	strlcpy(ddev->bus_id, disk->disk_name, BUS_ID_SIZE);
-	/* ewww... some of these buggers have / in the name... */
-	s = strchr(ddev->bus_id, '/');
-	if (s)
-		*s = '!';
+	dev_set_name(ddev, disk->disk_name);
 
 	/* delay uevents, until we scanned partition table */
-	ddev->uevent_suppress = 1;
+	dev_set_uevent_suppress(ddev, 1);
 
 	if (device_add(ddev))
 		return;
@@ -494,7 +494,7 @@ void register_disk(struct gendisk *disk)
 
 exit:
 	/* announce disk after possible partitions are created */
-	ddev->uevent_suppress = 0;
+	dev_set_uevent_suppress(ddev, 0);
 	kobject_uevent(&ddev->kobj, KOBJ_ADD);
 
 	/* announce possible partitions */

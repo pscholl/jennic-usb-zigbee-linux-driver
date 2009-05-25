@@ -17,7 +17,6 @@
 #include <linux/syscalls.h>
 #include <linux/string.h>
 #include <linux/mm.h>
-#include <linux/fdtable.h>
 #include <linux/fs.h>
 #include <linux/fsnotify.h>
 #include <linux/slab.h>
@@ -32,8 +31,8 @@
 #include <linux/seqlock.h>
 #include <linux/swap.h>
 #include <linux/bootmem.h>
+#include <linux/fs_struct.h>
 #include "internal.h"
-
 
 int sysctl_vfs_cache_pressure __read_mostly = 100;
 EXPORT_SYMBOL_GPL(sysctl_vfs_cache_pressure);
@@ -482,7 +481,7 @@ restart:
 			if ((flags & DCACHE_REFERENCED)
 				&& (dentry->d_flags & DCACHE_REFERENCED)) {
 				dentry->d_flags &= ~DCACHE_REFERENCED;
-				list_move_tail(&dentry->d_lru, &referenced);
+				list_move(&dentry->d_lru, &referenced);
 				spin_unlock(&dentry->d_lock);
 			} else {
 				list_move_tail(&dentry->d_lru, &tmp);
@@ -948,9 +947,6 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 	dentry->d_op = NULL;
 	dentry->d_fsdata = NULL;
 	dentry->d_mounted = 0;
-#ifdef CONFIG_PROFILING
-	dentry->d_cookie = NULL;
-#endif
 	INIT_HLIST_NODE(&dentry->d_hash);
 	INIT_LIST_HEAD(&dentry->d_lru);
 	INIT_LIST_HEAD(&dentry->d_subdirs);
@@ -1184,7 +1180,7 @@ struct dentry *d_obtain_alias(struct inode *inode)
 	iput(inode);
 	return res;
 }
-EXPORT_SYMBOL_GPL(d_obtain_alias);
+EXPORT_SYMBOL(d_obtain_alias);
 
 /**
  * d_splice_alias - splice a disconnected dentry into the tree if one exists
@@ -1251,15 +1247,18 @@ struct dentry *d_add_ci(struct dentry *dentry, struct inode *inode,
 	struct dentry *found;
 	struct dentry *new;
 
-	/* Does a dentry matching the name exist already? */
+	/*
+	 * First check if a dentry matching the name already exists,
+	 * if not go ahead and create it now.
+	 */
 	found = d_hash_and_lookup(dentry->d_parent, name);
-	/* If not, create it now and return */
 	if (!found) {
 		new = d_alloc(dentry->d_parent, name);
 		if (!new) {
 			error = -ENOMEM;
 			goto err_out;
 		}
+
 		found = d_splice_alias(inode, new);
 		if (found) {
 			dput(new);
@@ -1267,61 +1266,46 @@ struct dentry *d_add_ci(struct dentry *dentry, struct inode *inode,
 		}
 		return new;
 	}
-	/* Matching dentry exists, check if it is negative. */
+
+	/*
+	 * If a matching dentry exists, and it's not negative use it.
+	 *
+	 * Decrement the reference count to balance the iget() done
+	 * earlier on.
+	 */
 	if (found->d_inode) {
 		if (unlikely(found->d_inode != inode)) {
 			/* This can't happen because bad inodes are unhashed. */
 			BUG_ON(!is_bad_inode(inode));
 			BUG_ON(!is_bad_inode(found->d_inode));
 		}
-		/*
-		 * Already have the inode and the dentry attached, decrement
-		 * the reference count to balance the iget() done
-		 * earlier on.  We found the dentry using d_lookup() so it
-		 * cannot be disconnected and thus we do not need to worry
-		 * about any NFS/disconnectedness issues here.
-		 */
 		iput(inode);
 		return found;
 	}
+
 	/*
 	 * Negative dentry: instantiate it unless the inode is a directory and
-	 * has a 'disconnected' dentry (i.e. IS_ROOT and DCACHE_DISCONNECTED),
-	 * in which case d_move() that in place of the found dentry.
+	 * already has a dentry.
 	 */
-	if (!S_ISDIR(inode->i_mode)) {
-		/* Not a directory; everything is easy. */
-		d_instantiate(found, inode);
-		return found;
-	}
 	spin_lock(&dcache_lock);
-	if (list_empty(&inode->i_dentry)) {
-		/*
-		 * Directory without a 'disconnected' dentry; we need to do
-		 * d_instantiate() by hand because it takes dcache_lock which
-		 * we already hold.
-		 */
+	if (!S_ISDIR(inode->i_mode) || list_empty(&inode->i_dentry)) {
 		__d_instantiate(found, inode);
 		spin_unlock(&dcache_lock);
 		security_d_instantiate(found, inode);
 		return found;
 	}
+
 	/*
-	 * Directory with a 'disconnected' dentry; get a reference to the
-	 * 'disconnected' dentry.
+	 * In case a directory already has a (disconnected) entry grab a
+	 * reference to it, move it in place and use it.
 	 */
 	new = list_entry(inode->i_dentry.next, struct dentry, d_alias);
 	dget_locked(new);
 	spin_unlock(&dcache_lock);
-	/* Do security vodoo. */
 	security_d_instantiate(found, inode);
-	/* Move new in place of found. */
 	d_move(new, found);
-	/* Balance the iget() we did above. */
 	iput(inode);
-	/* Throw away found. */
 	dput(found);
-	/* Use new as the actual dentry. */
 	return new;
 
 err_out:
@@ -1336,7 +1320,7 @@ err_out:
  *
  * Searches the children of the parent dentry for the name in question. If
  * the dentry is found its reference count is incremented and the dentry
- * is returned. The caller must use d_put to free the entry when it has
+ * is returned. The caller must use dput to free the entry when it has
  * finished using it. %NULL is returned on failure.
  *
  * __d_lookup is dcache_lock free. The hash list is protected using RCU.
@@ -1571,10 +1555,6 @@ void d_rehash(struct dentry * entry)
 	spin_unlock(&dcache_lock);
 }
 
-#define do_switch(x,y) do { \
-	__typeof__ (x) __tmp = x; \
-	x = y; y = __tmp; } while (0)
-
 /*
  * When switching names, the actual string doesn't strictly have to
  * be preserved in the target - because we're dropping the target
@@ -1593,7 +1573,7 @@ static void switch_names(struct dentry *dentry, struct dentry *target)
 			/*
 			 * Both external: swap the pointers
 			 */
-			do_switch(target->d_name.name, dentry->d_name.name);
+			swap(target->d_name.name, dentry->d_name.name);
 		} else {
 			/*
 			 * dentry:internal, target:external.  Steal target's
@@ -1620,8 +1600,11 @@ static void switch_names(struct dentry *dentry, struct dentry *target)
 			 */
 			memcpy(dentry->d_iname, target->d_name.name,
 					target->d_name.len + 1);
+			dentry->d_name.len = target->d_name.len;
+			return;
 		}
 	}
+	swap(dentry->d_name.len, target->d_name.len);
 }
 
 /*
@@ -1681,8 +1664,7 @@ already_unhashed:
 
 	/* Switch the names.. */
 	switch_names(dentry, target);
-	do_switch(dentry->d_name.len, target->d_name.len);
-	do_switch(dentry->d_name.hash, target->d_name.hash);
+	swap(dentry->d_name.hash, target->d_name.hash);
 
 	/* ... and switch the parents */
 	if (IS_ROOT(dentry)) {
@@ -1690,7 +1672,7 @@ already_unhashed:
 		target->d_parent = target;
 		INIT_LIST_HEAD(&target->d_u.d_child);
 	} else {
-		do_switch(dentry->d_parent, target->d_parent);
+		swap(dentry->d_parent, target->d_parent);
 
 		/* And add them back to the (new) parent lists */
 		list_add(&target->d_u.d_child, &target->d_parent->d_subdirs);
@@ -1791,8 +1773,7 @@ static void __d_materialise_dentry(struct dentry *dentry, struct dentry *anon)
 	struct dentry *dparent, *aparent;
 
 	switch_names(dentry, anon);
-	do_switch(dentry->d_name.len, anon->d_name.len);
-	do_switch(dentry->d_name.hash, anon->d_name.hash);
+	swap(dentry->d_name.hash, anon->d_name.hash);
 
 	dparent = dentry->d_parent;
 	aparent = anon->d_parent;
@@ -1911,7 +1892,8 @@ static int prepend_name(char **buffer, int *buflen, struct qstr *name)
  * Convert a dentry into an ASCII path name. If the entry has been deleted
  * the string " (deleted)" is appended. Note that this is ambiguous.
  *
- * Returns the buffer or an error code if the path was too long.
+ * Returns a pointer into the buffer or an error code if the
+ * path was too long.
  *
  * "buflen" should be positive. Caller holds the dcache_lock.
  *
@@ -1987,7 +1969,10 @@ Elong:
  * Convert a dentry into an ASCII path name. If the entry has been deleted
  * the string " (deleted)" is appended. Note that this is ambiguous.
  *
- * Returns the buffer or an error code if the path was too long.
+ * Returns a pointer into the buffer or an error code if the path was
+ * too long. Note: Callers should use the returned pointer, not the passed
+ * in buffer, to use the name! The implementation often starts at an offset
+ * into the buffer, and may leave 0 bytes at the start.
  *
  * "buflen" should be positive.
  */
@@ -2095,7 +2080,7 @@ Elong:
  *		return NULL;
  *	}
  */
-asmlinkage long sys_getcwd(char __user *buf, unsigned long size)
+SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 {
 	int error;
 	struct path pwd, root;
@@ -2164,7 +2149,6 @@ int is_subdir(struct dentry *new_dentry, struct dentry *old_dentry)
 	int result;
 	unsigned long seq;
 
-	/* FIXME: This is old behavior, needed? Please check callers. */
 	if (new_dentry == old_dentry)
 		return 1;
 
@@ -2313,9 +2297,6 @@ static void __init dcache_init(void)
 /* SLAB cache for __getname() consumers */
 struct kmem_cache *names_cachep __read_mostly;
 
-/* SLAB cache for file structures */
-struct kmem_cache *filp_cachep __read_mostly;
-
 EXPORT_SYMBOL(d_genocide);
 
 void __init vfs_caches_init_early(void)
@@ -2335,9 +2316,6 @@ void __init vfs_caches_init(unsigned long mempages)
 	mempages -= reserve;
 
 	names_cachep = kmem_cache_create("names_cache", PATH_MAX, 0,
-			SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
-
-	filp_cachep = kmem_cache_create("filp", sizeof(struct file), 0,
 			SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 
 	dcache_init();

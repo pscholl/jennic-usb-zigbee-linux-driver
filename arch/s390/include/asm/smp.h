@@ -50,12 +50,7 @@ extern void machine_power_off_smp(void);
  
 #define PROC_CHANGE_PENALTY	20		/* Schedule penalty */
 
-#define raw_smp_processor_id()	(S390_lowcore.cpu_data.cpu_nr)
-
-static inline __u16 hard_smp_processor_id(void)
-{
-	return stap();
-}
+#define raw_smp_processor_id()	(S390_lowcore.cpu_nr)
 
 /*
  * returns 1 if cpu is in stopped/check stopped state or not operational
@@ -91,17 +86,12 @@ extern int __cpu_up (unsigned int cpu);
 extern struct mutex smp_cpu_state_mutex;
 extern int smp_cpu_polarization[];
 
-extern int smp_call_function_mask(cpumask_t mask, void (*func)(void *),
-	void *info, int wait);
+extern void arch_send_call_function_single_ipi(int cpu);
+extern void arch_send_call_function_ipi(cpumask_t mask);
+
 #endif
 
 #ifndef CONFIG_SMP
-static inline void smp_send_stop(void)
-{
-	/* Disable all interrupts/machine checks */
-	__load_psw_mask(psw_kernel_bits & ~PSW_MASK_MCHECK);
-}
-
 #define hard_smp_processor_id()		0
 #define smp_cpu_not_running(cpu)	1
 #endif

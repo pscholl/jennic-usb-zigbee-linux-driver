@@ -1,5 +1,6 @@
 /*
  * Copyright 2002-2004, Instant802 Networks, Inc.
+ * Copyright 2008, Jouni Malinen <j@w1.fi>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -19,6 +20,7 @@
 #include "michael.h"
 #include "tkip.h"
 #include "aes_ccm.h"
+#include "aes_cmac.h"
 #include "wpa.h"
 
 ieee80211_tx_result
@@ -49,8 +51,7 @@ ieee80211_tx_h_michael_mic_add(struct ieee80211_tx_data *tx)
 	    !(tx->flags & IEEE80211_TX_FRAGMENTED) &&
 	    !(tx->key->conf.flags & IEEE80211_KEY_FLAG_GENERATE_MMIC) &&
 	    !wpa_test) {
-		/* hwaccel - with no need for preallocated room for Michael MIC
-		 */
+		/* hwaccel - with no need for preallocated room for MMIC */
 		return TX_CONTINUE;
 	}
 
@@ -67,8 +68,6 @@ ieee80211_tx_h_michael_mic_add(struct ieee80211_tx_data *tx)
 #else
 	authenticator = 1;
 #endif
-	/* At this point we know we're using ALG_TKIP. To get the MIC key
-	 * we now will rely on the offset from the ieee80211_key_conf::key */
 	key_offset = authenticator ?
 		NL80211_TKIP_DATA_OFFSET_TX_MIC_KEY :
 		NL80211_TKIP_DATA_OFFSET_RX_MIC_KEY;
@@ -90,11 +89,8 @@ ieee80211_rx_h_michael_mic_verify(struct ieee80211_rx_data *rx)
 	u8 mic[MICHAEL_MIC_LEN];
 	struct sk_buff *skb = rx->skb;
 	int authenticator = 1, wpa_test = 0;
-	DECLARE_MAC_BUF(mac);
 
-	/*
-	 * No way to verify the MIC if the hardware stripped it
-	 */
+	/* No way to verify the MIC if the hardware stripped it */
 	if (rx->status->flag & RX_FLAG_MMIC_STRIPPED)
 		return RX_CONTINUE;
 
@@ -116,8 +112,6 @@ ieee80211_rx_h_michael_mic_verify(struct ieee80211_rx_data *rx)
 #else
 	authenticator = 1;
 #endif
-	/* At this point we know we're using ALG_TKIP. To get the MIC key
-	 * we now will rely on the offset from the ieee80211_key_conf::key */
 	key_offset = authenticator ?
 		NL80211_TKIP_DATA_OFFSET_RX_MIC_KEY :
 		NL80211_TKIP_DATA_OFFSET_TX_MIC_KEY;
@@ -205,16 +199,10 @@ ieee80211_crypto_tkip_encrypt(struct ieee80211_tx_data *tx)
 
 	ieee80211_tx_set_protected(tx);
 
-	if (tkip_encrypt_skb(tx, skb) < 0)
-		return TX_DROP;
-
-	if (tx->extra_frag) {
-		int i;
-		for (i = 0; i < tx->num_extra_frag; i++) {
-			if (tkip_encrypt_skb(tx, tx->extra_frag[i]) < 0)
-				return TX_DROP;
-		}
-	}
+	do {
+		if (tkip_encrypt_skb(tx, skb) < 0)
+			return TX_DROP;
+	} while ((skb = skb->next));
 
 	return TX_CONTINUE;
 }
@@ -227,7 +215,6 @@ ieee80211_crypto_tkip_decrypt(struct ieee80211_rx_data *rx)
 	int hdrlen, res, hwaccel = 0, wpa_test = 0;
 	struct ieee80211_key *key = rx->key;
 	struct sk_buff *skb = rx->skb;
-	DECLARE_MAC_BUF(mac);
 
 	hdrlen = ieee80211_hdrlen(hdr->frame_control);
 
@@ -275,7 +262,7 @@ static void ccmp_special_blocks(struct sk_buff *skb, u8 *pn, u8 *scratch,
 				int encrypted)
 {
 	__le16 mask_fc;
-	int a4_included;
+	int a4_included, mgmt;
 	u8 qos_tid;
 	u8 *b_0, *aad;
 	u16 data_len, len_a;
@@ -286,12 +273,15 @@ static void ccmp_special_blocks(struct sk_buff *skb, u8 *pn, u8 *scratch,
 	aad = scratch + 4 * AES_BLOCK_LEN;
 
 	/*
-	 * Mask FC: zero subtype b4 b5 b6
+	 * Mask FC: zero subtype b4 b5 b6 (if not mgmt)
 	 * Retry, PwrMgt, MoreData; set Protected
 	 */
+	mgmt = ieee80211_is_mgmt(hdr->frame_control);
 	mask_fc = hdr->frame_control;
-	mask_fc &= ~cpu_to_le16(0x0070 | IEEE80211_FCTL_RETRY |
+	mask_fc &= ~cpu_to_le16(IEEE80211_FCTL_RETRY |
 				IEEE80211_FCTL_PM | IEEE80211_FCTL_MOREDATA);
+	if (!mgmt)
+		mask_fc &= ~cpu_to_le16(0x0070);
 	mask_fc |= cpu_to_le16(IEEE80211_FCTL_PROTECTED);
 
 	hdrlen = ieee80211_hdrlen(hdr->frame_control);
@@ -309,8 +299,10 @@ static void ccmp_special_blocks(struct sk_buff *skb, u8 *pn, u8 *scratch,
 
 	/* First block, b_0 */
 	b_0[0] = 0x59; /* flags: Adata: 1, M: 011, L: 001 */
-	/* Nonce: QoS Priority | A2 | PN */
-	b_0[1] = qos_tid;
+	/* Nonce: Nonce Flags | A2 | PN
+	 * Nonce Flags: Priority (b0..b3) | Management (b4) | Reserved (b5..b7)
+	 */
+	b_0[1] = qos_tid | (mgmt << 4);
 	memcpy(&b_0[2], hdr->addr2, ETH_ALEN);
 	memcpy(&b_0[8], pn, CCMP_PN_LEN);
 	/* l(m) */
@@ -350,7 +342,7 @@ static inline void ccmp_pn2hdr(u8 *hdr, u8 *pn, int key_id)
 }
 
 
-static inline int ccmp_hdr2pn(u8 *pn, u8 *hdr)
+static inline void ccmp_hdr2pn(u8 *pn, u8 *hdr)
 {
 	pn[0] = hdr[7];
 	pn[1] = hdr[6];
@@ -358,7 +350,6 @@ static inline int ccmp_hdr2pn(u8 *pn, u8 *hdr)
 	pn[3] = hdr[4];
 	pn[4] = hdr[1];
 	pn[5] = hdr[0];
-	return (hdr[3] >> 6) & 0x03;
 }
 
 
@@ -370,10 +361,15 @@ static int ccmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 	int hdrlen, len, tail;
 	u8 *pos, *pn;
 	int i;
+	bool skip_hw;
+
+	skip_hw = (tx->key->conf.flags & IEEE80211_KEY_FLAG_SW_MGMT) &&
+		ieee80211_is_mgmt(hdr->frame_control);
 
 	if ((tx->key->flags & KEY_FLAG_UPLOADED_TO_HARDWARE) &&
-	    !(tx->key->conf.flags & IEEE80211_KEY_FLAG_GENERATE_IV)) {
-		/* hwaccel - with no need for preallocated room for CCMP "
+	    !(tx->key->conf.flags & IEEE80211_KEY_FLAG_GENERATE_IV) &&
+	    !skip_hw) {
+		/* hwaccel - with no need for preallocated room for CCMP
 		 * header or MIC fields */
 		info->control.hw_key = &tx->key->conf;
 		return 0;
@@ -407,7 +403,7 @@ static int ccmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 
 	ccmp_pn2hdr(pos, pn, key->conf.keyidx);
 
-	if (key->flags & KEY_FLAG_UPLOADED_TO_HARDWARE) {
+	if ((key->flags & KEY_FLAG_UPLOADED_TO_HARDWARE) && !skip_hw) {
 		/* hwaccel - with preallocated room for CCMP header */
 		info->control.hw_key = &tx->key->conf;
 		return 0;
@@ -429,16 +425,10 @@ ieee80211_crypto_ccmp_encrypt(struct ieee80211_tx_data *tx)
 
 	ieee80211_tx_set_protected(tx);
 
-	if (ccmp_encrypt_skb(tx, skb) < 0)
-		return TX_DROP;
-
-	if (tx->extra_frag) {
-		int i;
-		for (i = 0; i < tx->num_extra_frag; i++) {
-			if (ccmp_encrypt_skb(tx, tx->extra_frag[i]) < 0)
-				return TX_DROP;
-		}
-	}
+	do {
+		if (ccmp_encrypt_skb(tx, skb) < 0)
+			return TX_DROP;
+	} while ((skb = skb->next));
 
 	return TX_CONTINUE;
 }
@@ -453,11 +443,11 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 	struct sk_buff *skb = rx->skb;
 	u8 pn[CCMP_PN_LEN];
 	int data_len;
-	DECLARE_MAC_BUF(mac);
 
 	hdrlen = ieee80211_hdrlen(hdr->frame_control);
 
-	if (!ieee80211_is_data(hdr->frame_control))
+	if (!ieee80211_is_data(hdr->frame_control) &&
+	    !ieee80211_is_robust_mgmt_frame(hdr))
 		return RX_CONTINUE;
 
 	data_len = skb->len - hdrlen - CCMP_HDR_LEN - CCMP_MIC_LEN;
@@ -468,7 +458,7 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 	    (rx->status->flag & RX_FLAG_IV_STRIPPED))
 		return RX_CONTINUE;
 
-	(void) ccmp_hdr2pn(pn, skb->data + hdrlen);
+	ccmp_hdr2pn(pn, skb->data + hdrlen);
 
 	if (memcmp(pn, key->u.ccmp.rx_pn[rx->queue], CCMP_PN_LEN) <= 0) {
 		key->u.ccmp.replays++;
@@ -483,9 +473,8 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 			    key->u.ccmp.tfm, key->u.ccmp.rx_crypto_buf,
 			    skb->data + hdrlen + CCMP_HDR_LEN, data_len,
 			    skb->data + skb->len - CCMP_MIC_LEN,
-			    skb->data + hdrlen + CCMP_HDR_LEN)) {
+			    skb->data + hdrlen + CCMP_HDR_LEN))
 			return RX_DROP_UNUSABLE;
-		}
 	}
 
 	memcpy(key->u.ccmp.rx_pn[rx->queue], pn, CCMP_PN_LEN);
@@ -494,6 +483,129 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 	skb_trim(skb, skb->len - CCMP_MIC_LEN);
 	memmove(skb->data + CCMP_HDR_LEN, skb->data, hdrlen);
 	skb_pull(skb, CCMP_HDR_LEN);
+
+	return RX_CONTINUE;
+}
+
+
+static void bip_aad(struct sk_buff *skb, u8 *aad)
+{
+	/* BIP AAD: FC(masked) || A1 || A2 || A3 */
+
+	/* FC type/subtype */
+	aad[0] = skb->data[0];
+	/* Mask FC Retry, PwrMgt, MoreData flags to zero */
+	aad[1] = skb->data[1] & ~(BIT(4) | BIT(5) | BIT(6));
+	/* A1 || A2 || A3 */
+	memcpy(aad + 2, skb->data + 4, 3 * ETH_ALEN);
+}
+
+
+static inline void bip_ipn_swap(u8 *d, const u8 *s)
+{
+	*d++ = s[5];
+	*d++ = s[4];
+	*d++ = s[3];
+	*d++ = s[2];
+	*d++ = s[1];
+	*d = s[0];
+}
+
+
+ieee80211_tx_result
+ieee80211_crypto_aes_cmac_encrypt(struct ieee80211_tx_data *tx)
+{
+	struct sk_buff *skb = tx->skb;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+	struct ieee80211_key *key = tx->key;
+	struct ieee80211_mmie *mmie;
+	u8 *pn, aad[20];
+	int i;
+
+	if (tx->key->flags & KEY_FLAG_UPLOADED_TO_HARDWARE) {
+		/* hwaccel */
+		info->control.hw_key = &tx->key->conf;
+		return 0;
+	}
+
+	if (WARN_ON(skb_tailroom(skb) < sizeof(*mmie)))
+		return TX_DROP;
+
+	mmie = (struct ieee80211_mmie *) skb_put(skb, sizeof(*mmie));
+	mmie->element_id = WLAN_EID_MMIE;
+	mmie->length = sizeof(*mmie) - 2;
+	mmie->key_id = cpu_to_le16(key->conf.keyidx);
+
+	/* PN = PN + 1 */
+	pn = key->u.aes_cmac.tx_pn;
+
+	for (i = sizeof(key->u.aes_cmac.tx_pn) - 1; i >= 0; i--) {
+		pn[i]++;
+		if (pn[i])
+			break;
+	}
+	bip_ipn_swap(mmie->sequence_number, pn);
+
+	bip_aad(skb, aad);
+
+	/*
+	 * MIC = AES-128-CMAC(IGTK, AAD || Management Frame Body || MMIE, 64)
+	 */
+	ieee80211_aes_cmac(key->u.aes_cmac.tfm, key->u.aes_cmac.tx_crypto_buf,
+			   aad, skb->data + 24, skb->len - 24, mmie->mic);
+
+	return TX_CONTINUE;
+}
+
+
+ieee80211_rx_result
+ieee80211_crypto_aes_cmac_decrypt(struct ieee80211_rx_data *rx)
+{
+	struct sk_buff *skb = rx->skb;
+	struct ieee80211_key *key = rx->key;
+	struct ieee80211_mmie *mmie;
+	u8 aad[20], mic[8], ipn[6];
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
+
+	if (!ieee80211_is_mgmt(hdr->frame_control))
+		return RX_CONTINUE;
+
+	if ((rx->status->flag & RX_FLAG_DECRYPTED) &&
+	    (rx->status->flag & RX_FLAG_IV_STRIPPED))
+		return RX_CONTINUE;
+
+	if (skb->len < 24 + sizeof(*mmie))
+		return RX_DROP_UNUSABLE;
+
+	mmie = (struct ieee80211_mmie *)
+		(skb->data + skb->len - sizeof(*mmie));
+	if (mmie->element_id != WLAN_EID_MMIE ||
+	    mmie->length != sizeof(*mmie) - 2)
+		return RX_DROP_UNUSABLE; /* Invalid MMIE */
+
+	bip_ipn_swap(ipn, mmie->sequence_number);
+
+	if (memcmp(ipn, key->u.aes_cmac.rx_pn, 6) <= 0) {
+		key->u.aes_cmac.replays++;
+		return RX_DROP_UNUSABLE;
+	}
+
+	if (!(rx->status->flag & RX_FLAG_DECRYPTED)) {
+		/* hardware didn't decrypt/verify MIC */
+		bip_aad(skb, aad);
+		ieee80211_aes_cmac(key->u.aes_cmac.tfm,
+				   key->u.aes_cmac.rx_crypto_buf, aad,
+				   skb->data + 24, skb->len - 24, mic);
+		if (memcmp(mic, mmie->mic, sizeof(mmie->mic)) != 0) {
+			key->u.aes_cmac.icverrors++;
+			return RX_DROP_UNUSABLE;
+		}
+	}
+
+	memcpy(key->u.aes_cmac.rx_pn, ipn, 6);
+
+	/* Remove MMIE */
+	skb_trim(skb, skb->len - sizeof(*mmie));
 
 	return RX_CONTINUE;
 }

@@ -455,8 +455,8 @@ int rtnl_unicast(struct sk_buff *skb, struct net *net, u32 pid)
 	return nlmsg_unicast(rtnl, skb, pid);
 }
 
-int rtnl_notify(struct sk_buff *skb, struct net *net, u32 pid, u32 group,
-		struct nlmsghdr *nlh, gfp_t flags)
+void rtnl_notify(struct sk_buff *skb, struct net *net, u32 pid, u32 group,
+		 struct nlmsghdr *nlh, gfp_t flags)
 {
 	struct sock *rtnl = net->rtnl;
 	int report = 0;
@@ -464,7 +464,7 @@ int rtnl_notify(struct sk_buff *skb, struct net *net, u32 pid, u32 group,
 	if (nlh)
 		report = nlmsg_report(nlh);
 
-	return nlmsg_notify(rtnl, skb, pid, group, report, flags);
+	nlmsg_notify(rtnl, skb, pid, group, report, flags);
 }
 
 void rtnl_set_sk_err(struct net *net, u32 group, int error)
@@ -551,7 +551,7 @@ static void set_operstate(struct net_device *dev, unsigned char transition)
 }
 
 static void copy_rtnl_link_stats(struct rtnl_link_stats *a,
-				 struct net_device_stats *b)
+				 const struct net_device_stats *b)
 {
 	a->rx_packets = b->rx_packets;
 	a->tx_packets = b->tx_packets;
@@ -609,7 +609,7 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb, struct net_device *dev,
 	struct netdev_queue *txq;
 	struct ifinfomsg *ifm;
 	struct nlmsghdr *nlh;
-	struct net_device_stats *stats;
+	const struct net_device_stats *stats;
 	struct nlattr *attr;
 
 	nlh = nlmsg_put(skb, pid, seq, type, sizeof(*ifm), flags);
@@ -666,7 +666,7 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb, struct net_device *dev,
 	if (attr == NULL)
 		goto nla_put_failure;
 
-	stats = dev->get_stats(dev);
+	stats = dev_get_stats(dev);
 	copy_rtnl_link_stats(nla_data(attr), stats);
 
 	if (dev->rtnl_link_ops) {
@@ -762,6 +762,7 @@ static int validate_linkmsg(struct net_device *dev, struct nlattr *tb[])
 static int do_setlink(struct net_device *dev, struct ifinfomsg *ifm,
 		      struct nlattr **tb, char *ifname, int modified)
 {
+	const struct net_device_ops *ops = dev->netdev_ops;
 	int send_addr_notify = 0;
 	int err;
 
@@ -783,7 +784,7 @@ static int do_setlink(struct net_device *dev, struct ifinfomsg *ifm,
 		struct rtnl_link_ifmap *u_map;
 		struct ifmap k_map;
 
-		if (!dev->set_config) {
+		if (!ops->ndo_set_config) {
 			err = -EOPNOTSUPP;
 			goto errout;
 		}
@@ -801,7 +802,7 @@ static int do_setlink(struct net_device *dev, struct ifinfomsg *ifm,
 		k_map.dma = (unsigned char) u_map->dma;
 		k_map.port = (unsigned char) u_map->port;
 
-		err = dev->set_config(dev, &k_map);
+		err = ops->ndo_set_config(dev, &k_map);
 		if (err < 0)
 			goto errout;
 
@@ -812,7 +813,7 @@ static int do_setlink(struct net_device *dev, struct ifinfomsg *ifm,
 		struct sockaddr *sa;
 		int len;
 
-		if (!dev->set_mac_address) {
+		if (!ops->ndo_set_mac_address) {
 			err = -EOPNOTSUPP;
 			goto errout;
 		}
@@ -831,7 +832,7 @@ static int do_setlink(struct net_device *dev, struct ifinfomsg *ifm,
 		sa->sa_family = dev->type;
 		memcpy(sa->sa_data, nla_data(tb[IFLA_ADDRESS]),
 		       dev->addr_len);
-		err = dev->set_mac_address(dev, sa);
+		err = ops->ndo_set_mac_address(dev, sa);
 		kfree(sa);
 		if (err)
 			goto errout;
@@ -1245,7 +1246,8 @@ void rtmsg_ifinfo(int type, struct net_device *dev, unsigned change)
 		kfree_skb(skb);
 		goto errout;
 	}
-	err = rtnl_notify(skb, net, 0, RTNLGRP_LINK, NULL, GFP_KERNEL);
+	rtnl_notify(skb, net, 0, RTNLGRP_LINK, NULL, GFP_KERNEL);
+	return;
 errout:
 	if (err < 0)
 		rtnl_set_sk_err(net, RTNLGRP_LINK, err);

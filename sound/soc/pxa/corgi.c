@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/timer.h>
+#include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
@@ -25,8 +26,6 @@
 #include <sound/soc-dapm.h>
 
 #include <asm/mach-types.h>
-#include <mach/pxa-regs.h>
-#include <mach/hardware.h>
 #include <mach/corgi.h>
 #include <mach/audio.h>
 
@@ -100,7 +99,7 @@ static void corgi_ext_control(struct snd_soc_codec *codec)
 static int corgi_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_codec *codec = rtd->socdev->codec;
+	struct snd_soc_codec *codec = rtd->socdev->card->codec;
 
 	/* check the jack status at stream startup */
 	corgi_ext_control(codec);
@@ -108,15 +107,11 @@ static int corgi_startup(struct snd_pcm_substream *substream)
 }
 
 /* we need to unmute the HP at shutdown as the mute burns power on corgi */
-static int corgi_shutdown(struct snd_pcm_substream *substream)
+static void corgi_shutdown(struct snd_pcm_substream *substream)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_codec *codec = rtd->socdev->codec;
-
 	/* set = unmute headphone */
 	gpio_set_value(CORGI_GPIO_MUTE_L, 1);
 	gpio_set_value(CORGI_GPIO_MUTE_R, 1);
-	return 0;
 }
 
 static int corgi_hw_params(struct snd_pcm_substream *substream,
@@ -279,18 +274,16 @@ static const struct snd_kcontrol_new wm8731_corgi_controls[] = {
  */
 static int corgi_wm8731_init(struct snd_soc_codec *codec)
 {
-	int i, err;
+	int err;
 
 	snd_soc_dapm_nc_pin(codec, "LLINEIN");
 	snd_soc_dapm_nc_pin(codec, "RLINEIN");
 
 	/* Add corgi specific controls */
-	for (i = 0; i < ARRAY_SIZE(wm8731_corgi_controls); i++) {
-		err = snd_ctl_add(codec->card,
-			snd_soc_cnew(&wm8731_corgi_controls[i], codec, NULL));
-		if (err < 0)
-			return err;
-	}
+	err = snd_soc_add_controls(codec, wm8731_corgi_controls,
+				ARRAY_SIZE(wm8731_corgi_controls));
+	if (err < 0)
+		return err;
 
 	/* Add corgi specific widgets */
 	snd_soc_dapm_new_controls(codec, wm8731_dapm_widgets,
@@ -314,25 +307,50 @@ static struct snd_soc_dai_link corgi_dai = {
 };
 
 /* corgi audio machine driver */
-static struct snd_soc_machine snd_soc_machine_corgi = {
+static struct snd_soc_card snd_soc_corgi = {
 	.name = "Corgi",
+	.platform = &pxa2xx_soc_platform,
 	.dai_link = &corgi_dai,
 	.num_links = 1,
 };
 
-/* corgi audio private data */
-static struct wm8731_setup_data corgi_wm8731_setup = {
-	.i2c_bus = 0,
-	.i2c_address = 0x1b,
-};
-
 /* corgi audio subsystem */
 static struct snd_soc_device corgi_snd_devdata = {
-	.machine = &snd_soc_machine_corgi,
-	.platform = &pxa2xx_soc_platform,
+	.card = &snd_soc_corgi,
 	.codec_dev = &soc_codec_dev_wm8731,
-	.codec_data = &corgi_wm8731_setup,
 };
+
+/*
+ * FIXME: This is a temporary bodge to avoid cross-tree merge issues.
+ * New drivers should register the wm8731 I2C device in the machine
+ * setup code (under arch/arm for ARM systems).
+ */
+static int wm8731_i2c_register(void)
+{
+	struct i2c_board_info info;
+	struct i2c_adapter *adapter;
+	struct i2c_client *client;
+
+	memset(&info, 0, sizeof(struct i2c_board_info));
+	info.addr = 0x1b;
+	strlcpy(info.type, "wm8731", I2C_NAME_SIZE);
+
+	adapter = i2c_get_adapter(0);
+	if (!adapter) {
+		printk(KERN_ERR "can't get i2c adapter 0\n");
+		return -ENODEV;
+	}
+
+	client = i2c_new_device(adapter, &info);
+	i2c_put_adapter(adapter);
+	if (!client) {
+		printk(KERN_ERR "can't add i2c device at 0x%x\n",
+			(unsigned int)info.addr);
+		return -ENODEV;
+	}
+
+	return 0;
+}
 
 static struct platform_device *corgi_snd_device;
 
@@ -343,6 +361,10 @@ static int __init corgi_init(void)
 	if (!(machine_is_corgi() || machine_is_shepherd() ||
 	      machine_is_husky()))
 		return -ENODEV;
+
+	ret = wm8731_i2c_register();
+	if (ret != 0)
+		return ret;
 
 	corgi_snd_device = platform_device_alloc("soc-audio", -1);
 	if (!corgi_snd_device)

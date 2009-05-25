@@ -24,9 +24,10 @@
  */
 void dynamic_irq_init(unsigned int irq)
 {
-	struct irq_desc *desc = irq_to_desc(irq);
+	struct irq_desc *desc;
 	unsigned long flags;
 
+	desc = irq_to_desc(irq);
 	if (!desc) {
 		WARN(1, KERN_ERR "Trying to initialize invalid IRQ%d\n", irq);
 		return;
@@ -45,7 +46,10 @@ void dynamic_irq_init(unsigned int irq)
 	desc->irq_count = 0;
 	desc->irqs_unhandled = 0;
 #ifdef CONFIG_SMP
-	cpus_setall(desc->affinity);
+	cpumask_setall(desc->affinity);
+#ifdef CONFIG_GENERIC_PENDING_IRQ
+	cpumask_clear(desc->pending_mask);
+#endif
 #endif
 	spin_unlock_irqrestore(&desc->lock, flags);
 }
@@ -77,6 +81,7 @@ void dynamic_irq_cleanup(unsigned int irq)
 	desc->handle_irq = handle_bad_irq;
 	desc->chip = &no_irq_chip;
 	desc->name = NULL;
+	clear_kstat_irqs(desc);
 	spin_unlock_irqrestore(&desc->lock, flags);
 }
 
@@ -124,6 +129,7 @@ int set_irq_type(unsigned int irq, unsigned int type)
 		return -ENODEV;
 	}
 
+	type &= IRQ_TYPE_SENSE_MASK;
 	if (type == IRQ_TYPE_NONE)
 		return 0;
 
@@ -288,7 +294,8 @@ static inline void mask_ack_irq(struct irq_desc *desc, int irq)
 		desc->chip->mask_ack(irq);
 	else {
 		desc->chip->mask(irq);
-		desc->chip->ack(irq);
+		if (desc->chip->ack)
+			desc->chip->ack(irq);
 	}
 }
 
@@ -352,6 +359,7 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 
 	spin_lock(&desc->lock);
 	mask_ack_irq(desc, irq);
+	desc = irq_remap_to_desc(irq, desc);
 
 	if (unlikely(desc->status & IRQ_INPROGRESS))
 		goto out_unlock;
@@ -380,6 +388,7 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 out_unlock:
 	spin_unlock(&desc->lock);
 }
+EXPORT_SYMBOL_GPL(handle_level_irq);
 
 /**
  *	handle_fasteoi_irq - irq handler for transparent controllers
@@ -429,6 +438,7 @@ handle_fasteoi_irq(unsigned int irq, struct irq_desc *desc)
 	desc->status &= ~IRQ_INPROGRESS;
 out:
 	desc->chip->eoi(irq);
+	desc = irq_remap_to_desc(irq, desc);
 
 	spin_unlock(&desc->lock);
 }
@@ -465,12 +475,15 @@ handle_edge_irq(unsigned int irq, struct irq_desc *desc)
 		    !desc->action)) {
 		desc->status |= (IRQ_PENDING | IRQ_MASKED);
 		mask_ack_irq(desc, irq);
+		desc = irq_remap_to_desc(irq, desc);
 		goto out_unlock;
 	}
 	kstat_incr_irqs_this_cpu(irq, desc);
 
 	/* Start handling the irq */
-	desc->chip->ack(irq);
+	if (desc->chip->ack)
+		desc->chip->ack(irq);
+	desc = irq_remap_to_desc(irq, desc);
 
 	/* Mark the IRQ currently in progress.*/
 	desc->status |= IRQ_INPROGRESS;
@@ -531,8 +544,10 @@ handle_percpu_irq(unsigned int irq, struct irq_desc *desc)
 	if (!noirqdebug)
 		note_interrupt(irq, desc, action_ret);
 
-	if (desc->chip->eoi)
+	if (desc->chip->eoi) {
 		desc->chip->eoi(irq);
+		desc = irq_remap_to_desc(irq, desc);
+	}
 }
 
 void
@@ -567,8 +582,10 @@ __set_irq_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,
 
 	/* Uninstall? */
 	if (handle == handle_bad_irq) {
-		if (desc->chip != &no_irq_chip)
+		if (desc->chip != &no_irq_chip) {
 			mask_ack_irq(desc, irq);
+			desc = irq_remap_to_desc(irq, desc);
+		}
 		desc->status |= IRQ_DISABLED;
 		desc->depth = 1;
 	}
@@ -583,6 +600,7 @@ __set_irq_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,
 	}
 	spin_unlock_irqrestore(&desc->lock, flags);
 }
+EXPORT_SYMBOL_GPL(__set_irq_handler);
 
 void
 set_irq_chip_and_handler(unsigned int irq, struct irq_chip *chip,

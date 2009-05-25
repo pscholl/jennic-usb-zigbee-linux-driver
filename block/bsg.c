@@ -42,7 +42,7 @@ struct bsg_device {
 	int done_cmds;
 	wait_queue_head_t wq_done;
 	wait_queue_head_t wq_free;
-	char name[BUS_ID_SIZE];
+	char name[20];
 	int max_queue;
 	unsigned long flags;
 };
@@ -218,9 +218,6 @@ bsg_validate_sgv4_hdr(struct request_queue *q, struct sg_io_v4 *hdr, int *rw)
 
 	if (hdr->guard != 'Q')
 		return -EINVAL;
-	if (hdr->dout_xfer_len > (q->max_sectors << 9) ||
-	    hdr->din_xfer_len > (q->max_sectors << 9))
-		return -EIO;
 
 	switch (hdr->protocol) {
 	case BSG_PROTOCOL_SCSI:
@@ -244,7 +241,8 @@ bsg_validate_sgv4_hdr(struct request_queue *q, struct sg_io_v4 *hdr, int *rw)
  * map sg_io_v4 to a request.
  */
 static struct request *
-bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm)
+bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm,
+	    u8 *sense)
 {
 	struct request_queue *q = bd->queue;
 	struct request *rq, *next_rq = NULL;
@@ -306,6 +304,10 @@ bsg_map_hdr(struct bsg_device *bd, struct sg_io_v4 *hdr, fmode_t has_write_perm)
 		if (ret)
 			goto out;
 	}
+
+	rq->sense = sense;
+	rq->sense_len = 0;
+
 	return rq;
 out:
 	if (rq->cmd != rq->__cmd)
@@ -348,8 +350,7 @@ static void bsg_rq_end_io(struct request *rq, int uptodate)
 static void bsg_add_command(struct bsg_device *bd, struct request_queue *q,
 			    struct bsg_command *bc, struct request *rq)
 {
-	rq->sense = bc->sense;
-	rq->sense_len = 0;
+	int at_head = (0 == (bc->hdr.flags & BSG_FLAG_Q_AT_TAIL));
 
 	/*
 	 * add bc command to busy queue and submit rq for io
@@ -366,7 +367,7 @@ static void bsg_add_command(struct bsg_device *bd, struct request_queue *q,
 	dprintk("%s: queueing rq %p, bc %p\n", bd->name, rq, bc);
 
 	rq->end_io_data = bc;
-	blk_execute_rq_nowait(q, NULL, rq, 1, bsg_rq_end_io);
+	blk_execute_rq_nowait(q, NULL, rq, at_head, bsg_rq_end_io);
 }
 
 static struct bsg_command *bsg_next_done_cmd(struct bsg_device *bd)
@@ -419,7 +420,7 @@ static int blk_complete_sgv4_hdr_rq(struct request *rq, struct sg_io_v4 *hdr,
 {
 	int ret = 0;
 
-	dprintk("rq %p bio %p %u\n", rq, bio, rq->errors);
+	dprintk("rq %p bio %p 0x%x\n", rq, bio, rq->errors);
 	/*
 	 * fill in all the output members
 	 */
@@ -635,7 +636,7 @@ static int __bsg_write(struct bsg_device *bd, const char __user *buf,
 		/*
 		 * get a request, fill in the blanks, and add to request queue
 		 */
-		rq = bsg_map_hdr(bd, &bc->hdr, has_write_perm);
+		rq = bsg_map_hdr(bd, &bc->hdr, has_write_perm, bc->sense);
 		if (IS_ERR(rq)) {
 			ret = PTR_ERR(rq);
 			rq = NULL;
@@ -781,7 +782,7 @@ static struct bsg_device *bsg_add_device(struct inode *inode,
 	mutex_lock(&bsg_mutex);
 	hlist_add_head(&bd->dev_list, bsg_dev_idx_hash(iminor(inode)));
 
-	strncpy(bd->name, rq->bsg_dev.class_dev->bus_id, sizeof(bd->name) - 1);
+	strncpy(bd->name, dev_name(rq->bsg_dev.class_dev), sizeof(bd->name) - 1);
 	dprintk("bound to <%s>, max queue %d\n",
 		format_dev_t(buf, inode->i_rdev), bd->max_queue);
 
@@ -922,18 +923,22 @@ static long bsg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		struct request *rq;
 		struct bio *bio, *bidi_bio = NULL;
 		struct sg_io_v4 hdr;
+		int at_head;
+		u8 sense[SCSI_SENSE_BUFFERSIZE];
 
 		if (copy_from_user(&hdr, uarg, sizeof(hdr)))
 			return -EFAULT;
 
-		rq = bsg_map_hdr(bd, &hdr, file->f_mode & FMODE_WRITE);
+		rq = bsg_map_hdr(bd, &hdr, file->f_mode & FMODE_WRITE, sense);
 		if (IS_ERR(rq))
 			return PTR_ERR(rq);
 
 		bio = rq->bio;
 		if (rq->next_rq)
 			bidi_bio = rq->next_rq->bio;
-		blk_execute_rq(bd->queue, NULL, rq, 0);
+
+		at_head = (0 == (hdr.flags & BSG_FLAG_Q_AT_TAIL));
+		blk_execute_rq(bd->queue, NULL, rq, at_head);
 		ret = blk_complete_sgv4_hdr_rq(rq, &hdr, bio, bidi_bio);
 
 		if (copy_to_user(uarg, &hdr, sizeof(hdr)))
@@ -992,7 +997,7 @@ int bsg_register_queue(struct request_queue *q, struct device *parent,
 	if (name)
 		devname = name;
 	else
-		devname = parent->bus_id;
+		devname = dev_name(parent);
 
 	/*
 	 * we need a proper transport to send commands, not a stacked device

@@ -407,7 +407,6 @@ static int context_struct_compute_av(struct context *scontext,
 	 * Initialize the access vectors to the default values.
 	 */
 	avd->allowed = 0;
-	avd->decided = 0xffffffff;
 	avd->auditallow = 0;
 	avd->auditdeny = 0xffffffff;
 	avd->seqno = latest_granting;
@@ -743,7 +742,6 @@ int security_compute_av(u32 ssid,
 
 	if (!ss_initialized) {
 		avd->allowed = 0xffffffff;
-		avd->decided = 0xffffffff;
 		avd->auditallow = 0;
 		avd->auditdeny = 0xffffffff;
 		avd->seqno = latest_granting;
@@ -2602,7 +2600,7 @@ int selinux_audit_rule_init(u32 field, u32 op, char *rulestr, void **vrule)
 	case AUDIT_OBJ_ROLE:
 	case AUDIT_OBJ_TYPE:
 		/* only 'equals' and 'not equals' fit user, role, and type */
-		if (op != AUDIT_EQUAL && op != AUDIT_NOT_EQUAL)
+		if (op != Audit_equal && op != Audit_not_equal)
 			return -EINVAL;
 		break;
 	case AUDIT_SUBJ_SEN:
@@ -2736,10 +2734,10 @@ int selinux_audit_rule_match(u32 sid, u32 field, u32 op, void *vrule,
 	case AUDIT_SUBJ_USER:
 	case AUDIT_OBJ_USER:
 		switch (op) {
-		case AUDIT_EQUAL:
+		case Audit_equal:
 			match = (ctxt->user == rule->au_ctxt.user);
 			break;
-		case AUDIT_NOT_EQUAL:
+		case Audit_not_equal:
 			match = (ctxt->user != rule->au_ctxt.user);
 			break;
 		}
@@ -2747,10 +2745,10 @@ int selinux_audit_rule_match(u32 sid, u32 field, u32 op, void *vrule,
 	case AUDIT_SUBJ_ROLE:
 	case AUDIT_OBJ_ROLE:
 		switch (op) {
-		case AUDIT_EQUAL:
+		case Audit_equal:
 			match = (ctxt->role == rule->au_ctxt.role);
 			break;
-		case AUDIT_NOT_EQUAL:
+		case Audit_not_equal:
 			match = (ctxt->role != rule->au_ctxt.role);
 			break;
 		}
@@ -2758,10 +2756,10 @@ int selinux_audit_rule_match(u32 sid, u32 field, u32 op, void *vrule,
 	case AUDIT_SUBJ_TYPE:
 	case AUDIT_OBJ_TYPE:
 		switch (op) {
-		case AUDIT_EQUAL:
+		case Audit_equal:
 			match = (ctxt->type == rule->au_ctxt.type);
 			break;
-		case AUDIT_NOT_EQUAL:
+		case Audit_not_equal:
 			match = (ctxt->type != rule->au_ctxt.type);
 			break;
 		}
@@ -2774,31 +2772,31 @@ int selinux_audit_rule_match(u32 sid, u32 field, u32 op, void *vrule,
 			  field == AUDIT_OBJ_LEV_LOW) ?
 			 &ctxt->range.level[0] : &ctxt->range.level[1]);
 		switch (op) {
-		case AUDIT_EQUAL:
+		case Audit_equal:
 			match = mls_level_eq(&rule->au_ctxt.range.level[0],
 					     level);
 			break;
-		case AUDIT_NOT_EQUAL:
+		case Audit_not_equal:
 			match = !mls_level_eq(&rule->au_ctxt.range.level[0],
 					      level);
 			break;
-		case AUDIT_LESS_THAN:
+		case Audit_lt:
 			match = (mls_level_dom(&rule->au_ctxt.range.level[0],
 					       level) &&
 				 !mls_level_eq(&rule->au_ctxt.range.level[0],
 					       level));
 			break;
-		case AUDIT_LESS_THAN_OR_EQUAL:
+		case Audit_le:
 			match = mls_level_dom(&rule->au_ctxt.range.level[0],
 					      level);
 			break;
-		case AUDIT_GREATER_THAN:
+		case Audit_gt:
 			match = (mls_level_dom(level,
 					      &rule->au_ctxt.range.level[0]) &&
 				 !mls_level_eq(level,
 					       &rule->au_ctxt.range.level[0]));
 			break;
-		case AUDIT_GREATER_THAN_OR_EQUAL:
+		case Audit_ge:
 			match = mls_level_dom(level,
 					      &rule->au_ctxt.range.level[0]);
 			break;

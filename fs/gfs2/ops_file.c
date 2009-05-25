@@ -20,9 +20,10 @@
 #include <linux/gfs2_ondisk.h>
 #include <linux/ext2_fs.h>
 #include <linux/crc32.h>
-#include <linux/lm_interface.h>
 #include <linux/writeback.h>
 #include <asm/uaccess.h>
+#include <linux/dlm.h>
+#include <linux/dlm_plock.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -39,7 +40,6 @@
 #include "util.h"
 #include "eaops.h"
 #include "ops_address.h"
-#include "ops_inode.h"
 
 /**
  * gfs2_llseek - seek to a location in a file
@@ -158,8 +158,8 @@ static int gfs2_get_flags(struct file *filp, u32 __user *ptr)
 	if (error)
 		return error;
 
-	fsflags = fsflags_cvt(gfs2_to_fsflags, ip->i_di.di_flags);
-	if (!S_ISDIR(inode->i_mode) && ip->i_di.di_flags & GFS2_DIF_JDATA)
+	fsflags = fsflags_cvt(gfs2_to_fsflags, ip->i_diskflags);
+	if (!S_ISDIR(inode->i_mode) && ip->i_diskflags & GFS2_DIF_JDATA)
 		fsflags |= FS_JOURNAL_DATA_FL;
 	if (put_user(fsflags, ptr))
 		error = -EFAULT;
@@ -172,17 +172,16 @@ static int gfs2_get_flags(struct file *filp, u32 __user *ptr)
 void gfs2_set_inode_flags(struct inode *inode)
 {
 	struct gfs2_inode *ip = GFS2_I(inode);
-	struct gfs2_dinode_host *di = &ip->i_di;
 	unsigned int flags = inode->i_flags;
 
 	flags &= ~(S_SYNC|S_APPEND|S_IMMUTABLE|S_NOATIME|S_DIRSYNC);
-	if (di->di_flags & GFS2_DIF_IMMUTABLE)
+	if (ip->i_diskflags & GFS2_DIF_IMMUTABLE)
 		flags |= S_IMMUTABLE;
-	if (di->di_flags & GFS2_DIF_APPENDONLY)
+	if (ip->i_diskflags & GFS2_DIF_APPENDONLY)
 		flags |= S_APPEND;
-	if (di->di_flags & GFS2_DIF_NOATIME)
+	if (ip->i_diskflags & GFS2_DIF_NOATIME)
 		flags |= S_NOATIME;
-	if (di->di_flags & GFS2_DIF_SYNC)
+	if (ip->i_diskflags & GFS2_DIF_SYNC)
 		flags |= S_SYNC;
 	inode->i_flags = flags;
 }
@@ -221,7 +220,7 @@ static int do_gfs2_set_flags(struct file *filp, u32 reqflags, u32 mask)
 	if (error)
 		goto out_drop_write;
 
-	flags = ip->i_di.di_flags;
+	flags = ip->i_diskflags;
 	new_flags = (flags & ~mask) | (reqflags & mask);
 	if ((new_flags ^ flags) == 0)
 		goto out;
@@ -260,7 +259,7 @@ static int do_gfs2_set_flags(struct file *filp, u32 reqflags, u32 mask)
 	if (error)
 		goto out_trans_end;
 	gfs2_trans_add_bh(ip->i_gl, bh, 1);
-	ip->i_di.di_flags = new_flags;
+	ip->i_diskflags = new_flags;
 	gfs2_dinode_out(ip, bh->b_data);
 	brelse(bh);
 	gfs2_set_inode_flags(inode);
@@ -338,13 +337,14 @@ static int gfs2_allocate_page_backing(struct page *page)
  * blocks allocated on disk to back that page.
  */
 
-static int gfs2_page_mkwrite(struct vm_area_struct *vma, struct page *page)
+static int gfs2_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
+	struct page *page = vmf->page;
 	struct inode *inode = vma->vm_file->f_path.dentry->d_inode;
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
 	unsigned long last_index;
-	u64 pos = page->index << (PAGE_CACHE_SIZE - inode->i_blkbits);
+	u64 pos = page->index << PAGE_CACHE_SHIFT;
 	unsigned int data_blocks, ind_blocks, rblocks;
 	int alloc_required = 0;
 	struct gfs2_holder gh;
@@ -356,8 +356,9 @@ static int gfs2_page_mkwrite(struct vm_area_struct *vma, struct page *page)
 	if (ret)
 		goto out;
 
+	set_bit(GLF_DIRTY, &ip->i_gl->gl_flags);
 	set_bit(GIF_SW_PAGED, &ip->i_flags);
-	gfs2_write_calc_reserv(ip, PAGE_CACHE_SIZE, &data_blocks, &ind_blocks);
+
 	ret = gfs2_write_alloc_required(ip, pos, PAGE_CACHE_SIZE, &alloc_required);
 	if (ret || !alloc_required)
 		goto out_unlock;
@@ -369,6 +370,7 @@ static int gfs2_page_mkwrite(struct vm_area_struct *vma, struct page *page)
 	ret = gfs2_quota_lock_check(ip);
 	if (ret)
 		goto out_alloc_put;
+	gfs2_write_calc_reserv(ip, PAGE_CACHE_SIZE, &data_blocks, &ind_blocks);
 	al->al_requested = data_blocks + ind_blocks;
 	ret = gfs2_inplace_reserve(ip);
 	if (ret)
@@ -411,6 +413,10 @@ out_unlock:
 	gfs2_glock_dq(&gh);
 out:
 	gfs2_holder_uninit(&gh);
+	if (ret == -ENOMEM)
+		ret = VM_FAULT_OOM;
+	else if (ret)
+		ret = VM_FAULT_SIGBUS;
 	return ret;
 }
 
@@ -479,7 +485,7 @@ static int gfs2_open(struct inode *inode, struct file *file)
 			goto fail;
 
 		if (!(file->f_flags & O_LARGEFILE) &&
-		    ip->i_di.di_size > MAX_NON_LFS) {
+		    ip->i_disksize > MAX_NON_LFS) {
 			error = -EOVERFLOW;
 			goto fail_gunlock;
 		}
@@ -562,57 +568,24 @@ static int gfs2_fsync(struct file *file, struct dentry *dentry, int datasync)
 	return ret;
 }
 
+#ifdef CONFIG_GFS2_FS_LOCKING_DLM
+
 /**
  * gfs2_setlease - acquire/release a file lease
  * @file: the file pointer
  * @arg: lease type
  * @fl: file lock
  *
+ * We don't currently have a way to enforce a lease across the whole
+ * cluster; until we do, disable leases (by just returning -EINVAL),
+ * unless the administrator has requested purely local locking.
+ *
  * Returns: errno
  */
 
 static int gfs2_setlease(struct file *file, long arg, struct file_lock **fl)
 {
-	struct gfs2_sbd *sdp = GFS2_SB(file->f_mapping->host);
-
-	/*
-	 * We don't currently have a way to enforce a lease across the whole
-	 * cluster; until we do, disable leases (by just returning -EINVAL),
-	 * unless the administrator has requested purely local locking.
-	 */
-	if (!sdp->sd_args.ar_localflocks)
-		return -EINVAL;
-	return generic_setlease(file, arg, fl);
-}
-
-static int gfs2_lm_plock_get(struct gfs2_sbd *sdp, struct lm_lockname *name,
-		      struct file *file, struct file_lock *fl)
-{
-	int error = -EIO;
-	if (likely(!test_bit(SDF_SHUTDOWN, &sdp->sd_flags)))
-		error = sdp->sd_lockstruct.ls_ops->lm_plock_get(
-				sdp->sd_lockstruct.ls_lockspace, name, file, fl);
-	return error;
-}
-
-static int gfs2_lm_plock(struct gfs2_sbd *sdp, struct lm_lockname *name,
-		  struct file *file, int cmd, struct file_lock *fl)
-{
-	int error = -EIO;
-	if (likely(!test_bit(SDF_SHUTDOWN, &sdp->sd_flags)))
-		error = sdp->sd_lockstruct.ls_ops->lm_plock(
-				sdp->sd_lockstruct.ls_lockspace, name, file, cmd, fl);
-	return error;
-}
-
-static int gfs2_lm_punlock(struct gfs2_sbd *sdp, struct lm_lockname *name,
-		    struct file *file, struct file_lock *fl)
-{
-	int error = -EIO;
-	if (likely(!test_bit(SDF_SHUTDOWN, &sdp->sd_flags)))
-		error = sdp->sd_lockstruct.ls_ops->lm_punlock(
-				sdp->sd_lockstruct.ls_lockspace, name, file, fl);
-	return error;
+	return -EINVAL;
 }
 
 /**
@@ -628,9 +601,7 @@ static int gfs2_lock(struct file *file, int cmd, struct file_lock *fl)
 {
 	struct gfs2_inode *ip = GFS2_I(file->f_mapping->host);
 	struct gfs2_sbd *sdp = GFS2_SB(file->f_mapping->host);
-	struct lm_lockname name =
-		{ .ln_number = ip->i_no_addr,
-		  .ln_type = LM_TYPE_PLOCK };
+	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
 
 	if (!(fl->fl_flags & FL_POSIX))
 		return -ENOLCK;
@@ -642,12 +613,14 @@ static int gfs2_lock(struct file *file, int cmd, struct file_lock *fl)
 		cmd = F_SETLK;
 		fl->fl_type = F_UNLCK;
 	}
+	if (unlikely(test_bit(SDF_SHUTDOWN, &sdp->sd_flags)))
+		return -EIO;
 	if (IS_GETLK(cmd))
-		return gfs2_lm_plock_get(sdp, &name, file, fl);
+		return dlm_posix_get(ls->ls_dlm, ip->i_no_addr, file, fl);
 	else if (fl->fl_type == F_UNLCK)
-		return gfs2_lm_punlock(sdp, &name, file, fl);
+		return dlm_posix_unlock(ls->ls_dlm, ip->i_no_addr, file, fl);
 	else
-		return gfs2_lm_plock(sdp, &name, file, cmd, fl);
+		return dlm_posix_lock(ls->ls_dlm, ip->i_no_addr, file, cmd, fl);
 }
 
 static int do_flock(struct file *file, int cmd, struct file_lock *fl)
@@ -762,6 +735,8 @@ const struct file_operations gfs2_dir_fops = {
 	.flock		= gfs2_flock,
 };
 
+#endif /* CONFIG_GFS2_FS_LOCKING_DLM */
+
 const struct file_operations gfs2_file_fops_nolock = {
 	.llseek		= gfs2_llseek,
 	.read		= do_sync_read,
@@ -775,7 +750,7 @@ const struct file_operations gfs2_file_fops_nolock = {
 	.fsync		= gfs2_fsync,
 	.splice_read	= generic_file_splice_read,
 	.splice_write	= generic_file_splice_write,
-	.setlease	= gfs2_setlease,
+	.setlease	= generic_setlease,
 };
 
 const struct file_operations gfs2_dir_fops_nolock = {

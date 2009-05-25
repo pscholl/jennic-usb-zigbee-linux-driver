@@ -31,8 +31,9 @@
 #define ASYNC_SIZE  (PAGE_SIZE << ASYNC_ORDER)
 
 #ifndef __ASSEMBLY__
-#include <asm/processor.h>
 #include <asm/lowcore.h>
+#include <asm/page.h>
+#include <asm/processor.h>
 
 /*
  * low level task data that entry.S needs immediate access to
@@ -47,6 +48,8 @@ struct thread_info {
 	unsigned int		cpu;		/* current CPU */
 	int			preempt_count;	/* 0 => preemptable, <0 => BUG */
 	struct restart_block	restart_block;
+	__u64			user_timer;
+	__u64			system_timer;
 };
 
 /*

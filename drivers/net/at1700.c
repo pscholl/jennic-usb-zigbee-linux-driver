@@ -249,6 +249,17 @@ out:
 	return ERR_PTR(err);
 }
 
+static const struct net_device_ops at1700_netdev_ops = {
+	.ndo_open		= net_open,
+	.ndo_stop		= net_close,
+	.ndo_start_xmit 	= net_send_packet,
+	.ndo_set_multicast_list = set_rx_mode,
+	.ndo_tx_timeout 	= net_tx_timeout,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /* The Fujitsu datasheet suggests that the NIC be probed for by checking its
    "signature", the default bit pattern after a reset.  This *doesn't* work --
    there is no way to reset the bus interface without a complete power-cycle!
@@ -265,7 +276,6 @@ static int __init at1700_probe1(struct net_device *dev, int ioaddr)
 	unsigned int i, irq, is_fmv18x = 0, is_at1700 = 0;
 	int slot, ret = -ENODEV;
 	struct net_local *lp = netdev_priv(dev);
-	DECLARE_MAC_BUF(mac);
 
 	if (!request_region(ioaddr, AT1700_IO_EXTENT, DRV_NAME))
 		return -EBUSY;
@@ -397,7 +407,7 @@ found:
 			dev->dev_addr[i] = val;
 		}
 	}
-	printk("%s", print_mac(mac, dev->dev_addr));
+	printk("%pM", dev->dev_addr);
 
 	/* The EEPROM word 12 bit 0x0400 means use regular 100 ohm 10baseT signals,
 	   rather than 150 ohm shielded twisted pair compensation.
@@ -449,13 +459,7 @@ found:
 	if (net_debug)
 		printk(version);
 
-	memset(lp, 0, sizeof(struct net_local));
-
-	dev->open		= net_open;
-	dev->stop		= net_close;
-	dev->hard_start_xmit = net_send_packet;
-	dev->set_multicast_list = &set_rx_mode;
-	dev->tx_timeout = net_tx_timeout;
+	dev->netdev_ops = &at1700_netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
 
 	spin_lock_init(&lp->lock);
@@ -768,7 +772,6 @@ net_rx(struct net_device *dev)
 			insw(ioaddr + DATAPORT, skb_put(skb,pkt_len), (pkt_len + 1) >> 1);
 			skb->protocol=eth_type_trans(skb, dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += pkt_len;
 		}
@@ -830,7 +833,6 @@ set_rx_mode(struct net_device *dev)
 	struct net_local *lp = netdev_priv(dev);
 	unsigned char mc_filter[8];		 /* Multicast hash filter */
 	unsigned long flags;
-	int i;
 
 	if (dev->flags & IFF_PROMISC) {
 		memset(mc_filter, 0xff, sizeof(mc_filter));
@@ -859,6 +861,7 @@ set_rx_mode(struct net_device *dev)
 
 	spin_lock_irqsave (&lp->lock, flags);
 	if (memcmp(mc_filter, lp->mc_filter, sizeof(mc_filter))) {
+		int i;
 		int saved_bank = inw(ioaddr + CONFIG_0);
 		/* Switch to bank 1 and set the multicast table. */
 		outw((saved_bank & ~0x0C00) | 0x0480, ioaddr + CONFIG_0);
@@ -901,15 +904,3 @@ module_init(at1700_module_init);
 module_exit(at1700_module_exit);
 #endif /* MODULE */
 MODULE_LICENSE("GPL");
-
-
-/*
- * Local variables:
- *  compile-command: "gcc -DMODULE -D__KERNEL__ -Wall -Wstrict-prototypes -O6 -c at1700.c"
- *  alt-compile-command: "gcc -DMODVERSIONS -DMODULE -D__KERNEL__ -Wall -Wstrict-prototypes -O6 -c at1700.c"
- *  tab-width: 4
- *  c-basic-offset: 4
- *  c-indent-level: 4
- * End:
- */
-

@@ -770,13 +770,24 @@ static void __devinit ether3_banner(void)
 		printk(KERN_INFO "%s", version);
 }
 
+static const struct net_device_ops ether3_netdev_ops = {
+	.ndo_open		= ether3_open,
+	.ndo_stop		= ether3_close,
+	.ndo_start_xmit		= ether3_sendpacket,
+	.ndo_get_stats		= ether3_getstats,
+	.ndo_set_multicast_list	= ether3_setmulticastlist,
+	.ndo_tx_timeout		= ether3_timeout,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address	= eth_mac_addr,
+};
+
 static int __devinit
 ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 {
 	const struct ether3_data *data = id->data;
 	struct net_device *dev;
 	int bus_type, ret;
-	DECLARE_MAC_BUF(mac);
 
 	ether3_banner();
 
@@ -847,20 +858,15 @@ ether3_probe(struct expansion_card *ec, const struct ecard_id *id)
 		goto free;
 	}
 
-	dev->open		= ether3_open;
-	dev->stop		= ether3_close;
-	dev->hard_start_xmit	= ether3_sendpacket;
-	dev->get_stats		= ether3_getstats;
-	dev->set_multicast_list	= ether3_setmulticastlist;
-	dev->tx_timeout		= ether3_timeout;
+	dev->netdev_ops		= &ether3_netdev_ops;
 	dev->watchdog_timeo	= 5 * HZ / 100;
 
 	ret = register_netdev(dev);
 	if (ret)
 		goto free;
 
-	printk("%s: %s in slot %d, %s\n",
-	       dev->name, data->name, ec->slot_no, print_mac(mac, dev->dev_addr));
+	printk("%s: %s in slot %d, %pM\n",
+	       dev->name, data->name, ec->slot_no, dev->dev_addr);
 
 	ecard_set_drvdata(ec, dev);
 	return 0;

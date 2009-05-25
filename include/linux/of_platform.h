@@ -26,8 +26,7 @@ extern struct bus_type of_platform_bus_type;
 
 /*
  * An of_platform_driver driver is attached to a basic of_device on
- * the "platform bus" (of_platform_bus_type) (or ISA, EBUS and SBUS
- * busses on sparc).
+ * the "platform bus" (of_platform_bus_type).
  */
 struct of_platform_driver
 {
@@ -51,6 +50,16 @@ struct of_platform_driver
 extern int of_register_driver(struct of_platform_driver *drv,
 			      struct bus_type *bus);
 extern void of_unregister_driver(struct of_platform_driver *drv);
+
+/* Platform drivers register/unregister */
+static inline int of_register_platform_driver(struct of_platform_driver *drv)
+{
+	return of_register_driver(drv, &of_platform_bus_type);
+}
+static inline void of_unregister_platform_driver(struct of_platform_driver *drv)
+{
+	of_unregister_driver(drv);
+}
 
 #include <asm/of_platform.h>
 

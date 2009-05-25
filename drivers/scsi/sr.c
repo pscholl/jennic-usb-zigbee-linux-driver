@@ -177,7 +177,7 @@ int sr_test_unit_ready(struct scsi_device *sdev, struct scsi_sense_hdr *sshdr)
 	do {
 		the_result = scsi_execute_req(sdev, cmd, DMA_NONE, NULL,
 					      0, sshdr, SR_TIMEOUT,
-					      retries--);
+					      retries--, NULL);
 		if (scsi_sense_valid(sshdr) &&
 		    sshdr->sense_key == UNIT_ATTENTION)
 			sdev->changed = 1;
@@ -309,15 +309,6 @@ static int sr_done(struct scsi_cmnd *SCpnt)
 			break;
 
 		case RECOVERED_ERROR:
-
-			/*
-			 * An error occured, but it recovered.  Inform the
-			 * user, but make sure that it's not treated as a
-			 * hard error.
-			 */
-			scsi_print_sense("sr", SCpnt);
-			SCpnt->result = 0;
-			SCpnt->sense_buffer[0] = 0x0;
 			good_bytes = this_count;
 			break;
 
@@ -681,7 +672,7 @@ static void get_sectorsize(struct scsi_cd *cd)
 		/* Do the command and wait.. */
 		the_result = scsi_execute_req(cd->device, cmd, DMA_FROM_DEVICE,
 					      buffer, sizeof(buffer), NULL,
-					      SR_TIMEOUT, MAX_RETRIES);
+					      SR_TIMEOUT, MAX_RETRIES, NULL);
 
 		retries--;
 

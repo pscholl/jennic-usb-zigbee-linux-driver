@@ -622,7 +622,6 @@ static int lance_rx(struct net_device *dev)
 
 			skb->protocol = eth_type_trans(skb, dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 		}
 
@@ -1011,6 +1010,17 @@ static void lance_set_multicast_retry(unsigned long _opaque)
 	lance_set_multicast(dev);
 }
 
+static const struct net_device_ops lance_netdev_ops = {
+	.ndo_open		= lance_open,
+	.ndo_stop		= lance_close,
+	.ndo_start_xmit		= lance_start_xmit,
+	.ndo_tx_timeout		= lance_tx_timeout,
+	.ndo_set_multicast_list	= lance_set_multicast,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
+};
+
 static int __init dec_lance_probe(struct device *bdev, const int type)
 {
 	static unsigned version_printed;
@@ -1023,19 +1033,18 @@ static int __init dec_lance_probe(struct device *bdev, const int type)
 	int i, ret;
 	unsigned long esar_base;
 	unsigned char *esar;
-	DECLARE_MAC_BUF(mac);
 
 	if (dec_lance_debug && version_printed++ == 0)
 		printk(version);
 
 	if (bdev)
-		snprintf(name, sizeof(name), "%s", bdev->bus_id);
+		snprintf(name, sizeof(name), "%s", dev_name(bdev));
 	else {
 		i = 0;
 		dev = root_lance_dev;
 		while (dev) {
 			i++;
-			lp = (struct lance_private *)dev->priv;
+			lp = netdev_priv(dev);
 			dev = lp->next;
 		}
 		snprintf(name, sizeof(name), fmt, i);
@@ -1107,10 +1116,10 @@ static int __init dec_lance_probe(struct device *bdev, const int type)
 
 		start = to_tc_dev(bdev)->resource.start;
 		len = to_tc_dev(bdev)->resource.end - start + 1;
-		if (!request_mem_region(start, len, bdev->bus_id)) {
+		if (!request_mem_region(start, len, dev_name(bdev))) {
 			printk(KERN_ERR
 			       "%s: Unable to reserve MMIO resource\n",
-			       bdev->bus_id);
+			       dev_name(bdev));
 			ret = -EBUSY;
 			goto err_out_dev;
 		}
@@ -1223,15 +1232,10 @@ static int __init dec_lance_probe(struct device *bdev, const int type)
 	for (i = 0; i < 6; i++)
 		dev->dev_addr[i] = esar[i * 4];
 
-	printk(", addr = %s, irq = %d\n",
-	       print_mac(mac, dev->dev_addr), dev->irq);
+	printk(", addr = %pM, irq = %d\n", dev->dev_addr, dev->irq);
 
-	dev->open = &lance_open;
-	dev->stop = &lance_close;
-	dev->hard_start_xmit = &lance_start_xmit;
-	dev->tx_timeout = &lance_tx_timeout;
+	dev->netdev_ops = &lance_netdev_ops;
 	dev->watchdog_timeo = 5*HZ;
-	dev->set_multicast_list = &lance_set_multicast;
 
 	/* lp->ll is the location of the registers for lance card */
 	lp->ll = ll;

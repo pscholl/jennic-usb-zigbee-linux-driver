@@ -147,7 +147,51 @@ struct rcu_ctrlblk {
 	wait_queue_head_t sched_wq;	/* Place for rcu_sched to sleep. */
 };
 
+struct rcu_dyntick_sched {
+	int dynticks;
+	int dynticks_snap;
+	int sched_qs;
+	int sched_qs_snap;
+	int sched_dynticks_snap;
+};
+
+static DEFINE_PER_CPU_SHARED_ALIGNED(struct rcu_dyntick_sched, rcu_dyntick_sched) = {
+	.dynticks = 1,
+};
+
+void rcu_qsctr_inc(int cpu)
+{
+	struct rcu_dyntick_sched *rdssp = &per_cpu(rcu_dyntick_sched, cpu);
+
+	rdssp->sched_qs++;
+}
+
+#ifdef CONFIG_NO_HZ
+
+void rcu_enter_nohz(void)
+{
+	static DEFINE_RATELIMIT_STATE(rs, 10 * HZ, 1);
+
+	smp_mb(); /* CPUs seeing ++ must see prior RCU read-side crit sects */
+	__get_cpu_var(rcu_dyntick_sched).dynticks++;
+	WARN_ON_RATELIMIT(__get_cpu_var(rcu_dyntick_sched).dynticks & 0x1, &rs);
+}
+
+void rcu_exit_nohz(void)
+{
+	static DEFINE_RATELIMIT_STATE(rs, 10 * HZ, 1);
+
+	__get_cpu_var(rcu_dyntick_sched).dynticks++;
+	smp_mb(); /* CPUs seeing ++ must see later RCU read-side crit sects */
+	WARN_ON_RATELIMIT(!(__get_cpu_var(rcu_dyntick_sched).dynticks & 0x1),
+				&rs);
+}
+
+#endif /* CONFIG_NO_HZ */
+
+
 static DEFINE_PER_CPU(struct rcu_data, rcu_data);
+
 static struct rcu_ctrlblk rcu_ctrlblk = {
 	.fliplock = __SPIN_LOCK_UNLOCKED(rcu_ctrlblk.fliplock),
 	.completed = 0,
@@ -164,7 +208,8 @@ static char *rcu_try_flip_state_names[] =
 	{ "idle", "waitack", "waitzero", "waitmb" };
 #endif /* #ifdef CONFIG_RCU_TRACE */
 
-static cpumask_t rcu_cpu_online_map __read_mostly = CPU_MASK_NONE;
+static DECLARE_BITMAP(rcu_cpu_online_map, NR_CPUS) __read_mostly
+	= CPU_BITS_NONE;
 
 /*
  * Enum and per-CPU flag to determine when each CPU has seen
@@ -426,10 +471,6 @@ static void __rcu_advance_callbacks(struct rcu_data *rdp)
 	}
 }
 
-DEFINE_PER_CPU_SHARED_ALIGNED(struct rcu_dyntick_sched, rcu_dyntick_sched) = {
-	.dynticks = 1,
-};
-
 #ifdef CONFIG_NO_HZ
 static DEFINE_PER_CPU(int, rcu_update_flag);
 
@@ -549,6 +590,16 @@ void rcu_irq_exit(void)
 		rdssp->dynticks++;
 		WARN_ON(rdssp->dynticks & 0x1);
 	}
+}
+
+void rcu_nmi_enter(void)
+{
+	rcu_irq_enter();
+}
+
+void rcu_nmi_exit(void)
+{
+	rcu_irq_exit();
 }
 
 static void dyntick_save_progress_counter(int cpu)
@@ -748,7 +799,7 @@ rcu_try_flip_idle(void)
 
 	/* Now ask each CPU for acknowledgement of the flip. */
 
-	for_each_cpu_mask_nr(cpu, rcu_cpu_online_map) {
+	for_each_cpu(cpu, to_cpumask(rcu_cpu_online_map)) {
 		per_cpu(rcu_flip_flag, cpu) = rcu_flipped;
 		dyntick_save_progress_counter(cpu);
 	}
@@ -766,7 +817,7 @@ rcu_try_flip_waitack(void)
 	int cpu;
 
 	RCU_TRACE_ME(rcupreempt_trace_try_flip_a1);
-	for_each_cpu_mask_nr(cpu, rcu_cpu_online_map)
+	for_each_cpu(cpu, to_cpumask(rcu_cpu_online_map))
 		if (rcu_try_flip_waitack_needed(cpu) &&
 		    per_cpu(rcu_flip_flag, cpu) != rcu_flip_seen) {
 			RCU_TRACE_ME(rcupreempt_trace_try_flip_ae1);
@@ -798,7 +849,7 @@ rcu_try_flip_waitzero(void)
 	/* Check to see if the sum of the "last" counters is zero. */
 
 	RCU_TRACE_ME(rcupreempt_trace_try_flip_z1);
-	for_each_cpu_mask_nr(cpu, rcu_cpu_online_map)
+	for_each_cpu(cpu, to_cpumask(rcu_cpu_online_map))
 		sum += RCU_DATA_CPU(cpu)->rcu_flipctr[lastidx];
 	if (sum != 0) {
 		RCU_TRACE_ME(rcupreempt_trace_try_flip_ze1);
@@ -813,7 +864,7 @@ rcu_try_flip_waitzero(void)
 	smp_mb();  /*  ^^^^^^^^^^^^ */
 
 	/* Call for a memory barrier from each CPU. */
-	for_each_cpu_mask_nr(cpu, rcu_cpu_online_map) {
+	for_each_cpu(cpu, to_cpumask(rcu_cpu_online_map)) {
 		per_cpu(rcu_mb_flag, cpu) = rcu_mb_needed;
 		dyntick_save_progress_counter(cpu);
 	}
@@ -833,7 +884,7 @@ rcu_try_flip_waitmb(void)
 	int cpu;
 
 	RCU_TRACE_ME(rcupreempt_trace_try_flip_m1);
-	for_each_cpu_mask_nr(cpu, rcu_cpu_online_map)
+	for_each_cpu(cpu, to_cpumask(rcu_cpu_online_map))
 		if (rcu_try_flip_waitmb_needed(cpu) &&
 		    per_cpu(rcu_mb_flag, cpu) != rcu_mb_done) {
 			RCU_TRACE_ME(rcupreempt_trace_try_flip_me1);
@@ -1022,7 +1073,7 @@ void rcu_offline_cpu(int cpu)
 	RCU_DATA_CPU(cpu)->rcu_flipctr[0] = 0;
 	RCU_DATA_CPU(cpu)->rcu_flipctr[1] = 0;
 
-	cpu_clear(cpu, rcu_cpu_online_map);
+	cpumask_clear_cpu(cpu, to_cpumask(rcu_cpu_online_map));
 
 	spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
 
@@ -1062,7 +1113,7 @@ void __cpuinit rcu_online_cpu(int cpu)
 	struct rcu_data *rdp;
 
 	spin_lock_irqsave(&rcu_ctrlblk.fliplock, flags);
-	cpu_set(cpu, rcu_cpu_online_map);
+	cpumask_set_cpu(cpu, to_cpumask(rcu_cpu_online_map));
 	spin_unlock_irqrestore(&rcu_ctrlblk.fliplock, flags);
 
 	/*
@@ -1166,7 +1217,19 @@ EXPORT_SYMBOL_GPL(call_rcu_sched);
  * in -rt this does -not- necessarily result in all currently executing
  * interrupt -handlers- having completed.
  */
-synchronize_rcu_xxx(__synchronize_sched, call_rcu_sched)
+void __synchronize_sched(void)
+{
+	struct rcu_synchronize rcu;
+
+	if (num_online_cpus() == 1)
+		return;  /* blocking is gp if only one CPU! */
+
+	init_completion(&rcu.completion);
+	/* Will wake me after RCU finished. */
+	call_rcu_sched(&rcu.head, wakeme_after_rcu);
+	/* Wait for it. */
+	wait_for_completion(&rcu.completion);
+}
 EXPORT_SYMBOL_GPL(__synchronize_sched);
 
 /*
@@ -1420,7 +1483,7 @@ void __init __rcu_init(void)
 	 * We don't need protection against CPU-Hotplug here
 	 * since
 	 * a) If a CPU comes online while we are iterating over the
-	 *    cpu_online_map below, we would only end up making a
+	 *    cpu_online_mask below, we would only end up making a
 	 *    duplicate call to rcu_online_cpu() which sets the corresponding
 	 *    CPU's mask in the rcu_cpu_online_map.
 	 *

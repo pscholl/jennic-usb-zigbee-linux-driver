@@ -27,16 +27,30 @@
  *
  */
 
+#include <linux/device.h>
 #include "drmP.h"
 #include "drm.h"
 #include "i915_drm.h"
 #include "i915_drv.h"
 
 #include "drm_pciids.h"
+#include <linux/console.h>
+
+static unsigned int i915_modeset = -1;
+module_param_named(modeset, i915_modeset, int, 0400);
+
+unsigned int i915_fbpercrtc = 0;
+module_param_named(fbpercrtc, i915_fbpercrtc, int, 0400);
+
+static struct drm_driver driver;
 
 static struct pci_device_id pciidlist[] = {
 	i915_PCI_IDS
 };
+
+#if defined(CONFIG_DRM_I915_KMS)
+MODULE_DEVICE_TABLE(pci, pciidlist);
+#endif
 
 static int i915_suspend(struct drm_device *dev, pm_message_t state)
 {
@@ -55,7 +69,15 @@ static int i915_suspend(struct drm_device *dev, pm_message_t state)
 
 	i915_save_state(dev);
 
-	intel_opregion_free(dev);
+	/* If KMS is active, we do the leavevt stuff here */
+	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+		if (i915_gem_idle(dev))
+			dev_err(&dev->pdev->dev,
+				"GEM idle failed, resume may fail\n");
+		drm_irq_uninstall(dev);
+	}
+
+	intel_opregion_free(dev, 1);
 
 	if (state.event == PM_EVENT_SUSPEND) {
 		/* Shut down the device */
@@ -68,6 +90,9 @@ static int i915_suspend(struct drm_device *dev, pm_message_t state)
 
 static int i915_resume(struct drm_device *dev)
 {
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	int ret = 0;
+
 	pci_set_power_state(dev->pdev, PCI_D0);
 	pci_restore_state(dev->pdev);
 	if (pci_enable_device(dev->pdev))
@@ -76,10 +101,59 @@ static int i915_resume(struct drm_device *dev)
 
 	i915_restore_state(dev);
 
-	intel_opregion_init(dev);
+	intel_opregion_init(dev, 1);
 
-	return 0;
+	/* KMS EnterVT equivalent */
+	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+		mutex_lock(&dev->struct_mutex);
+		dev_priv->mm.suspended = 0;
+
+		ret = i915_gem_init_ringbuffer(dev);
+		if (ret != 0)
+			ret = -1;
+		mutex_unlock(&dev->struct_mutex);
+
+		drm_irq_install(dev);
+	}
+
+	return ret;
 }
+
+static int __devinit
+i915_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+{
+	return drm_get_dev(pdev, ent, &driver);
+}
+
+static void
+i915_pci_remove(struct pci_dev *pdev)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+
+	drm_put_dev(dev);
+}
+
+static int
+i915_pci_suspend(struct pci_dev *pdev, pm_message_t state)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+
+	return i915_suspend(dev, state);
+}
+
+static int
+i915_pci_resume(struct pci_dev *pdev)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+
+	return i915_resume(dev);
+}
+
+static struct vm_operations_struct i915_gem_vm_ops = {
+	.fault = i915_gem_fault,
+	.open = drm_gem_vm_open,
+	.close = drm_gem_vm_close,
+};
 
 static struct drm_driver driver = {
 	/* don't use mtrr's here, the Xserver or user space app should
@@ -97,7 +171,6 @@ static struct drm_driver driver = {
 	.suspend = i915_suspend,
 	.resume = i915_resume,
 	.device_is_agp = i915_driver_device_is_agp,
-	.get_vblank_counter = i915_get_vblank_counter,
 	.enable_vblank = i915_enable_vblank,
 	.disable_vblank = i915_disable_vblank,
 	.irq_preinstall = i915_driver_irq_preinstall,
@@ -107,17 +180,22 @@ static struct drm_driver driver = {
 	.reclaim_buffers = drm_core_reclaim_buffers,
 	.get_map_ofs = drm_core_get_map_ofs,
 	.get_reg_ofs = drm_core_get_reg_ofs,
-	.proc_init = i915_gem_proc_init,
-	.proc_cleanup = i915_gem_proc_cleanup,
+	.master_create = i915_master_create,
+	.master_destroy = i915_master_destroy,
+#if defined(CONFIG_DEBUG_FS)
+	.debugfs_init = i915_gem_debugfs_init,
+	.debugfs_cleanup = i915_gem_debugfs_cleanup,
+#endif
 	.gem_init_object = i915_gem_init_object,
 	.gem_free_object = i915_gem_free_object,
+	.gem_vm_ops = &i915_gem_vm_ops,
 	.ioctls = i915_ioctls,
 	.fops = {
 		 .owner = THIS_MODULE,
 		 .open = drm_open,
 		 .release = drm_release,
 		 .ioctl = drm_ioctl,
-		 .mmap = drm_mmap,
+		 .mmap = drm_gem_mmap,
 		 .poll = drm_poll,
 		 .fasync = drm_fasync,
 #ifdef CONFIG_COMPAT
@@ -128,6 +206,12 @@ static struct drm_driver driver = {
 	.pci_driver = {
 		 .name = DRIVER_NAME,
 		 .id_table = pciidlist,
+		 .probe = i915_pci_probe,
+		 .remove = i915_pci_remove,
+#ifdef CONFIG_PM
+		 .resume = i915_pci_resume,
+		 .suspend = i915_pci_suspend,
+#endif
 	},
 
 	.name = DRIVER_NAME,
@@ -141,6 +225,28 @@ static struct drm_driver driver = {
 static int __init i915_init(void)
 {
 	driver.num_ioctls = i915_max_ioctl;
+
+	/*
+	 * If CONFIG_DRM_I915_KMS is set, default to KMS unless
+	 * explicitly disabled with the module pararmeter.
+	 *
+	 * Otherwise, just follow the parameter (defaulting to off).
+	 *
+	 * Allow optional vga_text_mode_force boot option to override
+	 * the default behavior.
+	 */
+#if defined(CONFIG_DRM_I915_KMS)
+	if (i915_modeset != 0)
+		driver.driver_features |= DRIVER_MODESET;
+#endif
+	if (i915_modeset == 1)
+		driver.driver_features |= DRIVER_MODESET;
+
+#ifdef CONFIG_VGA_CONSOLE
+	if (vgacon_text_force() && i915_modeset == -1)
+		driver.driver_features &= ~DRIVER_MODESET;
+#endif
+
 	return drm_init(&driver);
 }
 

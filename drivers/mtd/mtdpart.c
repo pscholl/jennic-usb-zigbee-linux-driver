@@ -26,7 +26,7 @@ static LIST_HEAD(mtd_partitions);
 struct mtd_part {
 	struct mtd_info mtd;
 	struct mtd_info *master;
-	u_int32_t offset;
+	uint64_t offset;
 	int index;
 	struct list_head list;
 	int registered;
@@ -48,7 +48,10 @@ static int part_read(struct mtd_info *mtd, loff_t from, size_t len,
 		size_t *retlen, u_char *buf)
 {
 	struct mtd_part *part = PART(mtd);
+	struct mtd_ecc_stats stats;
 	int res;
+
+	stats = part->master->ecc_stats;
 
 	if (from >= mtd->size)
 		len = 0;
@@ -58,9 +61,9 @@ static int part_read(struct mtd_info *mtd, loff_t from, size_t len,
 				   len, retlen, buf);
 	if (unlikely(res)) {
 		if (res == -EUCLEAN)
-			mtd->ecc_stats.corrected++;
+			mtd->ecc_stats.corrected += part->master->ecc_stats.corrected - stats.corrected;
 		if (res == -EBADMSG)
-			mtd->ecc_stats.failed++;
+			mtd->ecc_stats.failed += part->master->ecc_stats.failed - stats.failed;
 	}
 	return res;
 }
@@ -82,6 +85,18 @@ static void part_unpoint(struct mtd_info *mtd, loff_t from, size_t len)
 	struct mtd_part *part = PART(mtd);
 
 	part->master->unpoint(part->master, from + part->offset, len);
+}
+
+static unsigned long part_get_unmapped_area(struct mtd_info *mtd,
+					    unsigned long len,
+					    unsigned long offset,
+					    unsigned long flags)
+{
+	struct mtd_part *part = PART(mtd);
+
+	offset += part->offset;
+	return part->master->get_unmapped_area(part->master, len, offset,
+					       flags);
 }
 
 static int part_read_oob(struct mtd_info *mtd, loff_t from,
@@ -235,7 +250,7 @@ void mtd_erase_callback(struct erase_info *instr)
 }
 EXPORT_SYMBOL_GPL(mtd_erase_callback);
 
-static int part_lock(struct mtd_info *mtd, loff_t ofs, size_t len)
+static int part_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	struct mtd_part *part = PART(mtd);
 	if ((len + ofs) > mtd->size)
@@ -243,7 +258,7 @@ static int part_lock(struct mtd_info *mtd, loff_t ofs, size_t len)
 	return part->master->lock(part->master, ofs + part->offset, len);
 }
 
-static int part_unlock(struct mtd_info *mtd, loff_t ofs, size_t len)
+static int part_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	struct mtd_part *part = PART(mtd);
 	if ((len + ofs) > mtd->size)
@@ -317,7 +332,7 @@ EXPORT_SYMBOL(del_mtd_partitions);
 
 static struct mtd_part *add_one_partition(struct mtd_info *master,
 		const struct mtd_partition *part, int partno,
-		u_int32_t cur_offset)
+		uint64_t cur_offset)
 {
 	struct mtd_part *slave;
 
@@ -342,6 +357,12 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 
 	slave->mtd.name = part->name;
 	slave->mtd.owner = master->owner;
+	slave->mtd.backing_dev_info = master->backing_dev_info;
+
+	/* NOTE:  we don't arrange MTDs as a tree; it'd be error-prone
+	 * to have the same data be in two different partitions.
+	 */
+	slave->mtd.dev.parent = master->dev.parent;
 
 	slave->mtd.read = part_read;
 	slave->mtd.write = part_write;
@@ -354,6 +375,8 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 		slave->mtd.unpoint = part_unpoint;
 	}
 
+	if (master->get_unmapped_area)
+		slave->mtd.get_unmapped_area = part_get_unmapped_area;
 	if (master->read_oob)
 		slave->mtd.read_oob = part_read_oob;
 	if (master->write_oob)
@@ -395,19 +418,19 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 		slave->offset = cur_offset;
 	if (slave->offset == MTDPART_OFS_NXTBLK) {
 		slave->offset = cur_offset;
-		if ((cur_offset % master->erasesize) != 0) {
+		if (mtd_mod_by_eb(cur_offset, master) != 0) {
 			/* Round up to next erasesize */
-			slave->offset = ((cur_offset / master->erasesize) + 1) * master->erasesize;
+			slave->offset = (mtd_div_by_eb(cur_offset, master) + 1) * master->erasesize;
 			printk(KERN_NOTICE "Moving partition %d: "
-			       "0x%08x -> 0x%08x\n", partno,
-			       cur_offset, slave->offset);
+			       "0x%012llx -> 0x%012llx\n", partno,
+			       (unsigned long long)cur_offset, (unsigned long long)slave->offset);
 		}
 	}
 	if (slave->mtd.size == MTDPART_SIZ_FULL)
 		slave->mtd.size = master->size - slave->offset;
 
-	printk(KERN_NOTICE "0x%08x-0x%08x : \"%s\"\n", slave->offset,
-		slave->offset + slave->mtd.size, slave->mtd.name);
+	printk(KERN_NOTICE "0x%012llx-0x%012llx : \"%s\"\n", (unsigned long long)slave->offset,
+		(unsigned long long)(slave->offset + slave->mtd.size), slave->mtd.name);
 
 	/* let's do some sanity checks */
 	if (slave->offset >= master->size) {
@@ -420,13 +443,13 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 	}
 	if (slave->offset + slave->mtd.size > master->size) {
 		slave->mtd.size = master->size - slave->offset;
-		printk(KERN_WARNING"mtd: partition \"%s\" extends beyond the end of device \"%s\" -- size truncated to %#x\n",
-			part->name, master->name, slave->mtd.size);
+		printk(KERN_WARNING"mtd: partition \"%s\" extends beyond the end of device \"%s\" -- size truncated to %#llx\n",
+			part->name, master->name, (unsigned long long)slave->mtd.size);
 	}
 	if (master->numeraseregions > 1) {
 		/* Deal with variable erase size stuff */
 		int i, max = master->numeraseregions;
-		u32 end = slave->offset + slave->mtd.size;
+		u64 end = slave->offset + slave->mtd.size;
 		struct mtd_erase_region_info *regions = master->eraseregions;
 
 		/* Find the first erase regions which is part of this
@@ -449,7 +472,7 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 	}
 
 	if ((slave->mtd.flags & MTD_WRITEABLE) &&
-	    (slave->offset % slave->mtd.erasesize)) {
+	    mtd_mod_by_eb(slave->offset, &slave->mtd)) {
 		/* Doesn't start on a boundary of major erase size */
 		/* FIXME: Let it be writable if it is on a boundary of
 		 * _minor_ erase size though */
@@ -458,7 +481,7 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 			part->name);
 	}
 	if ((slave->mtd.flags & MTD_WRITEABLE) &&
-	    (slave->mtd.size % slave->mtd.erasesize)) {
+	    mtd_mod_by_eb(slave->mtd.size, &slave->mtd)) {
 		slave->mtd.flags &= ~MTD_WRITEABLE;
 		printk(KERN_WARNING"mtd: partition \"%s\" doesn't end on an erase block -- force read-only\n",
 			part->name);
@@ -466,7 +489,7 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 
 	slave->mtd.ecclayout = master->ecclayout;
 	if (master->block_isbad) {
-		uint32_t offs = 0;
+		uint64_t offs = 0;
 
 		while (offs < slave->mtd.size) {
 			if (master->block_isbad(master,
@@ -493,7 +516,9 @@ out_register:
  * This function, given a master MTD object and a partition table, creates
  * and registers slave MTD objects which are bound to the master according to
  * the partition definitions.
- * (Q: should we register the master MTD object as well?)
+ *
+ * We don't register the master, or expect the caller to have done so,
+ * for reasons of data integrity.
  */
 
 int add_mtd_partitions(struct mtd_info *master,
@@ -501,7 +526,7 @@ int add_mtd_partitions(struct mtd_info *master,
 		       int nbparts)
 {
 	struct mtd_part *slave;
-	u_int32_t cur_offset = 0;
+	uint64_t cur_offset = 0;
 	int i;
 
 	printk(KERN_NOTICE "Creating %d MTD partitions on \"%s\":\n", nbparts, master->name);

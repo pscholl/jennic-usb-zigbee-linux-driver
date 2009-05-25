@@ -174,7 +174,7 @@ struct ks959_cb {
 	struct usb_device *usbdev;	/* init: probe_irda */
 	struct net_device *netdev;	/* network layer */
 	struct irlap_cb *irlap;	/* The link layer we are binded to */
-	struct net_device_stats stats;	/* network statistics */
+
 	struct qos_info qos;
 
 	struct usb_ctrlrequest *tx_setuprequest;
@@ -366,7 +366,7 @@ static void ks959_send_irq(struct urb *urb)
 				case -EPIPE:
 					break;
 				default:
-					kingsun->stats.tx_errors++;
+					netdev->stats.tx_errors++;
 					netif_start_queue(netdev);
 				}
 			}
@@ -416,12 +416,12 @@ static int ks959_hard_xmit(struct sk_buff *skb, struct net_device *netdev)
 		case -EPIPE:
 			break;
 		default:
-			kingsun->stats.tx_errors++;
+			netdev->stats.tx_errors++;
 			netif_start_queue(netdev);
 		}
 	} else {
-		kingsun->stats.tx_packets++;
-		kingsun->stats.tx_bytes += skb->len;
+		netdev->stats.tx_packets++;
+		netdev->stats.tx_bytes += skb->len;
 
 	}
 
@@ -469,12 +469,11 @@ static void ks959_rcv_irq(struct urb *urb)
 			 */
 			if (kingsun->rx_variable_xormask != 0) {
 				async_unwrap_char(kingsun->netdev,
-						  &kingsun->stats,
+						  &kingsun->netdev->stats,
 						  &kingsun->rx_unwrap_buff,
 						  bytes[i]);
 			}
 		}
-		kingsun->netdev->last_rx = jiffies;
 		do_gettimeofday(&kingsun->rx_time);
 		kingsun->receiving =
 		    (kingsun->rx_unwrap_buff.state != OUTSIDE_FRAME) ? 1 : 0;
@@ -669,15 +668,12 @@ static int ks959_net_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 	return ret;
 }
 
-/*
- * Get device stats (for /proc/net/dev and ifconfig)
- */
-static struct net_device_stats *ks959_net_get_stats(struct net_device *netdev)
-{
-	struct ks959_cb *kingsun = netdev_priv(netdev);
-	return &kingsun->stats;
-}
-
+static const struct net_device_ops ks959_ops = {
+	.ndo_start_xmit	= ks959_hard_xmit,
+	.ndo_open	= ks959_net_open,
+	.ndo_stop	= ks959_net_close,
+	.ndo_do_ioctl	= ks959_net_ioctl,
+};
 /*
  * This routine is called by the USB subsystem for each new device
  * in the system. We need to check if the device is ours, and in
@@ -790,11 +786,7 @@ static int ks959_probe(struct usb_interface *intf,
 	irda_qos_bits_to_value(&kingsun->qos);
 
 	/* Override the network functions we need to use */
-	net->hard_start_xmit = ks959_hard_xmit;
-	net->open = ks959_net_open;
-	net->stop = ks959_net_close;
-	net->get_stats = ks959_net_get_stats;
-	net->do_ioctl = ks959_net_ioctl;
+	net->netdev_ops = &ks959_ops;
 
 	ret = register_netdev(net);
 	if (ret != 0)

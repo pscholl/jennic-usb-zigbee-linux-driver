@@ -151,21 +151,6 @@ SOC_ENUM("Capture Source", ssm2602_enum[0]),
 SOC_ENUM("Playback De-emphasis", ssm2602_enum[1]),
 };
 
-/* add non dapm controls */
-static int ssm2602_add_controls(struct snd_soc_codec *codec)
-{
-	int err, i;
-
-	for (i = 0; i < ARRAY_SIZE(ssm2602_snd_controls); i++) {
-		err = snd_ctl_add(codec->card,
-			snd_soc_cnew(&ssm2602_snd_controls[i], codec, NULL));
-		if (err < 0)
-			return err;
-	}
-
-	return 0;
-}
-
 /* Output Mixer */
 static const struct snd_kcontrol_new ssm2602_output_mixer_controls[] = {
 SOC_DAPM_SINGLE("Line Bypass Switch", SSM2602_APANA, 3, 1, 0),
@@ -285,15 +270,22 @@ static inline int get_coeff(int mclk, int rate)
 }
 
 static int ssm2602_hw_params(struct snd_pcm_substream *substream,
-	struct snd_pcm_hw_params *params)
+	struct snd_pcm_hw_params *params,
+	struct snd_soc_dai *dai)
 {
 	u16 srate;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 	struct ssm2602_priv *ssm2602 = codec->private_data;
+	struct i2c_client *i2c = codec->control_data;
 	u16 iface = ssm2602_read_reg_cache(codec, SSM2602_IFACE) & 0xfff3;
 	int i = get_coeff(ssm2602->sysclk, params_rate(params));
+
+	if (substream == ssm2602->slave_substream) {
+		dev_dbg(&i2c->dev, "Ignoring hw_params for slave substream\n");
+		return 0;
+	}
 
 	/*no match is found*/
 	if (i == ARRAY_SIZE(coeff_div))
@@ -324,19 +316,26 @@ static int ssm2602_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int ssm2602_startup(struct snd_pcm_substream *substream)
+static int ssm2602_startup(struct snd_pcm_substream *substream,
+			   struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 	struct ssm2602_priv *ssm2602 = codec->private_data;
+	struct i2c_client *i2c = codec->control_data;
 	struct snd_pcm_runtime *master_runtime;
 
 	/* The DAI has shared clocks so if we already have a playback or
 	 * capture going then constrain this substream to match it.
+	 * TODO: the ssm2602 allows pairs of non-matching PB/REC rates
 	 */
 	if (ssm2602->master_substream) {
 		master_runtime = ssm2602->master_substream->runtime;
+		dev_dbg(&i2c->dev, "Constraining to %d bits at %dHz\n",
+			master_runtime->sample_bits,
+			master_runtime->rate);
+
 		snd_pcm_hw_constraint_minmax(substream->runtime,
 					     SNDRV_PCM_HW_PARAM_RATE,
 					     master_runtime->rate,
@@ -354,25 +353,33 @@ static int ssm2602_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static int ssm2602_pcm_prepare(struct snd_pcm_substream *substream)
+static int ssm2602_pcm_prepare(struct snd_pcm_substream *substream,
+			       struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 	/* set active */
 	ssm2602_write(codec, SSM2602_ACTIVE, ACTIVE_ACTIVATE_CODEC);
 
 	return 0;
 }
 
-static void ssm2602_shutdown(struct snd_pcm_substream *substream)
+static void ssm2602_shutdown(struct snd_pcm_substream *substream,
+			     struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
+	struct ssm2602_priv *ssm2602 = codec->private_data;
 	/* deactivate */
 	if (!codec->active)
 		ssm2602_write(codec, SSM2602_ACTIVE, 0);
+
+	if (ssm2602->master_substream == substream)
+		ssm2602->master_substream = ssm2602->slave_substream;
+
+	ssm2602->slave_substream = NULL;
 }
 
 static int ssm2602_mute(struct snd_soc_dai *dai, int mute)
@@ -432,10 +439,10 @@ static int ssm2602_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		iface |= 0x0001;
 		break;
 	case SND_SOC_DAIFMT_DSP_A:
-		iface |= 0x0003;
+		iface |= 0x0013;
 		break;
 	case SND_SOC_DAIFMT_DSP_B:
-		iface |= 0x0013;
+		iface |= 0x0003;
 		break;
 	default:
 		return -EINVAL;
@@ -496,6 +503,19 @@ static int ssm2602_set_bias_level(struct snd_soc_codec *codec,
 		SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_88200 |\
 		SNDRV_PCM_RATE_96000)
 
+#define SSM2602_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE |\
+		SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE)
+
+static struct snd_soc_dai_ops ssm2602_dai_ops = {
+	.startup	= ssm2602_startup,
+	.prepare	= ssm2602_pcm_prepare,
+	.hw_params	= ssm2602_hw_params,
+	.shutdown	= ssm2602_shutdown,
+	.digital_mute	= ssm2602_mute,
+	.set_sysclk	= ssm2602_set_dai_sysclk,
+	.set_fmt	= ssm2602_set_dai_fmt,
+};
+
 struct snd_soc_dai ssm2602_dai = {
 	.name = "SSM2602",
 	.playback = {
@@ -503,31 +523,21 @@ struct snd_soc_dai ssm2602_dai = {
 		.channels_min = 2,
 		.channels_max = 2,
 		.rates = SSM2602_RATES,
-		.formats = SNDRV_PCM_FMTBIT_S32_LE,},
+		.formats = SSM2602_FORMATS,},
 	.capture = {
 		.stream_name = "Capture",
 		.channels_min = 2,
 		.channels_max = 2,
 		.rates = SSM2602_RATES,
-		.formats = SNDRV_PCM_FMTBIT_S32_LE,},
-	.ops = {
-		.startup = ssm2602_startup,
-		.prepare = ssm2602_pcm_prepare,
-		.hw_params = ssm2602_hw_params,
-		.shutdown = ssm2602_shutdown,
-	},
-	.dai_ops = {
-		.digital_mute = ssm2602_mute,
-		.set_sysclk = ssm2602_set_dai_sysclk,
-		.set_fmt = ssm2602_set_dai_fmt,
-	}
+		.formats = SSM2602_FORMATS,},
+	.ops = &ssm2602_dai_ops,
 };
 EXPORT_SYMBOL_GPL(ssm2602_dai);
 
 static int ssm2602_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 
 	ssm2602_set_bias_level(codec, SND_SOC_BIAS_OFF);
 	return 0;
@@ -536,7 +546,7 @@ static int ssm2602_suspend(struct platform_device *pdev, pm_message_t state)
 static int ssm2602_resume(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 	int i;
 	u8 data[2];
 	u16 *cache = codec->reg_cache;
@@ -558,7 +568,7 @@ static int ssm2602_resume(struct platform_device *pdev)
  */
 static int ssm2602_init(struct snd_soc_device *socdev)
 {
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 	int reg, ret = 0;
 
 	codec->name = "SSM2602";
@@ -599,9 +609,10 @@ static int ssm2602_init(struct snd_soc_device *socdev)
 			APANA_ENABLE_MIC_BOOST);
 	ssm2602_write(codec, SSM2602_PWR, 0);
 
-	ssm2602_add_controls(codec);
+	snd_soc_add_controls(codec, ssm2602_snd_controls,
+				ARRAY_SIZE(ssm2602_snd_controls));
 	ssm2602_add_widgets(codec);
-	ret = snd_soc_register_card(socdev);
+	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
 		pr_err("ssm2602: failed to register card\n");
 		goto card_err;
@@ -630,7 +641,7 @@ static int ssm2602_i2c_probe(struct i2c_client *i2c,
 			     const struct i2c_device_id *id)
 {
 	struct snd_soc_device *socdev = ssm2602_socdev;
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 	int ret;
 
 	i2c_set_clientdata(i2c, codec);
@@ -724,7 +735,7 @@ static int ssm2602_probe(struct platform_device *pdev)
 	}
 
 	codec->private_data = ssm2602;
-	socdev->codec = codec;
+	socdev->card->codec = codec;
 	mutex_init(&codec->mutex);
 	INIT_LIST_HEAD(&codec->dapm_widgets);
 	INIT_LIST_HEAD(&codec->dapm_paths);
@@ -745,7 +756,7 @@ static int ssm2602_probe(struct platform_device *pdev)
 static int ssm2602_remove(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 
 	if (codec->control_data)
 		ssm2602_set_bias_level(codec, SND_SOC_BIAS_OFF);
@@ -769,6 +780,18 @@ struct snd_soc_codec_device soc_codec_dev_ssm2602 = {
 	.resume =	ssm2602_resume,
 };
 EXPORT_SYMBOL_GPL(soc_codec_dev_ssm2602);
+
+static int __init ssm2602_modinit(void)
+{
+	return snd_soc_register_dai(&ssm2602_dai);
+}
+module_init(ssm2602_modinit);
+
+static void __exit ssm2602_exit(void)
+{
+	snd_soc_unregister_dai(&ssm2602_dai);
+}
+module_exit(ssm2602_exit);
 
 MODULE_DESCRIPTION("ASoC ssm2602 driver");
 MODULE_AUTHOR("Cliff Cai");

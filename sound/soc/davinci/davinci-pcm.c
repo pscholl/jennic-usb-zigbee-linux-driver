@@ -14,6 +14,7 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/dma-mapping.h>
+#include <linux/kernel.h>
 
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -21,15 +22,9 @@
 #include <sound/soc.h>
 
 #include <asm/dma.h>
+#include <mach/edma.h>
 
 #include "davinci-pcm.h"
-
-#define DAVINCI_PCM_DEBUG 0
-#if DAVINCI_PCM_DEBUG
-#define DPRINTK(x...) printk(KERN_DEBUG x)
-#else
-#define DPRINTK(x...)
-#endif
 
 static struct snd_pcm_hardware davinci_pcm_hardware = {
 	.info = (SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_BLOCK_TRANSFER |
@@ -57,7 +52,7 @@ struct davinci_runtime_data {
 	spinlock_t lock;
 	int period;		/* current DMA period */
 	int master_lch;		/* Master DMA channel */
-	int slave_lch;		/* Slave DMA channel */
+	int slave_lch;		/* linked parameter RAM reload slot */
 	struct davinci_pcm_dma_params *params;	/* DMA params */
 };
 
@@ -78,8 +73,8 @@ static void davinci_pcm_enqueue_dma(struct snd_pcm_substream *substream)
 	dma_offset = prtd->period * period_size;
 	dma_pos = runtime->dma_addr + dma_offset;
 
-	DPRINTK("audio_set_dma_params_play channel = %d dma_ptr = %x "
-		"period_size=%x\n", lch, dma_pos, period_size);
+	pr_debug("davinci_pcm: audio_set_dma_params_play channel = %d "
+		"dma_ptr = %x period_size=%x\n", lch, dma_pos, period_size);
 
 	data_type = prtd->params->data_type;
 	count = period_size / data_type;
@@ -96,23 +91,23 @@ static void davinci_pcm_enqueue_dma(struct snd_pcm_substream *substream)
 		dst_bidx = data_type;
 	}
 
-	davinci_set_dma_src_params(lch, src, INCR, W8BIT);
-	davinci_set_dma_dest_params(lch, dst, INCR, W8BIT);
-	davinci_set_dma_src_index(lch, src_bidx, 0);
-	davinci_set_dma_dest_index(lch, dst_bidx, 0);
-	davinci_set_dma_transfer_params(lch, data_type, count, 1, 0, ASYNC);
+	edma_set_src(lch, src, INCR, W8BIT);
+	edma_set_dest(lch, dst, INCR, W8BIT);
+	edma_set_src_index(lch, src_bidx, 0);
+	edma_set_dest_index(lch, dst_bidx, 0);
+	edma_set_transfer_params(lch, data_type, count, 1, 0, ASYNC);
 
 	prtd->period++;
 	if (unlikely(prtd->period >= runtime->periods))
 		prtd->period = 0;
 }
 
-static void davinci_pcm_dma_irq(int lch, u16 ch_status, void *data)
+static void davinci_pcm_dma_irq(unsigned lch, u16 ch_status, void *data)
 {
 	struct snd_pcm_substream *substream = data;
 	struct davinci_runtime_data *prtd = substream->runtime->private_data;
 
-	DPRINTK("lch=%d, status=0x%x\n", lch, ch_status);
+	pr_debug("davinci_pcm: lch=%d, status=0x%x\n", lch, ch_status);
 
 	if (unlikely(ch_status != DMA_COMPLETE))
 		return;
@@ -131,7 +126,7 @@ static int davinci_pcm_dma_request(struct snd_pcm_substream *substream)
 	struct davinci_runtime_data *prtd = substream->runtime->private_data;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct davinci_pcm_dma_params *dma_data = rtd->dai->cpu_dai->dma_data;
-	int tcc = TCC_ANY;
+	struct edmacc_param p_ram;
 	int ret;
 
 	if (!dma_data)
@@ -140,22 +135,34 @@ static int davinci_pcm_dma_request(struct snd_pcm_substream *substream)
 	prtd->params = dma_data;
 
 	/* Request master DMA channel */
-	ret = davinci_request_dma(prtd->params->channel, prtd->params->name,
+	ret = edma_alloc_channel(prtd->params->channel,
 				  davinci_pcm_dma_irq, substream,
-				  &prtd->master_lch, &tcc, EVENTQ_0);
-	if (ret)
+				  EVENTQ_0);
+	if (ret < 0)
 		return ret;
+	prtd->master_lch = ret;
 
-	/* Request slave DMA channel */
-	ret = davinci_request_dma(PARAM_ANY, "Link",
-				  NULL, NULL, &prtd->slave_lch, &tcc, EVENTQ_0);
-	if (ret) {
-		davinci_free_dma(prtd->master_lch);
+	/* Request parameter RAM reload slot */
+	ret = edma_alloc_slot(EDMA_SLOT_ANY);
+	if (ret < 0) {
+		edma_free_channel(prtd->master_lch);
 		return ret;
 	}
+	prtd->slave_lch = ret;
 
-	/* Link slave DMA channel in loopback */
-	davinci_dma_link_lch(prtd->slave_lch, prtd->slave_lch);
+	/* Issue transfer completion IRQ when the channel completes a
+	 * transfer, then always reload from the same slot (by a kind
+	 * of loopback link).  The completion IRQ handler will update
+	 * the reload slot with a new buffer.
+	 *
+	 * REVISIT save p_ram here after setting up everything except
+	 * the buffer and its length (ccnt) ... use it as a template
+	 * so davinci_pcm_enqueue_dma() takes less time in IRQ.
+	 */
+	edma_read_slot(prtd->slave_lch, &p_ram);
+	p_ram.opt |= TCINTEN | EDMA_TCC(prtd->master_lch);
+	p_ram.link_bcntrld = prtd->slave_lch << 5;
+	edma_write_slot(prtd->slave_lch, &p_ram);
 
 	return 0;
 }
@@ -171,12 +178,12 @@ static int davinci_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
-		davinci_start_dma(prtd->master_lch);
+		edma_start(prtd->master_lch);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
-		davinci_stop_dma(prtd->master_lch);
+		edma_stop(prtd->master_lch);
 		break;
 	default:
 		ret = -EINVAL;
@@ -191,14 +198,14 @@ static int davinci_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 static int davinci_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	struct davinci_runtime_data *prtd = substream->runtime->private_data;
-	struct paramentry_descriptor temp;
+	struct edmacc_param temp;
 
 	prtd->period = 0;
 	davinci_pcm_enqueue_dma(substream);
 
-	/* Get slave channel dma params for master channel startup */
-	davinci_get_dma_params(prtd->slave_lch, &temp);
-	davinci_set_dma_params(prtd->master_lch, &temp);
+	/* Copy self-linked parameter RAM entry into master channel */
+	edma_read_slot(prtd->slave_lch, &temp);
+	edma_write_slot(prtd->master_lch, &temp);
 
 	return 0;
 }
@@ -214,11 +221,11 @@ davinci_pcm_pointer(struct snd_pcm_substream *substream)
 
 	spin_lock(&prtd->lock);
 
-	davinci_dma_getposition(prtd->master_lch, &src, &dst);
+	edma_get_position(prtd->master_lch, &src, &dst);
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		count = src - runtime->dma_addr;
 	else
-		count = dst - runtime->dma_addr;;
+		count = dst - runtime->dma_addr;
 
 	spin_unlock(&prtd->lock);
 
@@ -259,10 +266,10 @@ static int davinci_pcm_close(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct davinci_runtime_data *prtd = runtime->private_data;
 
-	davinci_dma_unlink_lch(prtd->slave_lch, prtd->slave_lch);
+	edma_unlink(prtd->slave_lch);
 
-	davinci_free_dma(prtd->slave_lch);
-	davinci_free_dma(prtd->master_lch);
+	edma_free_slot(prtd->slave_lch);
+	edma_free_channel(prtd->master_lch);
 
 	kfree(prtd);
 
@@ -292,7 +299,7 @@ static int davinci_pcm_mmap(struct snd_pcm_substream *substream,
 				     runtime->dma_bytes);
 }
 
-struct snd_pcm_ops davinci_pcm_ops = {
+static struct snd_pcm_ops davinci_pcm_ops = {
 	.open = 	davinci_pcm_open,
 	.close = 	davinci_pcm_close,
 	.ioctl = 	snd_pcm_lib_ioctl,
@@ -316,8 +323,8 @@ static int davinci_pcm_preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 	buf->area = dma_alloc_writecombine(pcm->card->dev, size,
 					   &buf->addr, GFP_KERNEL);
 
-	DPRINTK("preallocate_dma_buffer: area=%p, addr=%p, size=%d\n",
-		(void *) buf->area, (void *) buf->addr, size);
+	pr_debug("davinci_pcm: preallocate_dma_buffer: area=%p, addr=%p, "
+		"size=%d\n", (void *) buf->area, (void *) buf->addr, size);
 
 	if (!buf->area)
 		return -ENOMEM;
@@ -383,6 +390,18 @@ struct snd_soc_platform davinci_soc_platform = {
 	.pcm_free = 	davinci_pcm_free,
 };
 EXPORT_SYMBOL_GPL(davinci_soc_platform);
+
+static int __init davinci_soc_platform_init(void)
+{
+	return snd_soc_register_platform(&davinci_soc_platform);
+}
+module_init(davinci_soc_platform_init);
+
+static void __exit davinci_soc_platform_exit(void)
+{
+	snd_soc_unregister_platform(&davinci_soc_platform);
+}
+module_exit(davinci_soc_platform_exit);
 
 MODULE_AUTHOR("Vladimir Barinov");
 MODULE_DESCRIPTION("TI DAVINCI PCM DMA module");

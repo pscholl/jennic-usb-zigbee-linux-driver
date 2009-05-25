@@ -378,7 +378,8 @@ static struct inode *befs_iget(struct super_block *sb, unsigned long ino)
 		inode->i_size = 0;
 		inode->i_blocks = befs_sb->block_size / VFS_BLOCK_SIZE;
 		strncpy(befs_ino->i_data.symlink, raw_inode->data.symlink,
-			BEFS_SYMLINK_LEN);
+			BEFS_SYMLINK_LEN - 1);
+		befs_ino->i_data.symlink[BEFS_SYMLINK_LEN - 1] = '\0';
 	} else {
 		int num_blks;
 
@@ -477,6 +478,8 @@ befs_follow_link(struct dentry *dentry, struct nameidata *nd)
 			kfree(link);
 			befs_error(sb, "Failed to read entire long symlink");
 			link = ERR_PTR(-EIO);
+		} else {
+			link[len - 1] = '\0';
 		}
 	} else {
 		link = befs_ino->i_data.symlink;
@@ -897,6 +900,7 @@ static int
 befs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct super_block *sb = dentry->d_sb;
+	u64 id = huge_encode_dev(sb->s_bdev->bd_dev);
 
 	befs_debug(sb, "---> befs_statfs()");
 
@@ -907,6 +911,8 @@ befs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bavail = buf->f_bfree;
 	buf->f_files = 0;	/* UNKNOWN */
 	buf->f_ffree = 0;	/* UNKNOWN */
+	buf->f_fsid.val[0] = (u32)id;
+	buf->f_fsid.val[1] = (u32)(id >> 32);
 	buf->f_namelen = BEFS_NAME_LEN;
 
 	befs_debug(sb, "<--- befs_statfs()");

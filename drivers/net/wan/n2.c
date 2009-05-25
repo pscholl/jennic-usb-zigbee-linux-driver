@@ -53,7 +53,7 @@ static const char* devname = "RISCom/N2";
 #define NEED_SCA_MSCI_INTR
 #define MAX_TX_BUFFERS 10
 
-static char *hw = NULL;	/* pointer to hw=xxx command line string */
+static char *hw;	/* pointer to hw=xxx command line string */
 
 /* RISCom/N2 Board Registers */
 
@@ -145,7 +145,6 @@ static card_t **new_card = &first_card;
 					 &(card)->ports[port] : NULL)
 
 
-
 static __inline__ u8 sca_get_page(card_t *card)
 {
 	return inb(card->io + N2_PSR) & PSR_PAGEBITS;
@@ -159,9 +158,7 @@ static __inline__ void openwin(card_t *card, u8 page)
 }
 
 
-
-#include "hd6457x.c"
-
+#include "hd64570.c"
 
 
 static void n2_set_iface(port_t *port)
@@ -327,7 +324,13 @@ static void n2_destroy_card(card_t *card)
 	kfree(card);
 }
 
-
+static const struct net_device_ops n2_ops = {
+	.ndo_open       = n2_open,
+	.ndo_stop       = n2_close,
+	.ndo_change_mtu = hdlc_change_mtu,
+	.ndo_start_xmit = hdlc_start_xmit,
+	.ndo_do_ioctl   = n2_ioctl,
+};
 
 static int __init n2_run(unsigned long io, unsigned long irq,
 			 unsigned long winbase, long valid0, long valid1)
@@ -463,9 +466,7 @@ static int __init n2_run(unsigned long io, unsigned long irq,
 		dev->mem_start = winbase;
 		dev->mem_end = winbase + USE_WINDOWSIZE - 1;
 		dev->tx_queue_len = 50;
-		dev->do_ioctl = n2_ioctl;
-		dev->open = n2_open;
-		dev->stop = n2_close;
+		dev->netdev_ops = &n2_ops;
 		hdlc->attach = sca_attach;
 		hdlc->xmit = sca_xmit;
 		port->settings.clock_type = CLOCK_EXT;
@@ -478,7 +479,7 @@ static int __init n2_run(unsigned long io, unsigned long irq,
 			n2_destroy_card(card);
 			return -ENOBUFS;
 		}
-		sca_init_sync_port(port); /* Set up SCA memory */
+		sca_init_port(port); /* Set up SCA memory */
 
 		printk(KERN_INFO "%s: RISCom/N2 node %d\n",
 		       dev->name, port->phy_node);

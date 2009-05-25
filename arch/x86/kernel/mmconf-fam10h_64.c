@@ -13,8 +13,7 @@
 #include <asm/msr.h>
 #include <asm/acpi.h>
 #include <asm/mmconfig.h>
-
-#include "../pci/pci.h"
+#include <asm/pci_x86.h>
 
 struct pci_hostbridge_probe {
 	u32 bus;
@@ -227,7 +226,7 @@ static int __devinit set_check_enable_amd_mmconf(const struct dmi_system_id *d)
         return 0;
 }
 
-static struct dmi_system_id __devinitdata mmconf_dmi_table[] = {
+static const struct dmi_system_id __cpuinitconst mmconf_dmi_table[] = {
         {
                 .callback = set_check_enable_amd_mmconf,
                 .ident = "Sun Microsystems Machine",

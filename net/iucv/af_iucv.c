@@ -8,6 +8,9 @@
  *  Author(s):	Jennifer Hunt <jenhunt@us.ibm.com>
  */
 
+#define KMSG_COMPONENT "af_iucv"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/list.h>
@@ -169,6 +172,7 @@ static void iucv_sock_close(struct sock *sk)
 			err = iucv_sock_wait_state(sk, IUCV_CLOSED, 0, timeo);
 		}
 
+	case IUCV_CLOSING:   /* fall through */
 		sk->sk_state = IUCV_CLOSED;
 		sk->sk_state_change(sk);
 
@@ -221,6 +225,8 @@ static struct sock *iucv_sock_alloc(struct socket *sock, int proto, gfp_t prio)
 	spin_lock_init(&iucv_sk(sk)->message_q.lock);
 	skb_queue_head_init(&iucv_sk(sk)->backlog_skb_q);
 	iucv_sk(sk)->send_tag = 0;
+	iucv_sk(sk)->path = NULL;
+	memset(&iucv_sk(sk)->src_user_id , 0, 32);
 
 	sk->sk_destruct = iucv_sock_destruct;
 	sk->sk_sndtimeo = IUCV_CONN_TIMEOUT;
@@ -491,7 +497,21 @@ static int iucv_sock_connect(struct socket *sock, struct sockaddr *addr,
 	if (err) {
 		iucv_path_free(iucv->path);
 		iucv->path = NULL;
-		err = -ECONNREFUSED;
+		switch (err) {
+		case 0x0b:	/* Target communicator is not logged on */
+			err = -ENETUNREACH;
+			break;
+		case 0x0d:	/* Max connections for this guest exceeded */
+		case 0x0e:	/* Max connections for target guest exceeded */
+			err = -EAGAIN;
+			break;
+		case 0x0f:	/* Missing IUCV authorization */
+			err = -EACCES;
+			break;
+		default:
+			err = -ECONNREFUSED;
+			break;
+		}
 		goto done;
 	}
 
@@ -504,6 +524,13 @@ static int iucv_sock_connect(struct socket *sock, struct sockaddr *addr,
 		release_sock(sk);
 		return -ECONNREFUSED;
 	}
+
+	if (err) {
+		iucv_path_sever(iucv->path, NULL);
+		iucv_path_free(iucv->path);
+		iucv->path = NULL;
+	}
+
 done:
 	release_sock(sk);
 	return err;
@@ -616,6 +643,8 @@ static int iucv_sock_sendmsg(struct kiocb *iocb, struct socket *sock,
 	struct iucv_sock *iucv = iucv_sk(sk);
 	struct sk_buff *skb;
 	struct iucv_message txmsg;
+	char user_id[9];
+	char appl_id[9];
 	int err;
 
 	err = sock_error(sk);
@@ -651,8 +680,15 @@ static int iucv_sock_sendmsg(struct kiocb *iocb, struct socket *sock,
 		err = iucv_message_send(iucv->path, &txmsg, 0, 0,
 					(void *) skb->data, skb->len);
 		if (err) {
-			if (err == 3)
-				printk(KERN_ERR "AF_IUCV msg limit exceeded\n");
+			if (err == 3) {
+				user_id[8] = 0;
+				memcpy(user_id, iucv->dst_user_id, 8);
+				appl_id[8] = 0;
+				memcpy(appl_id, iucv->dst_name, 8);
+				pr_err("Application %s on z/VM guest %s"
+				       " exceeds message limit\n",
+				       user_id, appl_id);
+			}
 			skb_unlink(skb, &iucv->send_skb_q);
 			err = -EPIPE;
 			goto fail;
@@ -778,6 +814,8 @@ static int iucv_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 	target = sock_rcvlowat(sk, flags & MSG_WAITALL, len);
 
+	/* receive/dequeue next skb:
+	 * the function understands MSG_PEEK and, thus, does not dequeue skb */
 	skb = skb_recv_datagram(sk, flags, noblock, &err);
 	if (!skb) {
 		if (sk->sk_shutdown & RCV_SHUTDOWN)
@@ -825,9 +863,7 @@ static int iucv_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 				iucv_process_message_q(sk);
 			spin_unlock_bh(&iucv->message_q.lock);
 		}
-
-	} else
-		skb_queue_head(&sk->sk_receive_queue, skb);
+	}
 
 done:
 	return err ? : copied;
@@ -901,6 +937,9 @@ static int iucv_sock_shutdown(struct socket *sock, int how)
 
 	lock_sock(sk);
 	switch (sk->sk_state) {
+	case IUCV_DISCONN:
+	case IUCV_CLOSING:
+	case IUCV_SEVERED:
 	case IUCV_CLOSED:
 		err = -ENOTCONN;
 		goto fail;
@@ -1009,12 +1048,14 @@ static int iucv_callback_connreq(struct iucv_path *path,
 	ASCEBC(user_data, sizeof(user_data));
 	if (sk->sk_state != IUCV_LISTEN) {
 		err = iucv_path_sever(path, user_data);
+		iucv_path_free(path);
 		goto fail;
 	}
 
 	/* Check for backlog size */
 	if (sk_acceptq_is_full(sk)) {
 		err = iucv_path_sever(path, user_data);
+		iucv_path_free(path);
 		goto fail;
 	}
 
@@ -1022,6 +1063,7 @@ static int iucv_callback_connreq(struct iucv_path *path,
 	nsk = iucv_sock_alloc(NULL, SOCK_STREAM, GFP_ATOMIC);
 	if (!nsk) {
 		err = iucv_path_sever(path, user_data);
+		iucv_path_free(path);
 		goto fail;
 	}
 
@@ -1045,6 +1087,8 @@ static int iucv_callback_connreq(struct iucv_path *path,
 	err = iucv_path_accept(path, &af_iucv_handler, nuser_data, nsk);
 	if (err) {
 		err = iucv_path_sever(path, user_data);
+		iucv_path_free(path);
+		iucv_sock_kill(nsk);
 		goto fail;
 	}
 
@@ -1075,8 +1119,12 @@ static void iucv_callback_rx(struct iucv_path *path, struct iucv_message *msg)
 	struct sock_msg_q *save_msg;
 	int len;
 
-	if (sk->sk_shutdown & RCV_SHUTDOWN)
+	if (sk->sk_shutdown & RCV_SHUTDOWN) {
+		iucv_message_reject(path, msg);
 		return;
+	}
+
+	spin_lock(&iucv->message_q.lock);
 
 	if (!list_empty(&iucv->message_q.list) ||
 	    !skb_queue_empty(&iucv->backlog_skb_q))
@@ -1091,9 +1139,8 @@ static void iucv_callback_rx(struct iucv_path *path, struct iucv_message *msg)
 	if (!skb)
 		goto save_message;
 
-	spin_lock(&iucv->message_q.lock);
 	iucv_process_message(sk, skb, path, msg);
-	spin_unlock(&iucv->message_q.lock);
+	goto out_unlock;
 
 	return;
 
@@ -1104,8 +1151,9 @@ save_message:
 	save_msg->path = path;
 	save_msg->msg = *msg;
 
-	spin_lock(&iucv->message_q.lock);
 	list_add_tail(&save_msg->list, &iucv->message_q.list);
+
+out_unlock:
 	spin_unlock(&iucv->message_q.lock);
 }
 
@@ -1133,8 +1181,7 @@ static void iucv_callback_txdone(struct iucv_path *path,
 
 		spin_unlock_irqrestore(&list->lock, flags);
 
-		if (this)
-			kfree_skb(this);
+		kfree_skb(this);
 	}
 	BUG_ON(!this);
 
@@ -1190,7 +1237,8 @@ static int __init afiucv_init(void)
 	int err;
 
 	if (!MACHINE_IS_VM) {
-		printk(KERN_ERR "AF_IUCV connection needs VM as base\n");
+		pr_err("The af_iucv module cannot be loaded"
+		       " without z/VM\n");
 		err = -EPROTONOSUPPORT;
 		goto out;
 	}

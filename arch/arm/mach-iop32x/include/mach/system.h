@@ -7,15 +7,16 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-
 #include <asm/mach-types.h>
+#include <asm/hardware/iop3xx.h>
+#include <mach/n2100.h>
 
 static inline void arch_idle(void)
 {
 	cpu_do_idle();
 }
 
-static inline void arch_reset(char mode)
+static inline void arch_reset(char mode, const char *cmd)
 {
 	local_irq_disable();
 

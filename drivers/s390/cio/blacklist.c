@@ -9,6 +9,9 @@
  *		 Arnd Bergmann (arndb@de.ibm.com)
  */
 
+#define KMSG_COMPONENT "cio"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+
 #include <linux/init.h>
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
@@ -50,9 +53,10 @@ static int blacklist_range(range_action action, unsigned int from_ssid,
 {
 	if ((from_ssid > to_ssid) || ((from_ssid == to_ssid) && (from > to))) {
 		if (msgtrigger)
-			printk(KERN_WARNING "cio: Invalid cio_ignore range "
-			       "0.%x.%04x-0.%x.%04x\n", from_ssid, from,
-			       to_ssid, to);
+			pr_warning("0.%x.%04x to 0.%x.%04x is not a valid "
+				   "range for cio_ignore\n", from_ssid, from,
+				   to_ssid, to);
+
 		return 1;
 	}
 
@@ -140,8 +144,8 @@ static int parse_busid(char *str, unsigned int *cssid, unsigned int *ssid,
 	rc = 0;
 out:
 	if (rc && msgtrigger)
-		printk(KERN_WARNING "cio: Invalid cio_ignore device '%s'\n",
-		       str);
+		pr_warning("%s is not a valid device for the cio_ignore "
+			   "kernel parameter\n", str);
 
 	return rc;
 }
@@ -332,8 +336,7 @@ cio_ignore_write(struct file *file, const char __user *user_buf,
 		 size_t user_len, loff_t *offset)
 {
 	char *buf;
-	size_t i;
-	ssize_t rc, ret;
+	ssize_t rc, ret, i;
 
 	if (*offset)
 		return -EINVAL;

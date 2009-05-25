@@ -333,7 +333,7 @@ static int add_edac_dev_to_global_list(struct edac_device_ctl_info *edac_dev)
 fail0:
 	edac_printk(KERN_WARNING, EDAC_MC,
 			"%s (%s) %s %s already assigned %d\n",
-			rover->dev->bus_id, edac_dev_name(rover),
+			dev_name(rover->dev), edac_dev_name(rover),
 			rover->mod_name, rover->ctl_name, rover->dev_idx);
 	return 1;
 
@@ -389,7 +389,7 @@ static void del_edac_device_from_global_list(struct edac_device_ctl_info
  */
 static void edac_device_workq_function(struct work_struct *work_req)
 {
-	struct delayed_work *d_work = (struct delayed_work *)work_req;
+	struct delayed_work *d_work = to_delayed_work(work_req);
 	struct edac_device_ctl_info *edac_dev = to_edac_device_ctl_work(d_work);
 
 	mutex_lock(&device_ctls_mutex);

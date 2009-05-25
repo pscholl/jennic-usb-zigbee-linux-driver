@@ -3006,7 +3006,7 @@ cleanup1:
 
 cleanup0:
 	if (xceiv)
-		put_device(xceiv->dev);
+		otg_put_transceiver(xceiv);
 
 	if (cpu_is_omap16xx() || cpu_is_omap24xx()) {
 		clk_disable(hhc_clk);
@@ -3034,7 +3034,7 @@ static int __exit omap_udc_remove(struct platform_device *pdev)
 
 	pullup_disable(udc);
 	if (udc->transceiver) {
-		put_device(udc->transceiver->dev);
+		otg_put_transceiver(udc->transceiver);
 		udc->transceiver = NULL;
 	}
 	omap_writew(0, UDC_SYSCON1);
@@ -3104,7 +3104,6 @@ static int omap_udc_resume(struct platform_device *dev)
 /*-------------------------------------------------------------------------*/
 
 static struct platform_driver udc_driver = {
-	.probe		= omap_udc_probe,
 	.remove		= __exit_p(omap_udc_remove),
 	.suspend	= omap_udc_suspend,
 	.resume		= omap_udc_resume,
@@ -3122,7 +3121,7 @@ static int __init udc_init(void)
 #endif
 		"%s\n", driver_desc,
 		use_dma ?  " (dma)" : "");
-	return platform_driver_register(&udc_driver);
+	return platform_driver_probe(&udc_driver, omap_udc_probe);
 }
 module_init(udc_init);
 

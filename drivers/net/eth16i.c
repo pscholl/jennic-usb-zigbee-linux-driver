@@ -475,6 +475,17 @@ out:
 }
 #endif
 
+static const struct net_device_ops eth16i_netdev_ops = {
+	.ndo_open               = eth16i_open,
+	.ndo_stop               = eth16i_close,
+	.ndo_start_xmit    	= eth16i_tx,
+	.ndo_set_multicast_list = eth16i_multicast,
+	.ndo_tx_timeout 	= eth16i_timeout,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 static int __init eth16i_probe1(struct net_device *dev, int ioaddr)
 {
 	struct eth16i_local *lp = netdev_priv(dev);
@@ -549,12 +560,7 @@ static int __init eth16i_probe1(struct net_device *dev, int ioaddr)
 	BITCLR(ioaddr + CONFIG_REG_1, POWERUP);
 
 	/* Initialize the device structure */
-	memset(lp, 0, sizeof(struct eth16i_local));
-	dev->open               = eth16i_open;
-	dev->stop               = eth16i_close;
-	dev->hard_start_xmit    = eth16i_tx;
-	dev->set_multicast_list = eth16i_multicast;
-	dev->tx_timeout 	= eth16i_timeout;
+	dev->netdev_ops         = &eth16i_netdev_ops;
 	dev->watchdog_timeo	= TX_TIMEOUT;
 	spin_lock_init(&lp->lock);
 
@@ -1205,7 +1211,6 @@ static void eth16i_rx(struct net_device *dev)
 				printk(KERN_DEBUG ".\n");
 			}
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += pkt_len;
 
@@ -1466,7 +1471,7 @@ void __exit cleanup_module(void)
 	for(this_dev = 0; this_dev < MAX_ETH16I_CARDS; this_dev++) {
 		struct net_device *dev = dev_eth16i[this_dev];
 
-		if(dev->priv) {
+		if (netdev_priv(dev)) {
 			unregister_netdev(dev);
 			free_irq(dev->irq, dev);
 			release_region(dev->base_addr, ETH16I_IO_EXTENT);
@@ -1475,15 +1480,3 @@ void __exit cleanup_module(void)
 	}
 }
 #endif /* MODULE */
-
-/*
- * Local variables:
- *  compile-command: "gcc -DMODULE -D__KERNEL__ -Wall -Wstrict-prototypes -O6 -c eth16i.c"
- *  alt-compile-command: "gcc -DMODVERSIONS -DMODULE -D__KERNEL__ -Wall -Wstrict -prototypes -O6 -c eth16i.c"
- *  tab-width: 8
- *  c-basic-offset: 8
- *  c-indent-level: 8
- * End:
- */
-
-/* End of file eth16i.c */

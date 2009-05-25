@@ -57,22 +57,23 @@ struct ext4_sb_info {
 	u32 s_next_generation;
 	u32 s_hash_seed[4];
 	int s_def_hash_version;
+	int s_hash_unsigned;	/* 3 if hash should be signed, 0 if not */
 	struct percpu_counter s_freeblocks_counter;
 	struct percpu_counter s_freeinodes_counter;
 	struct percpu_counter s_dirs_counter;
 	struct percpu_counter s_dirtyblocks_counter;
-	struct blockgroup_lock s_blockgroup_lock;
+	struct blockgroup_lock *s_blockgroup_lock;
 	struct proc_dir_entry *s_proc;
-
-	/* root of the per fs reservation window tree */
-	spinlock_t s_rsv_window_lock;
-	struct rb_root s_rsv_window_root;
+	struct kobject s_kobj;
+	struct completion s_kobj_unregister;
 
 	/* Journaling */
 	struct inode *s_journal_inode;
 	struct journal_s *s_journal;
 	struct list_head s_orphan;
 	unsigned long s_commit_interval;
+	u32 s_max_batch_time;
+	u32 s_min_batch_time;
 	struct block_device *journal_bdev;
 #ifdef CONFIG_JBD2_DEBUG
 	struct timer_list turn_ro_timer;	/* For turning read-only (crash simulation) */
@@ -101,7 +102,8 @@ struct ext4_sb_info {
 	spinlock_t s_reserve_lock;
 	spinlock_t s_md_lock;
 	tid_t s_last_transaction;
-	unsigned short *s_mb_offsets, *s_mb_maxs;
+	unsigned short *s_mb_offsets;
+	unsigned int *s_mb_maxs;
 
 	/* tunables */
 	unsigned long s_stripe;
@@ -142,8 +144,18 @@ struct ext4_sb_info {
 	/* locality groups */
 	struct ext4_locality_group *s_locality_groups;
 
+	/* for write statistics */
+	unsigned long s_sectors_written_start;
+	u64 s_kbytes_written;
+
 	unsigned int s_log_groups_per_flex;
 	struct flex_groups *s_flex_groups;
 };
+
+static inline spinlock_t *
+sb_bgl_lock(struct ext4_sb_info *sbi, unsigned int block_group)
+{
+	return bgl_lock_ptr(sbi->s_blockgroup_lock, block_group);
+}
 
 #endif	/* _EXT4_SB */

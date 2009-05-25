@@ -11,6 +11,8 @@
  *
  */
 
+#define KMSG_COMPONENT "dasd"
+
 #include <linux/ctype.h>
 #include <linux/seq_file.h>
 #include <linux/vmalloc.h>
@@ -112,7 +114,7 @@ dasd_devices_show(struct seq_file *m, void *v)
 			seq_printf(m, "n/f	 ");
 		else
 			seq_printf(m,
-				   "at blocksize: %d, %ld blocks, %ld MB",
+				   "at blocksize: %d, %lld blocks, %lld MB",
 				   block->bp_block, block->blocks,
 				   ((block->bp_block >> 9) *
 				    block->blocks) >> 11);
@@ -180,12 +182,12 @@ dasd_calc_metrics(char *page, char **start, off_t off,
 
 #ifdef CONFIG_DASD_PROFILE
 static char *
-dasd_statistics_array(char *str, unsigned int *array, int shift)
+dasd_statistics_array(char *str, unsigned int *array, int factor)
 {
 	int i;
 
 	for (i = 0; i < 32; i++) {
-		str += sprintf(str, "%7d ", array[i] >> shift);
+		str += sprintf(str, "%7d ", array[i] / factor);
 		if (i == 15)
 			str += sprintf(str, "\n");
 	}
@@ -202,7 +204,7 @@ dasd_statistics_read(char *page, char **start, off_t off,
 #ifdef CONFIG_DASD_PROFILE
 	struct dasd_profile_info_t *prof;
 	char *str;
-	int shift;
+	int factor;
 
 	/* check for active profiling */
 	if (dasd_profile_level == DASD_PROFILE_OFF) {
@@ -214,12 +216,14 @@ dasd_statistics_read(char *page, char **start, off_t off,
 
 	prof = &dasd_global_profile;
 	/* prevent couter 'overflow' on output */
-	for (shift = 0; (prof->dasd_io_reqs >> shift) > 9999999; shift++);
+	for (factor = 1; (prof->dasd_io_reqs / factor) > 9999999;
+	     factor *= 10);
 
 	str = page;
 	str += sprintf(str, "%d dasd I/O requests\n", prof->dasd_io_reqs);
-	str += sprintf(str, "with %d sectors(512B each)\n",
+	str += sprintf(str, "with %u sectors(512B each)\n",
 		       prof->dasd_io_sects);
+	str += sprintf(str, "Scale Factor is  %d\n", factor);
 	str += sprintf(str,
 		       "   __<4	   ___8	   __16	   __32	   __64	   _128	"
 		       "   _256	   _512	   __1k	   __2k	   __4k	   __8k	"
@@ -230,22 +234,22 @@ dasd_statistics_read(char *page, char **start, off_t off,
 		       "   __1G	   __2G	   __4G " "   _>4G\n");
 
 	str += sprintf(str, "Histogram of sizes (512B secs)\n");
-	str = dasd_statistics_array(str, prof->dasd_io_secs, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_secs, factor);
 	str += sprintf(str, "Histogram of I/O times (microseconds)\n");
-	str = dasd_statistics_array(str, prof->dasd_io_times, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_times, factor);
 	str += sprintf(str, "Histogram of I/O times per sector\n");
-	str = dasd_statistics_array(str, prof->dasd_io_timps, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_timps, factor);
 	str += sprintf(str, "Histogram of I/O time till ssch\n");
-	str = dasd_statistics_array(str, prof->dasd_io_time1, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_time1, factor);
 	str += sprintf(str, "Histogram of I/O time between ssch and irq\n");
-	str = dasd_statistics_array(str, prof->dasd_io_time2, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_time2, factor);
 	str += sprintf(str, "Histogram of I/O time between ssch "
 			    "and irq per sector\n");
-	str = dasd_statistics_array(str, prof->dasd_io_time2ps, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_time2ps, factor);
 	str += sprintf(str, "Histogram of I/O time between irq and end\n");
-	str = dasd_statistics_array(str, prof->dasd_io_time3, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_time3, factor);
 	str += sprintf(str, "# of req in chanq at enqueuing (1..32) \n");
-	str = dasd_statistics_array(str, prof->dasd_io_nr_req, shift);
+	str = dasd_statistics_array(str, prof->dasd_io_nr_req, factor);
 	len = str - page;
 #else
 	len = sprintf(page, "Statistics are not activated in this kernel\n");
@@ -265,7 +269,7 @@ dasd_statistics_write(struct file *file, const char __user *user_buf,
 	buffer = dasd_get_user_string(user_buf, user_len);
 	if (IS_ERR(buffer))
 		return PTR_ERR(buffer);
-	MESSAGE_LOG(KERN_INFO, "/proc/dasd/statictics: '%s'", buffer);
+	DBF_EVENT(DBF_DEBUG, "/proc/dasd/statictics: '%s'\n", buffer);
 
 	/* check for valid verbs */
 	for (str = buffer; isspace(*str); str++);
@@ -275,33 +279,33 @@ dasd_statistics_write(struct file *file, const char __user *user_buf,
 		if (strcmp(str, "on") == 0) {
 			/* switch on statistics profiling */
 			dasd_profile_level = DASD_PROFILE_ON;
-			MESSAGE(KERN_INFO, "%s", "Statistics switched on");
+			pr_info("The statistics feature has been switched "
+				"on\n");
 		} else if (strcmp(str, "off") == 0) {
 			/* switch off and reset statistics profiling */
 			memset(&dasd_global_profile,
 			       0, sizeof (struct dasd_profile_info_t));
 			dasd_profile_level = DASD_PROFILE_OFF;
-			MESSAGE(KERN_INFO, "%s", "Statistics switched off");
+			pr_info("The statistics feature has been switched "
+				"off\n");
 		} else
 			goto out_error;
 	} else if (strncmp(str, "reset", 5) == 0) {
 		/* reset the statistics */
 		memset(&dasd_global_profile, 0,
 		       sizeof (struct dasd_profile_info_t));
-		MESSAGE(KERN_INFO, "%s", "Statistics reset");
+		pr_info("The statistics have been reset\n");
 	} else
 		goto out_error;
 	kfree(buffer);
 	return user_len;
 out_error:
-	MESSAGE(KERN_WARNING, "%s",
-		"/proc/dasd/statistics: only 'set on', 'set off' "
-		"and 'reset' are supported verbs");
+	pr_warning("%s is not a supported value for /proc/dasd/statistics\n",
+		str);
 	kfree(buffer);
 	return -EINVAL;
 #else
-	MESSAGE(KERN_WARNING, "%s",
-		"/proc/dasd/statistics: is not activated in this kernel");
+	pr_warning("/proc/dasd/statistics: is not activated in this kernel\n");
 	return user_len;
 #endif				/* CONFIG_DASD_PROFILE */
 }
@@ -316,7 +320,6 @@ dasd_proc_init(void)
 	dasd_proc_root_entry = proc_mkdir("dasd", NULL);
 	if (!dasd_proc_root_entry)
 		goto out_nodasd;
-	dasd_proc_root_entry->owner = THIS_MODULE;
 	dasd_devices_entry = proc_create("devices",
 					 S_IFREG | S_IRUGO | S_IWUSR,
 					 dasd_proc_root_entry,
@@ -330,7 +333,6 @@ dasd_proc_init(void)
 		goto out_nostatistics;
 	dasd_statistics_entry->read_proc = dasd_statistics_read;
 	dasd_statistics_entry->write_proc = dasd_statistics_write;
-	dasd_statistics_entry->owner = THIS_MODULE;
 	return 0;
 
  out_nostatistics:

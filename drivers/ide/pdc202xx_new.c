@@ -143,7 +143,7 @@ static struct udma_timing {
 
 static void pdcnew_set_dma_mode(ide_drive_t *drive, const u8 speed)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	u8 adj			= (drive->dn & 1) ? 0x08 : 0x00;
 
@@ -219,7 +219,7 @@ static void pdcnew_reset(ide_drive_t *drive)
 	 * Deleted this because it is redundant from the caller.
 	 */
 	printk(KERN_WARNING "pdc202xx_new: %s channel reset.\n",
-		HWIF(drive)->channel ? "Secondary" : "Primary");
+		drive->hwif->channel ? "Secondary" : "Primary");
 }
 
 /**
@@ -325,7 +325,7 @@ static void apple_kiwi_init(struct pci_dev *pdev)
 }
 #endif /* CONFIG_PPC_PMAC */
 
-static unsigned int init_chipset_pdcnew(struct pci_dev *dev)
+static int init_chipset_pdcnew(struct pci_dev *dev)
 {
 	const char *name = DRV_NAME;
 	unsigned long dma_base = pci_resource_start(dev, 4);
@@ -444,7 +444,7 @@ static unsigned int init_chipset_pdcnew(struct pci_dev *dev)
 #endif
 
  out:
-	return dev->irq;
+	return 0;
 }
 
 static struct pci_dev * __devinit pdc20270_get_dev2(struct pci_dev *dev)

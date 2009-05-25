@@ -18,7 +18,7 @@ enum cpu_type {
 	CPU_SH7619,
 
 	/* SH-2A types */
-	CPU_SH7203, CPU_SH7206, CPU_SH7263, CPU_MXG,
+	CPU_SH7201, CPU_SH7203, CPU_SH7206, CPU_SH7263, CPU_MXG,
 
 	/* SH-3 types */
 	CPU_SH7705, CPU_SH7706, CPU_SH7707,
@@ -31,7 +31,7 @@ enum cpu_type {
 	CPU_SH7760, CPU_SH4_202, CPU_SH4_501,
 
 	/* SH-4A types */
-	CPU_SH7763, CPU_SH7770, CPU_SH7780, CPU_SH7781, CPU_SH7785,
+	CPU_SH7763, CPU_SH7770, CPU_SH7780, CPU_SH7781, CPU_SH7785, CPU_SH7786,
 	CPU_SH7723, CPU_SHX3,
 
 	/* SH4AL-DSP types */
@@ -81,6 +81,9 @@ extern struct sh_cpuinfo cpu_data[];
 #define boot_cpu_data cpu_data[0]
 #define current_cpu_data cpu_data[smp_processor_id()]
 #define raw_current_cpu_data cpu_data[raw_smp_processor_id()]
+
+#define cpu_sleep()	__asm__ __volatile__ ("sleep" : : : "memory")
+#define cpu_relax()	barrier()
 
 /* Forward decl */
 struct seq_operations;

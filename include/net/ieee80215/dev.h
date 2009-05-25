@@ -36,7 +36,7 @@ struct ieee80215_pib {
 #define IEEE80215_PIB_CCAMODE	3 /* CCA mode, u8 6.7.9 */
 
 struct ieee80215_dev {
-	char	*name;
+	const char *name;
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
 	void	*priv;		/* driver-specific data */
 	u32	channel_mask;
@@ -56,7 +56,7 @@ struct ieee80215_ops {
 	phy_status_t (*ed)(struct ieee80215_dev *dev, u8 *level);
 	phy_status_t (*set_trx_state)(struct ieee80215_dev *dev, phy_status_t state);
 	phy_status_t (*set_channel)(struct ieee80215_dev *dev, int channel);
-	// FIXME: PIB get/set ???
+	/* FIXME: PIB get/set ??? */
 };
 
 #ifdef __KERNEL__
@@ -87,7 +87,7 @@ void ieee80215_unregister_device(struct ieee80215_dev *dev);
 void ieee80215_free_device(struct ieee80215_dev *dev);
 
 int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr);
-//void ieee80215_del_slave(struct ieee80215_dev *hw, struct net_device *slave);
+/* void ieee80215_del_slave(struct ieee80215_dev *hw, struct net_device *slave); */
 void ieee80215_drop_slaves(struct ieee80215_dev *hw);
 
 void ieee80215_rx(struct ieee80215_dev *dev, struct sk_buff *skb, u8 lqi);

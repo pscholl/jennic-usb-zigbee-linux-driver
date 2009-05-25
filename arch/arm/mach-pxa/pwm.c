@@ -20,7 +20,6 @@
 #include <linux/pwm.h>
 
 #include <asm/div64.h>
-#include <mach/pxa-regs.h>
 
 /* PWM registers and bits definitions */
 #define PWMCR		(0x00)
@@ -173,7 +172,7 @@ static struct pwm_device *pwm_probe(struct platform_device *pdev,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	pwm->clk = clk_get(&pdev->dev, "PWMCLK");
+	pwm->clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(pwm->clk)) {
 		ret = PTR_ERR(pwm->clk);
 		goto err_free;

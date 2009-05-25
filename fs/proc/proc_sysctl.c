@@ -7,7 +7,7 @@
 #include <linux/security.h>
 #include "internal.h"
 
-static struct dentry_operations proc_sys_dentry_operations;
+static const struct dentry_operations proc_sys_dentry_operations;
 static const struct file_operations proc_sys_file_operations;
 static const struct inode_operations proc_sys_inode_operations;
 static const struct file_operations proc_sys_dir_file_operations;
@@ -31,7 +31,6 @@ static struct inode *proc_sys_make_inode(struct super_block *sb,
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
 	inode->i_flags |= S_PRIVATE; /* tell selinux to ignore this inode */
 	inode->i_mode = table->mode;
-	inode->i_uid = inode->i_gid = 0;
 	if (!table->child) {
 		inode->i_mode |= S_IFREG;
 		inode->i_op = &proc_sys_inode_operations;
@@ -397,7 +396,7 @@ static int proc_sys_compare(struct dentry *dir, struct qstr *qstr,
 	return !sysctl_is_seen(PROC_I(dentry->d_inode)->sysctl);
 }
 
-static struct dentry_operations proc_sys_dentry_operations = {
+static const struct dentry_operations proc_sys_dentry_operations = {
 	.d_revalidate	= proc_sys_revalidate,
 	.d_delete	= proc_sys_delete,
 	.d_compare	= proc_sys_compare,

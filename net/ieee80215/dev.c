@@ -131,7 +131,7 @@ static int ieee80215_slave_mac_addr(struct net_device *dev, void *p)
 
 	if (netif_running(dev))
 		return -EBUSY;
-	// FIXME: validate addr
+	/* FIXME: validate addr */
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
 	return 0;
 }
@@ -326,7 +326,6 @@ static void ieee80215_netdev_setup(struct net_device *dev)
 	dev->hard_header_len	= 2 + 1 + 20 + 14;
 	dev->header_ops		= &ieee80215_header_ops;
 	dev->needed_tailroom	= 2; /* FCS */
-	dev->set_mac_address	= ieee80215_slave_mac_addr;
 	dev->mtu		= 127;
 	dev->tx_queue_len	= 10;
 	dev->type		= ARPHRD_IEEE80215;
@@ -339,6 +338,14 @@ static void ieee80215_init_seq(struct ieee80215_priv *priv)
 	get_random_bytes(&priv->bsn, 1);
 	get_random_bytes(&priv->dsn, 1);
 }
+
+static const struct net_device_ops ieee80215_slave_ops = {
+	.ndo_open		= ieee80215_slave_open,
+	.ndo_stop		= ieee80215_slave_close,
+	.ndo_start_xmit		= ieee80215_net_xmit,
+	.ndo_do_ioctl		= ieee80215_slave_ioctl,
+	.ndo_set_mac_address	= ieee80215_slave_mac_addr,
+};
 
 int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 {
@@ -362,11 +369,8 @@ int ieee80215_add_slave(struct ieee80215_dev *hw, const u8 *addr)
 	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	memcpy(dev->dev_addr, addr, dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
-	dev->open = ieee80215_slave_open;
-	dev->stop = ieee80215_slave_close;
-	dev->hard_start_xmit = ieee80215_net_xmit;
 	dev->priv_flags = IFF_SLAVE_INACTIVE;
-	dev->do_ioctl = ieee80215_slave_ioctl;
+	dev->netdev_ops = &ieee80215_slave_ops;
 
 	priv->pan_id = IEEE80215_PANID_DEF;
 	priv->short_addr = IEEE80215_SHORT_ADDRESS_DEF;
@@ -470,7 +474,7 @@ static int ieee80215_process_beacon(struct net_device *dev, struct sk_buff *skb)
 		ret = NET_RX_DROP;
 		goto fail;
 	}
-	printk("got beacon from pan %d\n", MAC_CB(skb)->sa.pan_id);
+	dev_dbg(&dev->dev, "got beacon from pan %d\n", MAC_CB(skb)->sa.pan_id);
 	ieee80215_beacon_hash_add(&MAC_CB(skb)->sa);
 	ieee80215_beacon_hash_dump();
 	ret = NET_RX_SUCCESS;
@@ -500,7 +504,7 @@ static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_bu
 	switch (MAC_CB(skb)->da.addr_type) {
 	case IEEE80215_ADDR_NONE:
 		if (MAC_CB(skb)->sa.addr_type != IEEE80215_ADDR_NONE)
-			// FIXME: check if we are PAN coordinator :)
+			/* FIXME: check if we are PAN coordinator :) */
 			skb->pkt_type = PACKET_OTHERHOST;
 		else
 			/* ACK comes with both addresses empty */
@@ -512,7 +516,7 @@ static int ieee80215_subif_frame(struct ieee80215_netdev_priv *ndp, struct sk_bu
 		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE80215_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
 		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE80215_ADDR_LEN))
-			// FIXME: is this correct?
+			/* FIXME: is this correct? */
 			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
@@ -717,7 +721,7 @@ void ieee80215_subif_rx(struct ieee80215_dev *hw, struct sk_buff *skb)
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
 		}
-		// FIXME: check CRC if necessary
+		/* FIXME: check CRC if necessary */
 		skb_trim(skb, skb->len - 2); /* CRC */
 	}
 
@@ -835,7 +839,7 @@ void ieee80215_dev_set_channel(struct net_device *dev, u8 val)
 	priv->chan = val;
 }
 
-// FIXME: come with better solution
+/* FIXME: come with better solution */
 struct ieee80215_priv *ieee80215_slave_get_hw(struct net_device *dev)
 {
 	struct ieee80215_netdev_priv *priv;

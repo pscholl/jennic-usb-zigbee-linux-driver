@@ -23,7 +23,6 @@
 #include <linux/fs.h>
 #include <linux/root_dev.h>
 #include <linux/console.h>
-#include <linux/kexec.h>
 #include <linux/bootmem.h>
 
 #include <asm/machdep.h>
@@ -42,9 +41,9 @@
 #define DBG pr_debug
 #endif
 
-#if !defined(CONFIG_SMP)
-static void smp_send_stop(void) {}
-#endif
+/* mutex synchronizing GPU accesses and video mode changes */
+DEFINE_MUTEX(ps3_gpu_mutex);
+EXPORT_SYMBOL_GPL(ps3_gpu_mutex);
 
 static union ps3_firmware_version ps3_firmware_version;
 
@@ -183,7 +182,7 @@ early_param("ps3flash", early_parse_ps3flash);
 #define prealloc_ps3flash_bounce_buffer()	do { } while (0)
 #endif
 
-static int ps3_set_dabr(u64 dabr)
+static int ps3_set_dabr(unsigned long dabr)
 {
 	enum {DABR_USER = 1, DABR_KERNEL = 2,};
 
@@ -267,8 +266,6 @@ define_machine(ps3) {
 	.init_IRQ			= ps3_init_IRQ,
 	.panic				= ps3_panic,
 	.get_boot_time			= ps3_get_boot_time,
-	.set_rtc_time			= ps3_set_rtc_time,
-	.get_rtc_time			= ps3_get_rtc_time,
 	.set_dabr			= ps3_set_dabr,
 	.calibrate_decr			= ps3_calibrate_decr,
 	.progress			= ps3_progress,
@@ -277,8 +274,5 @@ define_machine(ps3) {
 	.halt				= ps3_halt,
 #if defined(CONFIG_KEXEC)
 	.kexec_cpu_down			= ps3_kexec_cpu_down,
-	.machine_kexec			= default_machine_kexec,
-	.machine_kexec_prepare		= default_machine_kexec_prepare,
-	.machine_crash_shutdown		= default_machine_crash_shutdown,
 #endif
 };

@@ -3,7 +3,6 @@
  * Some code has been taken from tusb6010.c
  * Copyrights for that are attributable to:
  * Copyright (C) 2006 Nokia Corporation
- * Jarkko Nikula <jarkko.nikula@nokia.com>
  * Tony Lindgren <tony@atomide.com>
  *
  * This file is part of the Inventra Controller Driver for Linux.
@@ -58,9 +57,9 @@ static void musb_do_idle(unsigned long _musb)
 #endif
 	u8	devctl;
 
-	devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
-
 	spin_lock_irqsave(&musb->lock, flags);
+
+	devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
 
 	switch (musb->xceiv.state) {
 	case OTG_STATE_A_WAIT_BCON:
@@ -196,7 +195,7 @@ static int omap_set_power(struct otg_transceiver *x, unsigned mA)
 
 static int musb_platform_resume(struct musb *musb);
 
-void musb_platform_set_mode(struct musb *musb, u8 musb_mode)
+int musb_platform_set_mode(struct musb *musb, u8 musb_mode)
 {
 	u8	devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
 
@@ -204,15 +203,24 @@ void musb_platform_set_mode(struct musb *musb, u8 musb_mode)
 	musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
 
 	switch (musb_mode) {
+#ifdef CONFIG_USB_MUSB_HDRC_HCD
 	case MUSB_HOST:
 		otg_set_host(&musb->xceiv, musb->xceiv.host);
 		break;
+#endif
+#ifdef CONFIG_USB_GADGET_MUSB_HDRC
 	case MUSB_PERIPHERAL:
 		otg_set_peripheral(&musb->xceiv, musb->xceiv.gadget);
 		break;
+#endif
+#ifdef CONFIG_USB_MUSB_OTG
 	case MUSB_OTG:
 		break;
+#endif
+	default:
+		return -EINVAL;
 	}
+	return 0;
 }
 
 int __init musb_platform_init(struct musb *musb)

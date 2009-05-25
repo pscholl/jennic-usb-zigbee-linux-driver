@@ -14,8 +14,6 @@
 
 KBUILD_DEFCONFIG := ip22_defconfig
 
-cflags-y := -ffunction-sections
-
 #
 # Select the object file format to substitute into the linker script.
 #
@@ -49,6 +47,9 @@ ifneq ($(SUBARCH),$(ARCH))
     CROSS_COMPILE := $(call cc-cross-prefix, $(tool-archpref)-linux-  $(tool-archpref)-linux-gnu-  $(tool-archpref)-unknown-linux-gnu-)
   endif
 endif
+
+cflags-y := -ffunction-sections
+cflags-y += $(call cc-option, -mno-check-zero-division)
 
 ifdef CONFIG_32BIT
 ld-emul			= $(32bit-emul)
@@ -144,6 +145,10 @@ cflags-$(CONFIG_CPU_SB1)	+= $(call cc-option,-march=sb1,-march=r5000) \
 cflags-$(CONFIG_CPU_R8000)	+= -march=r8000 -Wa,--trap
 cflags-$(CONFIG_CPU_R10000)	+= $(call cc-option,-march=r10000,-march=r8000) \
 			-Wa,--trap
+cflags-$(CONFIG_CPU_CAVIUM_OCTEON) += $(call cc-option,-march=octeon) -Wa,--trap
+ifeq (,$(findstring march=octeon, $(cflags-$(CONFIG_CPU_CAVIUM_OCTEON))))
+cflags-$(CONFIG_CPU_CAVIUM_OCTEON) += -Wa,-march=octeon
+endif
 
 cflags-$(CONFIG_CPU_R4000_WORKAROUNDS)	+= $(call cc-option,-mfix-r4000,)
 cflags-$(CONFIG_CPU_R4400_WORKAROUNDS)	+= $(call cc-option,-mfix-r4400,)
@@ -184,84 +189,84 @@ cflags-$(CONFIG_SOC_AU1X00)	+= -I$(srctree)/arch/mips/include/asm/mach-au1x00
 #
 # AMD Alchemy Pb1000 eval board
 #
-libs-$(CONFIG_MIPS_PB1000)	+= arch/mips/alchemy/pb1000/
+core-$(CONFIG_MIPS_PB1000)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_PB1000)	+= -I$(srctree)/arch/mips/include/asm/mach-pb1x00
 load-$(CONFIG_MIPS_PB1000)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Pb1100 eval board
 #
-libs-$(CONFIG_MIPS_PB1100)	+= arch/mips/alchemy/pb1100/
+core-$(CONFIG_MIPS_PB1100)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_PB1100)	+= -I$(srctree)/arch/mips/include/asm/mach-pb1x00
 load-$(CONFIG_MIPS_PB1100)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Pb1500 eval board
 #
-libs-$(CONFIG_MIPS_PB1500)	+= arch/mips/alchemy/pb1500/
+core-$(CONFIG_MIPS_PB1500)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_PB1500)	+= -I$(srctree)/arch/mips/include/asm/mach-pb1x00
 load-$(CONFIG_MIPS_PB1500)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Pb1550 eval board
 #
-libs-$(CONFIG_MIPS_PB1550)	+= arch/mips/alchemy/pb1550/
+core-$(CONFIG_MIPS_PB1550)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_PB1550)	+= -I$(srctree)/arch/mips/include/asm/mach-pb1x00
 load-$(CONFIG_MIPS_PB1550)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Pb1200 eval board
 #
-libs-$(CONFIG_MIPS_PB1200)	+= arch/mips/alchemy/pb1200/
+core-$(CONFIG_MIPS_PB1200)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_PB1200)	+= -I$(srctree)/arch/mips/include/asm/mach-pb1x00
 load-$(CONFIG_MIPS_PB1200)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Db1000 eval board
 #
-libs-$(CONFIG_MIPS_DB1000)	+= arch/mips/alchemy/db1x00/
+core-$(CONFIG_MIPS_DB1000)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_DB1000)	+= -I$(srctree)/arch/mips/include/asm/mach-db1x00
 load-$(CONFIG_MIPS_DB1000)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Db1100 eval board
 #
-libs-$(CONFIG_MIPS_DB1100)	+= arch/mips/alchemy/db1x00/
+core-$(CONFIG_MIPS_DB1100)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_DB1100)	+= -I$(srctree)/arch/mips/include/asm/mach-db1x00
 load-$(CONFIG_MIPS_DB1100)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Db1500 eval board
 #
-libs-$(CONFIG_MIPS_DB1500)	+= arch/mips/alchemy/db1x00/
+core-$(CONFIG_MIPS_DB1500)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_DB1500)	+= -I$(srctree)/arch/mips/include/asm/mach-db1x00
 load-$(CONFIG_MIPS_DB1500)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Db1550 eval board
 #
-libs-$(CONFIG_MIPS_DB1550)	+= arch/mips/alchemy/db1x00/
+core-$(CONFIG_MIPS_DB1550)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_DB1550)	+= -I$(srctree)/arch/mips/include/asm/mach-db1x00
 load-$(CONFIG_MIPS_DB1550)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Db1200 eval board
 #
-libs-$(CONFIG_MIPS_DB1200)	+= arch/mips/alchemy/pb1200/
+core-$(CONFIG_MIPS_DB1200)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_DB1200)	+= -I$(srctree)/arch/mips/include/asm/mach-db1x00
 load-$(CONFIG_MIPS_DB1200)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Bosporus eval board
 #
-libs-$(CONFIG_MIPS_BOSPORUS)	+= arch/mips/alchemy/db1x00/
+core-$(CONFIG_MIPS_BOSPORUS)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_BOSPORUS)	+= -I$(srctree)/arch/mips/include/asm/mach-db1x00
 load-$(CONFIG_MIPS_BOSPORUS)	+= 0xffffffff80100000
 
 #
 # AMD Alchemy Mirage eval board
 #
-libs-$(CONFIG_MIPS_MIRAGE)	+= arch/mips/alchemy/db1x00/
+core-$(CONFIG_MIPS_MIRAGE)	+= arch/mips/alchemy/devboards/
 cflags-$(CONFIG_MIPS_MIRAGE)	+= -I$(srctree)/arch/mips/include/asm/mach-db1x00
 load-$(CONFIG_MIPS_MIRAGE)	+= 0xffffffff80100000
 
@@ -412,7 +417,7 @@ load-$(CONFIG_PNX8550_STB810)	+= 0xffffffff80060000
 #
 # Common NEC EMMAXXX
 #
-core-$(CONFIG_SOC_EMMA)		+= arch/mips/emma/common/
+core-$(CONFIG_SOC_EMMA2RH)	+= arch/mips/emma/common/
 cflags-$(CONFIG_SOC_EMMA2RH)	+= -I$(srctree)/arch/mips/include/asm/mach-emma2rh
 
 #
@@ -586,6 +591,18 @@ core-$(CONFIG_TOSHIBA_RBTX4927)	+= arch/mips/txx9/rbtx4927/
 core-$(CONFIG_TOSHIBA_RBTX4938) += arch/mips/txx9/rbtx4938/
 core-$(CONFIG_TOSHIBA_RBTX4939) += arch/mips/txx9/rbtx4939/
 
+#
+# Cavium Octeon
+#
+core-$(CONFIG_CPU_CAVIUM_OCTEON)	+= arch/mips/cavium-octeon/
+cflags-$(CONFIG_CPU_CAVIUM_OCTEON)	+= -I$(srctree)/arch/mips/include/asm/mach-cavium-octeon
+core-$(CONFIG_CPU_CAVIUM_OCTEON)	+= arch/mips/cavium-octeon/executive/
+ifdef CONFIG_CAVIUM_OCTEON_2ND_KERNEL
+load-$(CONFIG_CPU_CAVIUM_OCTEON)	+= 0xffffffff84100000
+else
+load-$(CONFIG_CPU_CAVIUM_OCTEON) 	+= 0xffffffff81100000
+endif
+
 cflags-y			+= -I$(srctree)/arch/mips/include/asm/mach-generic
 drivers-$(CONFIG_PCI)		+= arch/mips/pci/
 
@@ -704,11 +721,17 @@ ifdef CONFIG_MIPS32_O32
 	$(Q)$(MAKE) $(build)=. missing-syscalls EXTRA_CFLAGS="-mabi=32"
 endif
 
+install:
+	$(Q)install -D -m 755 vmlinux $(INSTALL_PATH)/vmlinux-$(KERNELRELEASE)
+	$(Q)install -D -m 644 .config $(INSTALL_PATH)/config-$(KERNELRELEASE)
+	$(Q)install -D -m 644 System.map $(INSTALL_PATH)/System.map-$(KERNELRELEASE)
+
 archclean:
 	@$(MAKE) $(clean)=arch/mips/boot
 	@$(MAKE) $(clean)=arch/mips/lasat
 
 define archhelp
+	echo '  install              - install kernel into $(INSTALL_PATH)'
 	echo '  vmlinux.ecoff        - ECOFF boot image'
 	echo '  vmlinux.bin          - Raw binary boot image'
 	echo '  vmlinux.srec         - SREC boot image'

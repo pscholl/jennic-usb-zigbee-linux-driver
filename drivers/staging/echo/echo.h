@@ -23,8 +23,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
- * $Id: echo.h,v 1.9 2006/10/24 13:45:28 steveu Exp $
  */
 
 #ifndef __ECHO_H
@@ -149,8 +147,8 @@ struct oslec_state {
 	int Lbgn, Lbgn_acc, Lbgn_upper, Lbgn_upper_acc;
 
 	/* foreground and background filter states */
-	fir16_state_t fir_state;
-	fir16_state_t fir_state_bg;
+	struct fir16_state_t fir_state;
+	struct fir16_state_t fir_state_bg;
 	int16_t *fir_taps16[2];
 
 	/* DC blocking filter states */

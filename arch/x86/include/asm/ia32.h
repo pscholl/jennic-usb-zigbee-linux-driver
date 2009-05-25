@@ -129,31 +129,6 @@ typedef struct compat_siginfo {
 	} _sifields;
 } compat_siginfo_t;
 
-struct sigframe32 {
-	u32 pretcode;
-	int sig;
-	struct sigcontext_ia32 sc;
-	struct _fpstate_ia32 fpstate;
-	unsigned int extramask[_COMPAT_NSIG_WORDS-1];
-};
-
-struct rt_sigframe32 {
-	u32 pretcode;
-	int sig;
-	u32 pinfo;
-	u32 puc;
-	compat_siginfo_t info;
-	struct ucontext_ia32 uc;
-	struct _fpstate_ia32 fpstate;
-};
-
-struct ustat32 {
-	__u32			f_tfree;
-	compat_ino_t		f_tinode;
-	char			f_fname[6];
-	char			f_fpack[6];
-};
-
 #define IA32_STACK_TOP IA32_PAGE_OFFSET
 
 #ifdef __KERNEL__

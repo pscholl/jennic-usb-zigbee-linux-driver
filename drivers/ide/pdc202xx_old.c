@@ -39,7 +39,7 @@ static void pdc_old_disable_66MHz_clock(ide_hwif_t *);
 
 static void pdc202xx_set_mode(ide_drive_t *drive, const u8 speed)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	u8 drive_pci		= 0x60 + (drive->dn << 2);
 
@@ -169,8 +169,8 @@ static void pdc202xx_dma_start(ide_drive_t *drive)
 	if (drive->current_speed > XFER_UDMA_2)
 		pdc_old_enable_66MHz_clock(drive->hwif);
 	if (drive->media != ide_disk || (drive->dev_flags & IDE_DFLAG_LBA48)) {
-		struct request *rq	= HWGROUP(drive)->rq;
-		ide_hwif_t *hwif	= HWIF(drive);
+		ide_hwif_t *hwif	= drive->hwif;
+		struct request *rq	= hwif->rq;
 		unsigned long high_16	= hwif->extra_base - 16;
 		unsigned long atapi_reg	= high_16 + (hwif->channel ? 0x24 : 0x20);
 		u32 word_count	= 0;
@@ -189,7 +189,7 @@ static void pdc202xx_dma_start(ide_drive_t *drive)
 static int pdc202xx_dma_end(ide_drive_t *drive)
 {
 	if (drive->media != ide_disk || (drive->dev_flags & IDE_DFLAG_LBA48)) {
-		ide_hwif_t *hwif	= HWIF(drive);
+		ide_hwif_t *hwif	= drive->hwif;
 		unsigned long high_16	= hwif->extra_base - 16;
 		unsigned long atapi_reg	= high_16 + (hwif->channel ? 0x24 : 0x20);
 		u8 clock		= 0;
@@ -205,7 +205,7 @@ static int pdc202xx_dma_end(ide_drive_t *drive)
 
 static int pdc202xx_dma_test_irq(ide_drive_t *drive)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	unsigned long high_16	= hwif->extra_base - 16;
 	u8 dma_stat		= inb(hwif->dma_base + ATA_DMA_STATUS);
 	u8 sc1d			= inb(high_16 + 0x001d);
@@ -243,7 +243,7 @@ static void pdc202xx_reset_host (ide_hwif_t *hwif)
 
 static void pdc202xx_reset (ide_drive_t *drive)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	ide_hwif_t *mate	= hwif->mate;
 
 	pdc202xx_reset_host(hwif);
@@ -258,13 +258,7 @@ static void pdc202xx_dma_lost_irq(ide_drive_t *drive)
 	ide_dma_lost_irq(drive);
 }
 
-static void pdc202xx_dma_timeout(ide_drive_t *drive)
-{
-	pdc202xx_reset(drive);
-	ide_dma_timeout(drive);
-}
-
-static unsigned int init_chipset_pdc202xx(struct pci_dev *dev)
+static int init_chipset_pdc202xx(struct pci_dev *dev)
 {
 	unsigned long dmabase = pci_resource_start(dev, 4);
 	u8 udma_speed_flag = 0, primary_mode = 0, secondary_mode = 0;
@@ -290,7 +284,7 @@ static unsigned int init_chipset_pdc202xx(struct pci_dev *dev)
 		printk("%sACTIVE\n", (inb(dmabase | 0x1f) & 1) ? "" : "IN");
 	}
 out:
-	return dev->irq;
+	return 0;
 }
 
 static void __devinit pdc202ata4_fixup_irq(struct pci_dev *dev,
@@ -331,35 +325,38 @@ static const struct ide_port_ops pdc2026x_port_ops = {
 static const struct ide_dma_ops pdc20246_dma_ops = {
 	.dma_host_set		= ide_dma_host_set,
 	.dma_setup		= ide_dma_setup,
-	.dma_exec_cmd		= ide_dma_exec_cmd,
 	.dma_start		= ide_dma_start,
 	.dma_end		= ide_dma_end,
 	.dma_test_irq		= pdc202xx_dma_test_irq,
 	.dma_lost_irq		= pdc202xx_dma_lost_irq,
-	.dma_timeout		= pdc202xx_dma_timeout,
+	.dma_timer_expiry	= ide_dma_sff_timer_expiry,
+	.dma_clear		= pdc202xx_reset,
+	.dma_sff_read_status	= ide_dma_sff_read_status,
 };
 
 static const struct ide_dma_ops pdc2026x_dma_ops = {
 	.dma_host_set		= ide_dma_host_set,
 	.dma_setup		= ide_dma_setup,
-	.dma_exec_cmd		= ide_dma_exec_cmd,
 	.dma_start		= pdc202xx_dma_start,
 	.dma_end		= pdc202xx_dma_end,
 	.dma_test_irq		= pdc202xx_dma_test_irq,
 	.dma_lost_irq		= pdc202xx_dma_lost_irq,
-	.dma_timeout		= pdc202xx_dma_timeout,
+	.dma_timer_expiry	= ide_dma_sff_timer_expiry,
+	.dma_clear		= pdc202xx_reset,
+	.dma_sff_read_status	= ide_dma_sff_read_status,
 };
 
-#define DECLARE_PDC2026X_DEV(udma, extra_flags) \
+#define DECLARE_PDC2026X_DEV(udma, sectors) \
 	{ \
 		.name		= DRV_NAME, \
 		.init_chipset	= init_chipset_pdc202xx, \
 		.port_ops	= &pdc2026x_port_ops, \
 		.dma_ops	= &pdc2026x_dma_ops, \
-		.host_flags	= IDE_HFLAGS_PDC202XX | extra_flags, \
+		.host_flags	= IDE_HFLAGS_PDC202XX, \
 		.pio_mask	= ATA_PIO4, \
 		.mwdma_mask	= ATA_MWDMA2, \
 		.udma_mask	= udma, \
+		.max_sectors	= sectors, \
 	}
 
 static const struct ide_port_info pdc202xx_chipsets[] __devinitdata = {
@@ -376,8 +373,8 @@ static const struct ide_port_info pdc202xx_chipsets[] __devinitdata = {
 
 	/* 1: PDC2026{2,3} */
 	DECLARE_PDC2026X_DEV(ATA_UDMA4, 0),
-	/* 2: PDC2026{5,7} */
-	DECLARE_PDC2026X_DEV(ATA_UDMA5, IDE_HFLAG_RQSIZE_256),
+	/* 2: PDC2026{5,7}: UDMA5, limit LBA48 requests to 256 sectors */
+	DECLARE_PDC2026X_DEV(ATA_UDMA5, 256),
 };
 
 /**

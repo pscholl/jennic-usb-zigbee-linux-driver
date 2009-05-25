@@ -8,7 +8,7 @@
  *	you can add arbitary multiple teletext devices to Linux video4linux
  *	now (well 32 anyway).
  *
- *	Alan Cox <Alan.Cox@linux.org>
+ *	Alan Cox <alan@lxorguk.ukuu.org.uk>
  *
  *	The original driver was heavily modified to match the i2c interface
  *	It was truncated to use the WinTV boards, too.
@@ -50,14 +50,16 @@
 #include <linux/mutex.h>
 #include <linux/delay.h>
 #include <linux/videotext.h>
-#include <linux/videodev.h>
-#include <media/v4l2-common.h>
+#include <linux/videodev2.h>
+#include <media/v4l2-device.h>
+#include <media/v4l2-chip-ident.h>
 #include <media/v4l2-ioctl.h>
-#include <media/v4l2-i2c-drv-legacy.h>
+#include <media/v4l2-i2c-drv.h>
 
 MODULE_AUTHOR("Michael Geng <linux@MichaelGeng.de>");
 MODULE_DESCRIPTION("Philips SAA5249 Teletext decoder driver");
 MODULE_LICENSE("GPL");
+
 
 #define VTX_VER_MAJ 1
 #define VTX_VER_MIN 8
@@ -95,16 +97,22 @@ typedef struct {
 
 struct saa5249_device
 {
+	struct v4l2_subdev sd;
+	struct video_device *vdev;
 	vdau_t vdau[NUM_DAUS];			/* Data for virtual DAUs (the 5249 only has one */
 						/* real DAU, so we have to simulate some more) */
 	int vtx_use_count;
 	int is_searching[NUM_DAUS];
 	int disp_mode;
 	int virtual_mode;
-	struct i2c_client *client;
 	unsigned long in_use;
 	struct mutex lock;
 };
+
+static inline struct saa5249_device *to_dev(struct v4l2_subdev *sd)
+{
+	return container_of(sd, struct saa5249_device, sd);
+}
 
 
 #define CCTWR 34		/* I²C write/read-address of vtx-chip */
@@ -147,12 +155,13 @@ static void jdelay(unsigned long delay)
 
 static int i2c_sendbuf(struct saa5249_device *t, int reg, int count, u8 *data)
 {
+	struct i2c_client *client = v4l2_get_subdevdata(&t->sd);
 	char buf[64];
 
 	buf[0] = reg;
 	memcpy(buf+1, data, count);
 
-	if (i2c_master_send(t->client, buf, count + 1) == count + 1)
+	if (i2c_master_send(client, buf, count + 1) == count + 1)
 		return 0;
 	return -1;
 }
@@ -180,7 +189,9 @@ static int i2c_senddata(struct saa5249_device *t, ...)
 
 static int i2c_getdata(struct saa5249_device *t, int count, u8 *buf)
 {
-	if(i2c_master_recv(t->client, buf, count)!=count)
+	struct i2c_client *client = v4l2_get_subdevdata(&t->sd);
+
+	if (i2c_master_recv(client, buf, count) != count)
 		return -1;
 	return 0;
 }
@@ -190,8 +201,7 @@ static int i2c_getdata(struct saa5249_device *t, int count, u8 *buf)
  *	Standard character-device-driver functions
  */
 
-static int do_saa5249_ioctl(struct inode *inode, struct file *file,
-			    unsigned int cmd, void *arg)
+static long do_saa5249_ioctl(struct file *file, unsigned int cmd, void *arg)
 {
 	static int virtual_mode = false;
 	struct saa5249_device *t = video_drvdata(file);
@@ -480,26 +490,23 @@ static inline unsigned int vtx_fix_command(unsigned int cmd)
  *	Handle the locking
  */
 
-static int saa5249_ioctl(struct inode *inode, struct file *file,
+static long saa5249_ioctl(struct file *file,
 			 unsigned int cmd, unsigned long arg)
 {
 	struct saa5249_device *t = video_drvdata(file);
-	int err;
+	long err;
 
 	cmd = vtx_fix_command(cmd);
 	mutex_lock(&t->lock);
-	err = video_usercopy(inode,file,cmd,arg,do_saa5249_ioctl);
+	err = video_usercopy(file, cmd, arg, do_saa5249_ioctl);
 	mutex_unlock(&t->lock);
 	return err;
 }
 
-static int saa5249_open(struct inode *inode, struct file *file)
+static int saa5249_open(struct file *file)
 {
 	struct saa5249_device *t = video_drvdata(file);
 	int pgbuf;
-
-	if (t->client == NULL)
-		return -ENODEV;
 
 	if (test_and_set_bit(0, &t->in_use))
 		return -EBUSY;
@@ -530,7 +537,7 @@ static int saa5249_open(struct inode *inode, struct file *file)
 
 
 
-static int saa5249_release(struct inode *inode, struct file *file)
+static int saa5249_release(struct file *file)
 {
 	struct saa5249_device *t = video_drvdata(file);
 
@@ -540,15 +547,11 @@ static int saa5249_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static const struct file_operations saa_fops = {
+static const struct v4l2_file_operations saa_fops = {
 	.owner		= THIS_MODULE,
 	.open		= saa5249_open,
 	.release       	= saa5249_release,
 	.ioctl          = saa5249_ioctl,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl	= v4l_compat_ioctl32,
-#endif
-	.llseek         = no_llseek,
 };
 
 static struct video_device saa_template =
@@ -558,18 +561,28 @@ static struct video_device saa_template =
 	.release 	= video_device_release,
 };
 
-/* Addresses to scan */
-static unsigned short normal_i2c[] = { 0x22 >> 1, I2C_CLIENT_END };
+static int saa5249_g_chip_ident(struct v4l2_subdev *sd, struct v4l2_dbg_chip_ident *chip)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-I2C_CLIENT_INSMOD;
+	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_SAA5249, 0);
+}
+
+static const struct v4l2_subdev_core_ops saa5249_core_ops = {
+	.g_chip_ident = saa5249_g_chip_ident,
+};
+
+static const struct v4l2_subdev_ops saa5249_ops = {
+	.core = &saa5249_core_ops,
+};
 
 static int saa5249_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
 	int pgbuf;
 	int err;
-	struct video_device *vd;
 	struct saa5249_device *t;
+	struct v4l2_subdev *sd;
 
 	v4l_info(client, "chip found @ 0x%x (%s)\n",
 			client->addr << 1, client->adapter->name);
@@ -578,16 +591,18 @@ static int saa5249_probe(struct i2c_client *client,
 	t = kzalloc(sizeof(*t), GFP_KERNEL);
 	if (t == NULL)
 		return -ENOMEM;
+	sd = &t->sd;
+	v4l2_i2c_subdev_init(sd, client, &saa5249_ops);
 	mutex_init(&t->lock);
 
 	/* Now create a video4linux device */
-	vd = kmalloc(sizeof(struct video_device), GFP_KERNEL);
-	if (vd == NULL) {
+	t->vdev = video_device_alloc();
+	if (t->vdev == NULL) {
+		kfree(t);
 		kfree(client);
 		return -ENOMEM;
 	}
-	i2c_set_clientdata(client, vd);
-	memcpy(vd, &saa_template, sizeof(*vd));
+	memcpy(t->vdev, &saa_template, sizeof(*t->vdev));
 
 	for (pgbuf = 0; pgbuf < NUM_DAUS; pgbuf++) {
 		memset(t->vdau[pgbuf].pgbuf, ' ', sizeof(t->vdau[0].pgbuf));
@@ -598,26 +613,26 @@ static int saa5249_probe(struct i2c_client *client,
 		t->vdau[pgbuf].stopped = true;
 		t->is_searching[pgbuf] = false;
 	}
-	video_set_drvdata(vd, t);
+	video_set_drvdata(t->vdev, t);
 
 	/* Register it */
-	err = video_register_device(vd, VFL_TYPE_VTX, -1);
+	err = video_register_device(t->vdev, VFL_TYPE_VTX, -1);
 	if (err < 0) {
+		video_device_release(t->vdev);
 		kfree(t);
-		kfree(vd);
 		return err;
 	}
-	t->client = client;
 	return 0;
 }
 
 static int saa5249_remove(struct i2c_client *client)
 {
-	struct video_device *vd = i2c_get_clientdata(client);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct saa5249_device *t = to_dev(sd);
 
-	video_unregister_device(vd);
-	kfree(video_get_drvdata(vd));
-	kfree(vd);
+	video_unregister_device(t->vdev);
+	v4l2_device_unregister_subdev(sd);
+	kfree(t);
 	return 0;
 }
 
@@ -629,7 +644,6 @@ MODULE_DEVICE_TABLE(i2c, saa5249_id);
 
 static struct v4l2_i2c_driver_data v4l2_i2c_data = {
 	.name = "saa5249",
-	.driverid = I2C_DRIVERID_SAA5249,
 	.probe = saa5249_probe,
 	.remove = saa5249_remove,
 	.id_table = saa5249_id,

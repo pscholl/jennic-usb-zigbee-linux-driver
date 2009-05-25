@@ -9,8 +9,6 @@
  *    [feel free to mail ....]
  *
  * when using as module: (no autoprobing!)
- *   compile with:
- *       gcc -O2 -fomit-frame-pointer -m486 -D__KERNEL__ -DMODULE -c ni52.c
  *   run with e.g:
  *       insmod ni52.o io=0x360 irq=9 memstart=0xd0000 memend=0xd4000
  *
@@ -214,7 +212,7 @@ struct priv {
 /* wait for command with timeout: */
 static void wait_for_scb_cmd(struct net_device *dev)
 {
-	struct priv *p = dev->priv;
+	struct priv *p = netdev_priv(dev);
 	int i;
 	for (i = 0; i < 16384; i++) {
 		if (readb(&p->scb->cmd_cuc) == 0)
@@ -233,7 +231,7 @@ static void wait_for_scb_cmd(struct net_device *dev)
 
 static void wait_for_scb_cmd_ruc(struct net_device *dev)
 {
-	struct priv *p = dev->priv;
+	struct priv *p = netdev_priv(dev);
 	int i;
 	for (i = 0; i < 16384; i++) {
 		if (readb(&p->scb->cmd_ruc) == 0)
@@ -298,7 +296,7 @@ static int ni52_open(struct net_device *dev)
 static int check_iscp(struct net_device *dev, void __iomem *addr)
 {
 	struct iscp_struct __iomem *iscp = addr;
-	struct priv *p = dev->priv;
+	struct priv *p = netdev_priv(dev);
 	memset_io(iscp, 0, sizeof(struct iscp_struct));
 
 	writel(make24(iscp), &p->scp->iscp);
@@ -318,7 +316,7 @@ static int check_iscp(struct net_device *dev, void __iomem *addr)
  */
 static int check586(struct net_device *dev, unsigned size)
 {
-	struct priv *p = dev->priv;
+	struct priv *p = netdev_priv(dev);
 	int i;
 
 	p->mapped = ioremap(dev->mem_start, size);
@@ -354,7 +352,7 @@ Enodev:
  */
 static void alloc586(struct net_device *dev)
 {
-	struct priv *p =	(struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 
 	ni_reset586();
 	mdelay(32);
@@ -400,7 +398,7 @@ struct net_device * __init ni52_probe(int unit)
 	if (!dev)
 		return ERR_PTR(-ENOMEM);
 
-	p = dev->priv;
+	p = netdev_priv(dev);
 
 	if (unit >= 0) {
 		sprintf(dev->name, "eth%d", unit);
@@ -443,10 +441,22 @@ out:
 	return ERR_PTR(err);
 }
 
+static const struct net_device_ops ni52_netdev_ops = {
+	.ndo_open		= ni52_open,
+	.ndo_stop		= ni52_close,
+	.ndo_get_stats		= ni52_get_stats,
+	.ndo_tx_timeout 	= ni52_timeout,
+	.ndo_start_xmit 	= ni52_send_packet,
+	.ndo_set_multicast_list = set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 static int __init ni52_probe1(struct net_device *dev, int ioaddr)
 {
 	int i, size, retval;
-	struct priv *priv = dev->priv;
+	struct priv *priv = netdev_priv(dev);
 
 	dev->base_addr = ioaddr;
 	dev->irq = irq;
@@ -563,15 +573,8 @@ static int __init ni52_probe1(struct net_device *dev, int ioaddr)
 		printk("IRQ %d (assigned and not checked!).\n", dev->irq);
 	}
 
-	dev->open		= ni52_open;
-	dev->stop		= ni52_close;
-	dev->get_stats		= ni52_get_stats;
-	dev->tx_timeout 	= ni52_timeout;
+	dev->netdev_ops		= &ni52_netdev_ops;
 	dev->watchdog_timeo	= HZ/20;
-	dev->hard_start_xmit 	= ni52_send_packet;
-	dev->set_multicast_list = set_multicast_list;
-
-	dev->if_port 		= 0;
 
 	return 0;
 out:
@@ -588,7 +591,7 @@ static int init586(struct net_device *dev)
 {
 	void __iomem *ptr;
 	int i, result = 0;
-	struct priv *p = (struct priv *)dev->priv;
+	struct priv *p = netdev_priv(dev);
 	struct configure_cmd_struct __iomem *cfg_cmd;
 	struct iasetup_cmd_struct __iomem *ias_cmd;
 	struct tdr_cmd_struct __iomem *tdr_cmd;
@@ -829,7 +832,7 @@ static void __iomem *alloc_rfa(struct net_device *dev, void __iomem *ptr)
 	struct rfd_struct __iomem *rfd = ptr;
 	struct rbd_struct __iomem *rbd;
 	int i;
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 
 	memset_io(rfd, 0,
 		sizeof(struct rfd_struct) * (p->num_recv_buffs + rfdadd));
@@ -878,7 +881,7 @@ static irqreturn_t ni52_interrupt(int irq, void *dev_id)
 	int cnt = 0;
 	struct priv *p;
 
-	p = (struct priv *) dev->priv;
+	p = netdev_priv(dev);
 
 	if (debuglevel > 1)
 		printk("I");
@@ -950,7 +953,7 @@ static void ni52_rcv_int(struct net_device *dev)
 	unsigned short totlen;
 	struct sk_buff *skb;
 	struct rbd_struct __iomem *rbd;
-	struct priv *p = (struct priv *)dev->priv;
+	struct priv *p = netdev_priv(dev);
 
 	if (debuglevel > 0)
 		printk("R");
@@ -970,7 +973,6 @@ static void ni52_rcv_int(struct net_device *dev)
 					memcpy_fromio(skb->data, p->base + readl(&rbd->buffer), totlen);
 					skb->protocol = eth_type_trans(skb, dev);
 					netif_rx(skb);
-					dev->last_rx = jiffies;
 					p->stats.rx_packets++;
 					p->stats.rx_bytes += totlen;
 				} else
@@ -1040,7 +1042,7 @@ static void ni52_rcv_int(struct net_device *dev)
 
 static void ni52_rnr_int(struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 
 	p->stats.rx_errors++;
 
@@ -1065,7 +1067,7 @@ static void ni52_rnr_int(struct net_device *dev)
 static void ni52_xmt_int(struct net_device *dev)
 {
 	int status;
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 
 	if (debuglevel > 0)
 		printk("X");
@@ -1113,7 +1115,7 @@ static void ni52_xmt_int(struct net_device *dev)
 
 static void startrecv586(struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 
 	wait_for_scb_cmd(dev);
 	wait_for_scb_cmd_ruc(dev);
@@ -1126,7 +1128,7 @@ static void startrecv586(struct net_device *dev)
 
 static void ni52_timeout(struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 #ifndef NO_NOPCOMMANDS
 	if (readb(&p->scb->cus) & CU_ACTIVE) { /* COMMAND-UNIT active? */
 		netif_wake_queue(dev);
@@ -1177,7 +1179,7 @@ static int ni52_send_packet(struct sk_buff *skb, struct net_device *dev)
 #ifndef NO_NOPCOMMANDS
 	int next_nop;
 #endif
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 
 	if (skb->len > XMIT_BUFF_SIZE) {
 		printk(KERN_ERR "%s: Sorry, max. framelength is %d bytes. The length of your frame is %d bytes.\n", dev->name, XMIT_BUFF_SIZE, skb->len);
@@ -1274,7 +1276,7 @@ static int ni52_send_packet(struct sk_buff *skb, struct net_device *dev)
 
 static struct net_device_stats *ni52_get_stats(struct net_device *dev)
 {
-	struct priv *p = (struct priv *) dev->priv;
+	struct priv *p = netdev_priv(dev);
 	unsigned short crc, aln, rsc, ovrn;
 
 	/* Get error-statistics from the ni82586 */
@@ -1337,7 +1339,7 @@ int __init init_module(void)
 
 void __exit cleanup_module(void)
 {
-	struct priv *p = dev_ni52->priv;
+	struct priv *p = netdev_priv(dev_ni52);
 	unregister_netdev(dev_ni52);
 	iounmap(p->mapped);
 	release_region(dev_ni52->base_addr, NI52_TOTAL_SIZE);
@@ -1346,7 +1348,3 @@ void __exit cleanup_module(void)
 #endif /* MODULE */
 
 MODULE_LICENSE("GPL");
-
-/*
- * END: linux/drivers/net/ni52.c
- */

@@ -72,6 +72,13 @@ struct comp_test_suite {
 	} comp, decomp;
 };
 
+struct pcomp_test_suite {
+	struct {
+		struct pcomp_testvec *vecs;
+		unsigned int count;
+	} comp, decomp;
+};
+
 struct hash_test_suite {
 	struct hash_testvec *vecs;
 	unsigned int count;
@@ -86,6 +93,7 @@ struct alg_test_desc {
 		struct aead_test_suite aead;
 		struct cipher_test_suite cipher;
 		struct comp_test_suite comp;
+		struct pcomp_test_suite pcomp;
 		struct hash_test_suite hash;
 	} suite;
 };
@@ -843,6 +851,14 @@ static int test_comp(struct crypto_comp *tfm, struct comp_testvec *ctemplate,
 			goto out;
 		}
 
+		if (dlen != ctemplate[i].outlen) {
+			printk(KERN_ERR "alg: comp: Compression test %d "
+			       "failed for %s: output len = %d\n", i + 1, algo,
+			       dlen);
+			ret = -EINVAL;
+			goto out;
+		}
+
 		if (memcmp(result, ctemplate[i].output, dlen)) {
 			printk(KERN_ERR "alg: comp: Compression test %d "
 			       "failed for %s\n", i + 1, algo);
@@ -853,7 +869,7 @@ static int test_comp(struct crypto_comp *tfm, struct comp_testvec *ctemplate,
 	}
 
 	for (i = 0; i < dtcount; i++) {
-		int ilen, ret, dlen = COMP_BUF_SIZE;
+		int ilen, dlen = COMP_BUF_SIZE;
 
 		memset(result, 0, sizeof (result));
 
@@ -864,6 +880,14 @@ static int test_comp(struct crypto_comp *tfm, struct comp_testvec *ctemplate,
 			printk(KERN_ERR "alg: comp: decompression failed "
 			       "on test %d for %s: ret=%d\n", i + 1, algo,
 			       -ret);
+			goto out;
+		}
+
+		if (dlen != dtemplate[i].outlen) {
+			printk(KERN_ERR "alg: comp: Decompression test %d "
+			       "failed for %s: output len = %d\n", i + 1, algo,
+			       dlen);
+			ret = -EINVAL;
 			goto out;
 		}
 
@@ -880,6 +904,159 @@ static int test_comp(struct crypto_comp *tfm, struct comp_testvec *ctemplate,
 
 out:
 	return ret;
+}
+
+static int test_pcomp(struct crypto_pcomp *tfm,
+		      struct pcomp_testvec *ctemplate,
+		      struct pcomp_testvec *dtemplate, int ctcount,
+		      int dtcount)
+{
+	const char *algo = crypto_tfm_alg_driver_name(crypto_pcomp_tfm(tfm));
+	unsigned int i;
+	char result[COMP_BUF_SIZE];
+	int error;
+
+	for (i = 0; i < ctcount; i++) {
+		struct comp_request req;
+
+		error = crypto_compress_setup(tfm, ctemplate[i].params,
+					      ctemplate[i].paramsize);
+		if (error) {
+			pr_err("alg: pcomp: compression setup failed on test "
+			       "%d for %s: error=%d\n", i + 1, algo, error);
+			return error;
+		}
+
+		error = crypto_compress_init(tfm);
+		if (error) {
+			pr_err("alg: pcomp: compression init failed on test "
+			       "%d for %s: error=%d\n", i + 1, algo, error);
+			return error;
+		}
+
+		memset(result, 0, sizeof(result));
+
+		req.next_in = ctemplate[i].input;
+		req.avail_in = ctemplate[i].inlen / 2;
+		req.next_out = result;
+		req.avail_out = ctemplate[i].outlen / 2;
+
+		error = crypto_compress_update(tfm, &req);
+		if (error && (error != -EAGAIN || req.avail_in)) {
+			pr_err("alg: pcomp: compression update failed on test "
+			       "%d for %s: error=%d\n", i + 1, algo, error);
+			return error;
+		}
+
+		/* Add remaining input data */
+		req.avail_in += (ctemplate[i].inlen + 1) / 2;
+
+		error = crypto_compress_update(tfm, &req);
+		if (error && (error != -EAGAIN || req.avail_in)) {
+			pr_err("alg: pcomp: compression update failed on test "
+			       "%d for %s: error=%d\n", i + 1, algo, error);
+			return error;
+		}
+
+		/* Provide remaining output space */
+		req.avail_out += COMP_BUF_SIZE - ctemplate[i].outlen / 2;
+
+		error = crypto_compress_final(tfm, &req);
+		if (error) {
+			pr_err("alg: pcomp: compression final failed on test "
+			       "%d for %s: error=%d\n", i + 1, algo, error);
+			return error;
+		}
+
+		if (COMP_BUF_SIZE - req.avail_out != ctemplate[i].outlen) {
+			pr_err("alg: comp: Compression test %d failed for %s: "
+			       "output len = %d (expected %d)\n", i + 1, algo,
+			       COMP_BUF_SIZE - req.avail_out,
+			       ctemplate[i].outlen);
+			return -EINVAL;
+		}
+
+		if (memcmp(result, ctemplate[i].output, ctemplate[i].outlen)) {
+			pr_err("alg: pcomp: Compression test %d failed for "
+			       "%s\n", i + 1, algo);
+			hexdump(result, ctemplate[i].outlen);
+			return -EINVAL;
+		}
+	}
+
+	for (i = 0; i < dtcount; i++) {
+		struct comp_request req;
+
+		error = crypto_decompress_setup(tfm, dtemplate[i].params,
+						dtemplate[i].paramsize);
+		if (error) {
+			pr_err("alg: pcomp: decompression setup failed on "
+			       "test %d for %s: error=%d\n", i + 1, algo,
+			       error);
+			return error;
+		}
+
+		error = crypto_decompress_init(tfm);
+		if (error) {
+			pr_err("alg: pcomp: decompression init failed on test "
+			       "%d for %s: error=%d\n", i + 1, algo, error);
+			return error;
+		}
+
+		memset(result, 0, sizeof(result));
+
+		req.next_in = dtemplate[i].input;
+		req.avail_in = dtemplate[i].inlen / 2;
+		req.next_out = result;
+		req.avail_out = dtemplate[i].outlen / 2;
+
+		error = crypto_decompress_update(tfm, &req);
+		if (error  && (error != -EAGAIN || req.avail_in)) {
+			pr_err("alg: pcomp: decompression update failed on "
+			       "test %d for %s: error=%d\n", i + 1, algo,
+			       error);
+			return error;
+		}
+
+		/* Add remaining input data */
+		req.avail_in += (dtemplate[i].inlen + 1) / 2;
+
+		error = crypto_decompress_update(tfm, &req);
+		if (error  && (error != -EAGAIN || req.avail_in)) {
+			pr_err("alg: pcomp: decompression update failed on "
+			       "test %d for %s: error=%d\n", i + 1, algo,
+			       error);
+			return error;
+		}
+
+		/* Provide remaining output space */
+		req.avail_out += COMP_BUF_SIZE - dtemplate[i].outlen / 2;
+
+		error = crypto_decompress_final(tfm, &req);
+		if (error  && (error != -EAGAIN || req.avail_in)) {
+			pr_err("alg: pcomp: decompression final failed on "
+			       "test %d for %s: error=%d\n", i + 1, algo,
+			       error);
+			return error;
+		}
+
+		if (COMP_BUF_SIZE - req.avail_out != dtemplate[i].outlen) {
+			pr_err("alg: comp: Decompression test %d failed for "
+			       "%s: output len = %d (expected %d)\n", i + 1,
+			       algo, COMP_BUF_SIZE - req.avail_out,
+			       dtemplate[i].outlen);
+			return -EINVAL;
+		}
+
+		if (memcmp(result, dtemplate[i].output, dtemplate[i].outlen)) {
+			pr_err("alg: pcomp: Decompression test %d failed for "
+			       "%s\n", i + 1, algo);
+			hexdump(result, dtemplate[i].outlen);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
 }
 
 static int alg_test_aead(const struct alg_test_desc *desc, const char *driver,
@@ -991,6 +1168,28 @@ static int alg_test_comp(const struct alg_test_desc *desc, const char *driver,
 	return err;
 }
 
+static int alg_test_pcomp(const struct alg_test_desc *desc, const char *driver,
+			  u32 type, u32 mask)
+{
+	struct crypto_pcomp *tfm;
+	int err;
+
+	tfm = crypto_alloc_pcomp(driver, type, mask);
+	if (IS_ERR(tfm)) {
+		pr_err("alg: pcomp: Failed to load transform for %s: %ld\n",
+		       driver, PTR_ERR(tfm));
+		return PTR_ERR(tfm);
+	}
+
+	err = test_pcomp(tfm, desc->suite.pcomp.comp.vecs,
+			 desc->suite.pcomp.decomp.vecs,
+			 desc->suite.pcomp.comp.count,
+			 desc->suite.pcomp.decomp.count);
+
+	crypto_free_pcomp(tfm);
+	return err;
+}
+
 static int alg_test_hash(const struct alg_test_desc *desc, const char *driver,
 			 u32 type, u32 mask)
 {
@@ -1007,6 +1206,55 @@ static int alg_test_hash(const struct alg_test_desc *desc, const char *driver,
 	err = test_hash(tfm, desc->suite.hash.vecs, desc->suite.hash.count);
 
 	crypto_free_ahash(tfm);
+	return err;
+}
+
+static int alg_test_crc32c(const struct alg_test_desc *desc,
+			   const char *driver, u32 type, u32 mask)
+{
+	struct crypto_shash *tfm;
+	u32 val;
+	int err;
+
+	err = alg_test_hash(desc, driver, type, mask);
+	if (err)
+		goto out;
+
+	tfm = crypto_alloc_shash(driver, type, mask);
+	if (IS_ERR(tfm)) {
+		printk(KERN_ERR "alg: crc32c: Failed to load transform for %s: "
+		       "%ld\n", driver, PTR_ERR(tfm));
+		err = PTR_ERR(tfm);
+		goto out;
+	}
+
+	do {
+		struct {
+			struct shash_desc shash;
+			char ctx[crypto_shash_descsize(tfm)];
+		} sdesc;
+
+		sdesc.shash.tfm = tfm;
+		sdesc.shash.flags = 0;
+
+		*(u32 *)sdesc.ctx = le32_to_cpu(420553207);
+		err = crypto_shash_final(&sdesc.shash, (u8 *)&val);
+		if (err) {
+			printk(KERN_ERR "alg: crc32c: Operation failed for "
+			       "%s: %d\n", driver, err);
+			break;
+		}
+
+		if (val != ~420553207) {
+			printk(KERN_ERR "alg: crc32c: Test failed for %s: "
+			       "%d\n", driver, val);
+			err = -EINVAL;
+		}
+	} while (0);
+
+	crypto_free_shash(tfm);
+
+out:
 	return err;
 }
 
@@ -1134,7 +1382,7 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 		.alg = "crc32c",
-		.test = alg_test_hash,
+		.test = alg_test_crc32c,
 		.suite = {
 			.hash = {
 				.vecs = crc32c_tv_template,
@@ -1770,6 +2018,21 @@ static const struct alg_test_desc alg_test_descs[] = {
 				}
 			}
 		}
+	}, {
+		.alg = "zlib",
+		.test = alg_test_pcomp,
+		.suite = {
+			.pcomp = {
+				.comp = {
+					.vecs = zlib_comp_tv_template,
+					.count = ZLIB_COMP_TEST_VECTORS
+				},
+				.decomp = {
+					.vecs = zlib_decomp_tv_template,
+					.count = ZLIB_DECOMP_TEST_VECTORS
+				}
+			}
+		}
 	}
 };
 
@@ -1801,6 +2064,7 @@ static int alg_find_test(const char *alg)
 int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 {
 	int i;
+	int rc;
 
 	if ((type & CRYPTO_ALG_TYPE_MASK) == CRYPTO_ALG_TYPE_CIPHER) {
 		char nalg[CRYPTO_MAX_ALG_NAME];
@@ -1820,8 +2084,12 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 	if (i < 0)
 		goto notest;
 
-	return alg_test_descs[i].test(alg_test_descs + i, driver,
+	rc = alg_test_descs[i].test(alg_test_descs + i, driver,
 				      type, mask);
+	if (fips_enabled && rc)
+		panic("%s: %s alg self test failed in fips mode!\n", driver, alg);
+
+	return rc;
 
 notest:
 	printk(KERN_INFO "alg: No test for %s (%s)\n", alg, driver);

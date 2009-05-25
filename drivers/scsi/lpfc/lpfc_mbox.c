@@ -39,7 +39,7 @@
 #include "lpfc_compat.h"
 
 /**
- * lpfc_dump_mem: Prepare a mailbox command for retrieving HBA's VPD memory.
+ * lpfc_dump_mem - Prepare a mailbox command for retrieving HBA's VPD memory
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  * @offset: offset for dumping VPD memory mailbox command.
@@ -77,7 +77,40 @@ lpfc_dump_mem(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb, uint16_t offset)
 }
 
 /**
- * lpfc_read_nv: Prepare a mailbox command for reading HBA's NVRAM param.
+ * lpfc_dump_wakeup_param - Prepare mailbox command for retrieving wakeup params
+ * @phba: pointer to lpfc hba data structure.
+ * @pmb: pointer to the driver internal queue element for mailbox command.
+ *
+ * This function create a dump memory mailbox command to dump wake up
+ * parameters.
+ */
+void
+lpfc_dump_wakeup_param(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
+{
+	MAILBOX_t *mb;
+	void *ctx;
+
+	mb = &pmb->mb;
+	/* Save context so that we can restore after memset */
+	ctx = pmb->context2;
+
+	/* Setup to dump VPD region */
+	memset(pmb, 0, sizeof(LPFC_MBOXQ_t));
+	mb->mbxCommand = MBX_DUMP_MEMORY;
+	mb->mbxOwner = OWN_HOST;
+	mb->un.varDmp.cv = 1;
+	mb->un.varDmp.type = DMP_NV_PARAMS;
+	mb->un.varDmp.entry_index = 0;
+	mb->un.varDmp.region_id = WAKE_UP_PARMS_REGION_ID;
+	mb->un.varDmp.word_cnt = WAKE_UP_PARMS_WORD_SIZE;
+	mb->un.varDmp.co = 0;
+	mb->un.varDmp.resp_offset = 0;
+	pmb->context2 = ctx;
+	return;
+}
+
+/**
+ * lpfc_read_nv - Prepare a mailbox command for reading HBA's NVRAM param
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -100,7 +133,7 @@ lpfc_read_nv(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_config_async: Prepare a mailbox command for enabling HBA async event.
+ * lpfc_config_async - Prepare a mailbox command for enabling HBA async event
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  * @ring: ring number for the asynchronous event to be configured.
@@ -127,7 +160,7 @@ lpfc_config_async(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb,
 }
 
 /**
- * lpfc_heart_beat: Prepare a mailbox command for heart beat.
+ * lpfc_heart_beat - Prepare a mailbox command for heart beat
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -152,7 +185,7 @@ lpfc_heart_beat(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_read_la: Prepare a mailbox command for reading HBA link attention.
+ * lpfc_read_la - Prepare a mailbox command for reading HBA link attention
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  * @mp: DMA buffer memory for reading the link attention information into.
@@ -196,7 +229,7 @@ lpfc_read_la(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb, struct lpfc_dmabuf *mp)
 }
 
 /**
- * lpfc_clear_la: Prepare a mailbox command for clearing HBA link attention.
+ * lpfc_clear_la - Prepare a mailbox command for clearing HBA link attention
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -225,7 +258,7 @@ lpfc_clear_la(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_config_link: Prepare a mailbox command for configuring link on a HBA.
+ * lpfc_config_link - Prepare a mailbox command for configuring link on a HBA
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -273,7 +306,7 @@ lpfc_config_link(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_config_msi: Prepare a mailbox command for configuring msi-x.
+ * lpfc_config_msi - Prepare a mailbox command for configuring msi-x
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -351,7 +384,7 @@ lpfc_config_msi(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 }
 
 /**
- * lpfc_init_link: Prepare a mailbox command for initialize link on a HBA.
+ * lpfc_init_link - Prepare a mailbox command for initialize link on a HBA
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  * @topology: the link topology for the link to be initialized to.
@@ -431,7 +464,7 @@ lpfc_init_link(struct lpfc_hba * phba,
 }
 
 /**
- * lpfc_read_sparam: Prepare a mailbox command for reading HBA parameters.
+ * lpfc_read_sparam - Prepare a mailbox command for reading HBA parameters
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  * @vpi: virtual N_Port identifier.
@@ -491,7 +524,7 @@ lpfc_read_sparam(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb, int vpi)
 }
 
 /**
- * lpfc_unreg_did: Prepare a mailbox command for unregistering DID.
+ * lpfc_unreg_did - Prepare a mailbox command for unregistering DID
  * @phba: pointer to lpfc hba data structure.
  * @vpi: virtual N_Port identifier.
  * @did: remote port identifier.
@@ -523,7 +556,7 @@ lpfc_unreg_did(struct lpfc_hba * phba, uint16_t vpi, uint32_t did,
 }
 
 /**
- * lpfc_read_config: Prepare a mailbox command for reading HBA configuration.
+ * lpfc_read_config - Prepare a mailbox command for reading HBA configuration
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -549,7 +582,7 @@ lpfc_read_config(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_read_lnk_stat: Prepare a mailbox command for reading HBA link stats.
+ * lpfc_read_lnk_stat - Prepare a mailbox command for reading HBA link stats
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -574,7 +607,7 @@ lpfc_read_lnk_stat(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_reg_login: Prepare a mailbox command for registering remote login.
+ * lpfc_reg_login - Prepare a mailbox command for registering remote login
  * @phba: pointer to lpfc hba data structure.
  * @vpi: virtual N_Port identifier.
  * @did: remote port identifier.
@@ -645,7 +678,7 @@ lpfc_reg_login(struct lpfc_hba *phba, uint16_t vpi, uint32_t did,
 }
 
 /**
- * lpfc_unreg_login: Prepare a mailbox command for unregistering remote login.
+ * lpfc_unreg_login - Prepare a mailbox command for unregistering remote login
  * @phba: pointer to lpfc hba data structure.
  * @vpi: virtual N_Port identifier.
  * @rpi: remote port identifier
@@ -677,7 +710,7 @@ lpfc_unreg_login(struct lpfc_hba *phba, uint16_t vpi, uint32_t rpi,
 }
 
 /**
- * lpfc_reg_vpi: Prepare a mailbox command for registering vport identifier.
+ * lpfc_reg_vpi - Prepare a mailbox command for registering vport identifier
  * @phba: pointer to lpfc hba data structure.
  * @vpi: virtual N_Port identifier.
  * @sid: Fibre Channel S_ID (N_Port_ID assigned to a virtual N_Port).
@@ -709,7 +742,7 @@ lpfc_reg_vpi(struct lpfc_hba *phba, uint16_t vpi, uint32_t sid,
 }
 
 /**
- * lpfc_unreg_vpi: Prepare a mailbox command for unregistering vport id.
+ * lpfc_unreg_vpi - Prepare a mailbox command for unregistering vport id
  * @phba: pointer to lpfc hba data structure.
  * @vpi: virtual N_Port identifier.
  * @pmb: pointer to the driver internal queue element for mailbox command.
@@ -739,7 +772,7 @@ lpfc_unreg_vpi(struct lpfc_hba *phba, uint16_t vpi, LPFC_MBOXQ_t *pmb)
 }
 
 /**
- * lpfc_config_pcb_setup: Set up IOCB rings in the Port Control Block (PCB)
+ * lpfc_config_pcb_setup - Set up IOCB rings in the Port Control Block (PCB)
  * @phba: pointer to lpfc hba data structure.
  *
  * This routine sets up and initializes the IOCB rings in the Port Control
@@ -803,7 +836,7 @@ lpfc_config_pcb_setup(struct lpfc_hba * phba)
 }
 
 /**
- * lpfc_read_rev: Prepare a mailbox command for reading HBA revision.
+ * lpfc_read_rev - Prepare a mailbox command for reading HBA revision
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -829,7 +862,7 @@ lpfc_read_rev(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_build_hbq_profile2: Set up the HBQ Selection Profile 2.
+ * lpfc_build_hbq_profile2 - Set up the HBQ Selection Profile 2
  * @hbqmb: pointer to the HBQ configuration data structure in mailbox command.
  * @hbq_desc: pointer to the HBQ selection profile descriptor.
  *
@@ -848,7 +881,7 @@ lpfc_build_hbq_profile2(struct config_hbq_var *hbqmb,
 }
 
 /**
- * lpfc_build_hbq_profile3: Set up the HBQ Selection Profile 3.
+ * lpfc_build_hbq_profile3 - Set up the HBQ Selection Profile 3
  * @hbqmb: pointer to the HBQ configuration data structure in mailbox command.
  * @hbq_desc: pointer to the HBQ selection profile descriptor.
  *
@@ -870,7 +903,7 @@ lpfc_build_hbq_profile3(struct config_hbq_var *hbqmb,
 }
 
 /**
- * lpfc_build_hbq_profile5: Set up the HBQ Selection Profile 5.
+ * lpfc_build_hbq_profile5 - Set up the HBQ Selection Profile 5
  * @hbqmb: pointer to the HBQ configuration data structure in mailbox command.
  * @hbq_desc: pointer to the HBQ selection profile descriptor.
  *
@@ -893,7 +926,7 @@ lpfc_build_hbq_profile5(struct config_hbq_var *hbqmb,
 }
 
 /**
- * lpfc_config_hbq: Prepare a mailbox command for configuring an HBQ.
+ * lpfc_config_hbq - Prepare a mailbox command for configuring an HBQ
  * @phba: pointer to lpfc hba data structure.
  * @id: HBQ identifier.
  * @hbq_desc: pointer to the HBA descriptor data structure.
@@ -967,7 +1000,7 @@ lpfc_config_hbq(struct lpfc_hba *phba, uint32_t id,
 }
 
 /**
- * lpfc_config_ring: Prepare a mailbox command for configuring an IOCB ring.
+ * lpfc_config_ring - Prepare a mailbox command for configuring an IOCB ring
  * @phba: pointer to lpfc hba data structure.
  * @ring:
  * @pmb: pointer to the driver internal queue element for mailbox command.
@@ -1025,7 +1058,7 @@ lpfc_config_ring(struct lpfc_hba * phba, int ring, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_config_port: Prepare a mailbox command for configuring port.
+ * lpfc_config_port - Prepare a mailbox command for configuring port
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -1061,9 +1094,14 @@ lpfc_config_port(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 	mb->un.varCfgPort.pcbLow = putPaddrLow(pdma_addr);
 	mb->un.varCfgPort.pcbHigh = putPaddrHigh(pdma_addr);
 
+	/* Always Host Group Pointer is in SLIM */
+	mb->un.varCfgPort.hps = 1;
+
 	/* If HBA supports SLI=3 ask for it */
 
 	if (phba->sli_rev == 3 && phba->vpd.sli3Feat.cerbm) {
+		if (phba->cfg_enable_bg)
+			mb->un.varCfgPort.cbg = 1; /* configure BlockGuard */
 		mb->un.varCfgPort.cerbm = 1; /* Request HBQs */
 		mb->un.varCfgPort.ccrp = 1; /* Command Ring Polling */
 		mb->un.varCfgPort.cinb = 1; /* Interrupt Notification Block */
@@ -1163,16 +1201,11 @@ lpfc_config_port(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 				    sizeof(*phba->host_gp));
 	}
 
-	/* Setup Port Group ring pointer */
-	if (phba->sli3_options & LPFC_SLI3_INB_ENABLED) {
-		pgp_offset = offsetof(struct lpfc_sli2_slim,
-				      mbx.us.s3_inb_pgp.port);
-		phba->hbq_get = phba->mbox->us.s3_inb_pgp.hbq_get;
-	} else if (phba->sli_rev == 3) {
+	/* Setup Port Group offset */
+	if (phba->sli_rev == 3)
 		pgp_offset = offsetof(struct lpfc_sli2_slim,
 				      mbx.us.s3_pgp.port);
-		phba->hbq_get = phba->mbox->us.s3_pgp.hbq_get;
-	} else
+	else
 		pgp_offset = offsetof(struct lpfc_sli2_slim, mbx.us.s2.port);
 	pdma_addr = phba->slim2p.phys + pgp_offset;
 	phba->pcb->pgpAddrHigh = putPaddrHigh(pdma_addr);
@@ -1195,7 +1228,7 @@ lpfc_config_port(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 }
 
 /**
- * lpfc_kill_board: Prepare a mailbox command for killing board.
+ * lpfc_kill_board - Prepare a mailbox command for killing board
  * @phba: pointer to lpfc hba data structure.
  * @pmb: pointer to the driver internal queue element for mailbox command.
  *
@@ -1221,7 +1254,7 @@ lpfc_kill_board(struct lpfc_hba * phba, LPFC_MBOXQ_t * pmb)
 }
 
 /**
- * lpfc_mbox_put: Put a mailbox cmd into the tail of driver's mailbox queue.
+ * lpfc_mbox_put - Put a mailbox cmd into the tail of driver's mailbox queue
  * @phba: pointer to lpfc hba data structure.
  * @mbq: pointer to the driver internal queue element for mailbox command.
  *
@@ -1245,7 +1278,7 @@ lpfc_mbox_put(struct lpfc_hba * phba, LPFC_MBOXQ_t * mbq)
 }
 
 /**
- * lpfc_mbox_get: Remove a mailbox cmd from the head of driver's mailbox queue.
+ * lpfc_mbox_get - Remove a mailbox cmd from the head of driver's mailbox queue
  * @phba: pointer to lpfc hba data structure.
  *
  * Driver maintains a internal mailbox command queue implemented as a linked
@@ -1272,7 +1305,7 @@ lpfc_mbox_get(struct lpfc_hba * phba)
 }
 
 /**
- * lpfc_mbox_cmpl_put: Put mailbox command into mailbox command complete list.
+ * lpfc_mbox_cmpl_put - Put mailbox command into mailbox command complete list
  * @phba: pointer to lpfc hba data structure.
  * @mbq: pointer to the driver internal queue element for mailbox command.
  *
@@ -1285,15 +1318,17 @@ lpfc_mbox_get(struct lpfc_hba * phba)
 void
 lpfc_mbox_cmpl_put(struct lpfc_hba * phba, LPFC_MBOXQ_t * mbq)
 {
+	unsigned long iflag;
+
 	/* This function expects to be called from interrupt context */
-	spin_lock(&phba->hbalock);
+	spin_lock_irqsave(&phba->hbalock, iflag);
 	list_add_tail(&mbq->list, &phba->sli.mboxq_cmpl);
-	spin_unlock(&phba->hbalock);
+	spin_unlock_irqrestore(&phba->hbalock, iflag);
 	return;
 }
 
 /**
- * lpfc_mbox_tmo_val: Retrieve mailbox command timeout value.
+ * lpfc_mbox_tmo_val - Retrieve mailbox command timeout value
  * @phba: pointer to lpfc hba data structure.
  * @cmd: mailbox command code.
  *

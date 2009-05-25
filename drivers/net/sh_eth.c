@@ -540,7 +540,6 @@ static int sh_eth_rx(struct net_device *ndev)
 			skb_put(skb, pkt_len);
 			skb->protocol = eth_type_trans(skb, ndev);
 			netif_rx(skb);
-			ndev->last_rx = jiffies;
 			mdp->stats.rx_packets++;
 			mdp->stats.rx_bytes += pkt_len;
 		}
@@ -688,6 +687,7 @@ static irqreturn_t sh_eth_interrupt(int irq, void *netdev)
 {
 	struct net_device *ndev = netdev;
 	struct sh_eth_private *mdp = netdev_priv(ndev);
+	irqreturn_t ret = IRQ_NONE;
 	u32 ioaddr, boguscnt = RX_RING_SIZE;
 	u32 intr_status = 0;
 
@@ -697,7 +697,13 @@ static irqreturn_t sh_eth_interrupt(int irq, void *netdev)
 	/* Get interrpt stat */
 	intr_status = ctrl_inl(ioaddr + EESR);
 	/* Clear interrupt */
-	ctrl_outl(intr_status, ioaddr + EESR);
+	if (intr_status & (EESR_FRC | EESR_RMAF | EESR_RRF |
+			EESR_RTLF | EESR_RTSF | EESR_PRE | EESR_CERF |
+			TX_CHECK | EESR_ERR_CHECK)) {
+		ctrl_outl(intr_status, ioaddr + EESR);
+		ret = IRQ_HANDLED;
+	} else
+		goto other_irq;
 
 	if (intr_status & (EESR_FRC | /* Frame recv*/
 			EESR_RMAF | /* Multi cast address recv*/
@@ -724,9 +730,10 @@ static irqreturn_t sh_eth_interrupt(int irq, void *netdev)
 		       ndev->name, intr_status);
 	}
 
+other_irq:
 	spin_unlock(&mdp->lock);
 
-	return IRQ_HANDLED;
+	return ret;
 }
 
 static void sh_eth_timer(unsigned long data)
@@ -800,7 +807,7 @@ static int sh_eth_phy_init(struct net_device *ndev)
 	char phy_id[BUS_ID_SIZE];
 	struct phy_device *phydev = NULL;
 
-	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT,
+	snprintf(phy_id, sizeof(phy_id), PHY_ID_FMT,
 		mdp->mii_bus->id , mdp->phy_id);
 
 	mdp->link = PHY_DOWN;
@@ -845,7 +852,13 @@ static int sh_eth_open(struct net_device *ndev)
 	int ret = 0;
 	struct sh_eth_private *mdp = netdev_priv(ndev);
 
-	ret = request_irq(ndev->irq, &sh_eth_interrupt, 0, ndev->name, ndev);
+	ret = request_irq(ndev->irq, &sh_eth_interrupt,
+#if defined(CONFIG_CPU_SUBTYPE_SH7763) || defined(CONFIG_CPU_SUBTYPE_SH7764)
+				IRQF_SHARED,
+#else
+				0,
+#endif
+				ndev->name, ndev);
 	if (ret) {
 		printk(KERN_ERR "Can not assign IRQ number to %s\n", CARDNAME);
 		return ret;
@@ -1175,6 +1188,19 @@ out:
 	return ret;
 }
 
+static const struct net_device_ops sh_eth_netdev_ops = {
+	.ndo_open		= sh_eth_open,
+	.ndo_stop		= sh_eth_close,
+	.ndo_start_xmit		= sh_eth_start_xmit,
+	.ndo_get_stats		= sh_eth_get_stats,
+	.ndo_set_multicast_list	= sh_eth_set_multicast_list,
+	.ndo_tx_timeout		= sh_eth_tx_timeout,
+	.ndo_do_ioctl		= sh_eth_do_ioctl,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+};
+
 static int sh_eth_drv_probe(struct platform_device *pdev)
 {
 	int ret, i, devno = 0;
@@ -1227,13 +1253,7 @@ static int sh_eth_drv_probe(struct platform_device *pdev)
 	mdp->edmac_endian = pd->edmac_endian;
 
 	/* set function */
-	ndev->open = sh_eth_open;
-	ndev->hard_start_xmit = sh_eth_start_xmit;
-	ndev->stop = sh_eth_close;
-	ndev->get_stats = sh_eth_get_stats;
-	ndev->set_multicast_list = sh_eth_set_multicast_list;
-	ndev->do_ioctl = sh_eth_do_ioctl;
-	ndev->tx_timeout = sh_eth_tx_timeout;
+	ndev->netdev_ops = &sh_eth_netdev_ops;
 	ndev->watchdog_timeo = TX_TIMEOUT;
 
 	mdp->post_rx = POST_RX >> (devno << 1);

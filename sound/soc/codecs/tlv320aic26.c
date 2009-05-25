@@ -125,11 +125,12 @@ static int aic26_reg_write(struct snd_soc_codec *codec, unsigned int reg,
  * Digital Audio Interface Operations
  */
 static int aic26_hw_params(struct snd_pcm_substream *substream,
-			   struct snd_pcm_hw_params *params)
+			   struct snd_pcm_hw_params *params,
+			   struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->codec;
+	struct snd_soc_codec *codec = socdev->card->codec;
 	struct aic26 *aic26 = codec->private_data;
 	int fsref, divisor, wlen, pval, jval, dval, qval;
 	u16 reg;
@@ -269,6 +270,13 @@ static int aic26_set_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 #define AIC26_FORMATS	(SNDRV_PCM_FMTBIT_S8     | SNDRV_PCM_FMTBIT_S16_BE |\
 			 SNDRV_PCM_FMTBIT_S24_BE | SNDRV_PCM_FMTBIT_S32_BE)
 
+static struct snd_soc_dai_ops aic26_dai_ops = {
+	.hw_params	= aic26_hw_params,
+	.digital_mute	= aic26_mute,
+	.set_sysclk	= aic26_set_sysclk,
+	.set_fmt	= aic26_set_fmt,
+};
+
 struct snd_soc_dai aic26_dai = {
 	.name = "tlv320aic26",
 	.playback = {
@@ -285,14 +293,7 @@ struct snd_soc_dai aic26_dai = {
 		.rates = AIC26_RATES,
 		.formats = AIC26_FORMATS,
 	},
-	.ops = {
-		.hw_params = aic26_hw_params,
-	},
-	.dai_ops = {
-		.digital_mute = aic26_mute,
-		.set_sysclk = aic26_set_sysclk,
-		.set_fmt = aic26_set_fmt,
-	},
+	.ops = &aic26_dai_ops,
 };
 EXPORT_SYMBOL_GPL(aic26_dai);
 
@@ -323,9 +324,8 @@ static int aic26_probe(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
 	struct snd_soc_codec *codec;
-	struct snd_kcontrol *kcontrol;
 	struct aic26 *aic26;
-	int i, ret, err;
+	int ret, err;
 
 	dev_info(&pdev->dev, "Probing AIC26 SoC CODEC driver\n");
 	dev_dbg(&pdev->dev, "socdev=%p\n", socdev);
@@ -339,7 +339,7 @@ static int aic26_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 	codec = &aic26->codec;
-	socdev->codec = codec;
+	socdev->card->codec = codec;
 
 	dev_dbg(&pdev->dev, "Registering PCMs, dev=%p, socdev->dev=%p\n",
 		&pdev->dev, socdev->dev);
@@ -352,15 +352,13 @@ static int aic26_probe(struct platform_device *pdev)
 
 	/* register controls */
 	dev_dbg(&pdev->dev, "Registering controls\n");
-	for (i = 0; i < ARRAY_SIZE(aic26_snd_controls); i++) {
-		kcontrol = snd_soc_cnew(&aic26_snd_controls[i], codec, NULL);
-		err = snd_ctl_add(codec->card, kcontrol);
-		WARN_ON(err < 0);
-	}
+	err = snd_soc_add_controls(codec, aic26_snd_controls,
+			ARRAY_SIZE(aic26_snd_controls));
+	WARN_ON(err < 0);
 
 	/* CODEC is setup, we can register the card now */
 	dev_dbg(&pdev->dev, "Registering card\n");
-	ret = snd_soc_register_card(socdev);
+	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "aic26: failed to register card\n");
 		goto card_err;
@@ -427,7 +425,7 @@ static DEVICE_ATTR(keyclick, 0644, aic26_keyclick_show, aic26_keyclick_set);
 static int aic26_spi_probe(struct spi_device *spi)
 {
 	struct aic26 *aic26;
-	int rc, i, reg;
+	int ret, i, reg;
 
 	dev_dbg(&spi->dev, "probing tlv320aic26 spi device\n");
 
@@ -457,6 +455,14 @@ static int aic26_spi_probe(struct spi_device *spi)
 	aic26->codec.reg_cache_size = AIC26_NUM_REGS;
 	aic26->codec.reg_cache = aic26->reg_cache;
 
+	aic26_dai.dev = &spi->dev;
+	ret = snd_soc_register_dai(&aic26_dai);
+	if (ret != 0) {
+		dev_err(&spi->dev, "Failed to register DAI: %d\n", ret);
+		kfree(aic26);
+		return ret;
+	}
+
 	/* Reset the codec to power on defaults */
 	aic26_reg_write(&aic26->codec, AIC26_REG_RESET, 0xBB00);
 
@@ -475,8 +481,8 @@ static int aic26_spi_probe(struct spi_device *spi)
 
 	/* Register the sysfs files for debugging */
 	/* Create SysFS files */
-	rc = device_create_file(&spi->dev, &dev_attr_keyclick);
-	if (rc)
+	ret = device_create_file(&spi->dev, &dev_attr_keyclick);
+	if (ret)
 		dev_info(&spi->dev, "error creating sysfs files\n");
 
 #if defined(CONFIG_SND_SOC_OF_SIMPLE)
@@ -493,6 +499,7 @@ static int aic26_spi_remove(struct spi_device *spi)
 {
 	struct aic26 *aic26 = dev_get_drvdata(&spi->dev);
 
+	snd_soc_unregister_dai(&aic26_dai);
 	kfree(aic26);
 
 	return 0;

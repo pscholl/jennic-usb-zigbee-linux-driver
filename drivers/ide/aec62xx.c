@@ -83,7 +83,7 @@ static u8 pci_bus_clock_list_ultra (u8 speed, struct chipset_bus_clock_list_entr
 
 static void aec6210_set_mode(ide_drive_t *drive, const u8 speed)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	struct ide_host *host	= pci_get_drvdata(dev);
 	struct chipset_bus_clock_list_entry *bus_clock = host->host_priv;
@@ -111,7 +111,7 @@ static void aec6210_set_mode(ide_drive_t *drive, const u8 speed)
 
 static void aec6260_set_mode(ide_drive_t *drive, const u8 speed)
 {
-	ide_hwif_t *hwif	= HWIF(drive);
+	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	struct ide_host *host	= pci_get_drvdata(dev);
 	struct chipset_bus_clock_list_entry *bus_clock = host->host_priv;
@@ -139,7 +139,7 @@ static void aec_set_pio_mode(ide_drive_t *drive, const u8 pio)
 	drive->hwif->port_ops->set_dma_mode(drive, pio + XFER_PIO_0);
 }
 
-static unsigned int init_chipset_aec62xx(struct pci_dev *dev)
+static int init_chipset_aec62xx(struct pci_dev *dev)
 {
 	/* These are necessary to get AEC6280 Macintosh cards to work */
 	if ((dev->device == PCI_DEVICE_ID_ARTOP_ATP865) ||
@@ -156,7 +156,7 @@ static unsigned int init_chipset_aec62xx(struct pci_dev *dev)
 		pci_write_config_byte(dev, 0x4a, reg4ah | 0x80);
 	}
 
-	return dev->irq;
+	return 0;
 }
 
 static u8 atp86x_cable_detect(ide_hwif_t *hwif)

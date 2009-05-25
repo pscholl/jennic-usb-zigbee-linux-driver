@@ -47,14 +47,6 @@ static char *policycap_names[] = {
 
 unsigned int selinux_checkreqprot = CONFIG_SECURITY_SELINUX_CHECKREQPROT_VALUE;
 
-#ifdef CONFIG_SECURITY_SELINUX_ENABLE_SECMARK_DEFAULT
-#define SELINUX_COMPAT_NET_VALUE 0
-#else
-#define SELINUX_COMPAT_NET_VALUE 1
-#endif
-
-int selinux_compat_net = SELINUX_COMPAT_NET_VALUE;
-
 static int __init checkreqprot_setup(char *str)
 {
 	unsigned long checkreqprot;
@@ -63,16 +55,6 @@ static int __init checkreqprot_setup(char *str)
 	return 1;
 }
 __setup("checkreqprot=", checkreqprot_setup);
-
-static int __init selinux_compat_net_setup(char *str)
-{
-	unsigned long compat_net;
-	if (!strict_strtoul(str, 0, &compat_net))
-		selinux_compat_net = compat_net ? 1 : 0;
-	return 1;
-}
-__setup("selinux_compat_net=", selinux_compat_net_setup);
-
 
 static DEFINE_MUTEX(sel_mutex);
 
@@ -95,13 +77,18 @@ extern void selnl_notify_setenforce(int val);
 static int task_has_security(struct task_struct *tsk,
 			     u32 perms)
 {
-	struct task_security_struct *tsec;
+	const struct task_security_struct *tsec;
+	u32 sid = 0;
 
-	tsec = tsk->security;
+	rcu_read_lock();
+	tsec = __task_cred(tsk)->security;
+	if (tsec)
+		sid = tsec->sid;
+	rcu_read_unlock();
 	if (!tsec)
 		return -EACCES;
 
-	return avc_has_perm(tsec->sid, SECINITSID_SECURITY,
+	return avc_has_perm(sid, SECINITSID_SECURITY,
 			    SECCLASS_SECURITY, perms, NULL);
 }
 
@@ -451,55 +438,6 @@ static const struct file_operations sel_checkreqprot_ops = {
 	.write		= sel_write_checkreqprot,
 };
 
-static ssize_t sel_read_compat_net(struct file *filp, char __user *buf,
-				   size_t count, loff_t *ppos)
-{
-	char tmpbuf[TMPBUFLEN];
-	ssize_t length;
-
-	length = scnprintf(tmpbuf, TMPBUFLEN, "%d", selinux_compat_net);
-	return simple_read_from_buffer(buf, count, ppos, tmpbuf, length);
-}
-
-static ssize_t sel_write_compat_net(struct file *file, const char __user *buf,
-				    size_t count, loff_t *ppos)
-{
-	char *page;
-	ssize_t length;
-	int new_value;
-
-	length = task_has_security(current, SECURITY__LOAD_POLICY);
-	if (length)
-		return length;
-
-	if (count >= PAGE_SIZE)
-		return -ENOMEM;
-	if (*ppos != 0) {
-		/* No partial writes. */
-		return -EINVAL;
-	}
-	page = (char *)get_zeroed_page(GFP_KERNEL);
-	if (!page)
-		return -ENOMEM;
-	length = -EFAULT;
-	if (copy_from_user(page, buf, count))
-		goto out;
-
-	length = -EINVAL;
-	if (sscanf(page, "%d", &new_value) != 1)
-		goto out;
-
-	selinux_compat_net = new_value ? 1 : 0;
-	length = count;
-out:
-	free_page((unsigned long) page);
-	return length;
-}
-static const struct file_operations sel_compat_net_ops = {
-	.read		= sel_read_compat_net,
-	.write		= sel_write_compat_net,
-};
-
 /*
  * Remaining nodes use transaction based IO methods like nfsd/nfsctl.c
  */
@@ -590,7 +528,7 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
 
 	length = scnprintf(buf, SIMPLE_TRANSACTION_LIMIT,
 			  "%x %x %x %x %u",
-			  avd.allowed, avd.decided,
+			  avd.allowed, 0xffffffff,
 			  avd.auditallow, avd.auditdeny,
 			  avd.seqno);
 out2:
@@ -842,8 +780,6 @@ static struct inode *sel_make_inode(struct super_block *sb, int mode)
 
 	if (ret) {
 		ret->i_mode = mode;
-		ret->i_uid = ret->i_gid = 0;
-		ret->i_blocks = 0;
 		ret->i_atime = ret->i_mtime = ret->i_ctime = CURRENT_TIME;
 	}
 	return ret;
@@ -1206,7 +1142,7 @@ static struct avc_cache_stats *sel_avc_get_stat_idx(loff_t *idx)
 {
 	int cpu;
 
-	for (cpu = *idx; cpu < NR_CPUS; ++cpu) {
+	for (cpu = *idx; cpu < nr_cpu_ids; ++cpu) {
 		if (!cpu_possible(cpu))
 			continue;
 		*idx = cpu + 1;
@@ -1662,7 +1598,6 @@ static int sel_fill_super(struct super_block *sb, void *data, int silent)
 		[SEL_DISABLE] = {"disable", &sel_disable_ops, S_IWUSR},
 		[SEL_MEMBER] = {"member", &transaction_ops, S_IRUGO|S_IWUGO},
 		[SEL_CHECKREQPROT] = {"checkreqprot", &sel_checkreqprot_ops, S_IRUGO|S_IWUSR},
-		[SEL_COMPAT_NET] = {"compat_net", &sel_compat_net_ops, S_IRUGO|S_IWUSR},
 		[SEL_REJECT_UNKNOWN] = {"reject_unknown", &sel_handle_unknown_ops, S_IRUGO},
 		[SEL_DENY_UNKNOWN] = {"deny_unknown", &sel_handle_unknown_ops, S_IRUGO},
 		/* last one */ {""}

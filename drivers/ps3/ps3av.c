@@ -59,8 +59,6 @@ static struct ps3av {
 		struct ps3av_reply_hdr reply_hdr;
 		u8 raw[PS3AV_BUF_SIZE];
 	} recv_buf;
-	void (*flip_ctl)(int on, void *data);
-	void *flip_data;
 } *ps3av;
 
 /* color space */
@@ -840,7 +838,7 @@ static int ps3av_get_hw_conf(struct ps3av *ps3av)
 }
 
 /* set mode using id */
-int ps3av_set_video_mode(u32 id)
+int ps3av_set_video_mode(int id)
 {
 	int size;
 	u32 option;
@@ -939,28 +937,10 @@ int ps3av_audio_mute(int mute)
 
 EXPORT_SYMBOL_GPL(ps3av_audio_mute);
 
-void ps3av_register_flip_ctl(void (*flip_ctl)(int on, void *data),
-			     void *flip_data)
-{
-	mutex_lock(&ps3av->mutex);
-	ps3av->flip_ctl = flip_ctl;
-	ps3av->flip_data = flip_data;
-	mutex_unlock(&ps3av->mutex);
-}
-EXPORT_SYMBOL_GPL(ps3av_register_flip_ctl);
-
-void ps3av_flip_ctl(int on)
-{
-	mutex_lock(&ps3av->mutex);
-	if (ps3av->flip_ctl)
-		ps3av->flip_ctl(on, ps3av->flip_data);
-	mutex_unlock(&ps3av->mutex);
-}
-
 static int ps3av_probe(struct ps3_system_bus_device *dev)
 {
 	int res;
-	u32 id;
+	int id;
 
 	dev_dbg(&dev->core, " -> %s:%d\n", __func__, __LINE__);
 	dev_dbg(&dev->core, "  timeout=%d\n", timeout);
@@ -982,8 +962,10 @@ static int ps3av_probe(struct ps3_system_bus_device *dev)
 	init_completion(&ps3av->done);
 	complete(&ps3av->done);
 	ps3av->wq = create_singlethread_workqueue("ps3avd");
-	if (!ps3av->wq)
+	if (!ps3av->wq) {
+		res = -ENOMEM;
 		goto fail;
+	}
 
 	switch (ps3_os_area_get_av_multi_out()) {
 	case PS3_PARAM_AV_MULTI_OUT_NTSC:
@@ -1014,6 +996,12 @@ static int ps3av_probe(struct ps3_system_bus_device *dev)
 		safe_mode = 1;
 #endif /* CONFIG_FB */
 	id = ps3av_auto_videomode(&ps3av->av_hw_conf);
+	if (id < 0) {
+		printk(KERN_ERR "%s: invalid id :%d\n", __func__, id);
+		res = -EINVAL;
+		goto fail;
+	}
+
 	safe_mode = 0;
 
 	mutex_lock(&ps3av->mutex);
@@ -1027,7 +1015,7 @@ static int ps3av_probe(struct ps3_system_bus_device *dev)
 fail:
 	kfree(ps3av);
 	ps3av = NULL;
-	return -ENOMEM;
+	return res;
 }
 
 static int ps3av_remove(struct ps3_system_bus_device *dev)

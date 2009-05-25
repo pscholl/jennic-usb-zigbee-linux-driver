@@ -207,9 +207,6 @@ static int ipw_open(struct tty_struct *tty,
 	if (!buf_flow_init)
 		return -ENOMEM;
 
-	if (tty)
-		tty->low_latency = 1;
-
 	/* --1: Tell the modem to initialize (we think) From sniffs this is
 	 *	always the first thing that gets sent to the modem during
 	 *	opening of the device */
@@ -473,7 +470,7 @@ static struct usb_serial_driver ipw_device = {
 
 
 
-static int usb_ipw_init(void)
+static int __init usb_ipw_init(void)
 {
 	int retval;
 
@@ -490,7 +487,7 @@ static int usb_ipw_init(void)
 	return 0;
 }
 
-static void usb_ipw_exit(void)
+static void __exit usb_ipw_exit(void)
 {
 	usb_deregister(&usb_ipw_driver);
 	usb_serial_deregister(&ipw_device);

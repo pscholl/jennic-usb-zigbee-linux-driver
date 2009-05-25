@@ -80,6 +80,7 @@
 #include <linux/delayacct.h>
 #include <linux/seq_file.h>
 #include <linux/pid_namespace.h>
+#include <linux/ptrace.h>
 #include <linux/tracehook.h>
 
 #include <asm/pgtable.h>
@@ -159,6 +160,7 @@ static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
 	struct group_info *group_info;
 	int g;
 	struct fdtable *fdt = NULL;
+	const struct cred *cred;
 	pid_t ppid, tpid;
 
 	rcu_read_lock();
@@ -170,6 +172,7 @@ static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
 		if (tracer)
 			tpid = task_pid_nr_ns(tracer, ns);
 	}
+	cred = get_cred((struct cred *) __task_cred(p));
 	seq_printf(m,
 		"State:\t%s\n"
 		"Tgid:\t%d\n"
@@ -182,8 +185,8 @@ static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
 		task_tgid_nr_ns(p, ns),
 		pid_nr_ns(pid, ns),
 		ppid, tpid,
-		p->uid, p->euid, p->suid, p->fsuid,
-		p->gid, p->egid, p->sgid, p->fsgid);
+		cred->uid, cred->euid, cred->suid, cred->fsuid,
+		cred->gid, cred->egid, cred->sgid, cred->fsgid);
 
 	task_lock(p);
 	if (p->files)
@@ -194,13 +197,12 @@ static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
 		fdt ? fdt->max_fds : 0);
 	rcu_read_unlock();
 
-	group_info = p->group_info;
-	get_group_info(group_info);
+	group_info = cred->group_info;
 	task_unlock(p);
 
 	for (g = 0; g < min(group_info->ngroups, NGROUPS_SMALL); g++)
 		seq_printf(m, "%d ", GROUP_AT(group_info, g));
-	put_group_info(group_info);
+	put_cred(cred);
 
 	seq_printf(m, "\n");
 }
@@ -262,7 +264,7 @@ static inline void task_sig(struct seq_file *m, struct task_struct *p)
 		blocked = p->blocked;
 		collect_sigign_sigcatch(p, &ignored, &caught);
 		num_threads = atomic_read(&p->signal->count);
-		qsize = atomic_read(&p->user->sigpending);
+		qsize = atomic_read(&__task_cred(p)->user->sigpending);
 		qlim = p->signal->rlim[RLIMIT_SIGPENDING].rlim_cur;
 		unlock_task_sighand(p, &flags);
 	}
@@ -293,10 +295,21 @@ static void render_cap_t(struct seq_file *m, const char *header,
 
 static inline void task_cap(struct seq_file *m, struct task_struct *p)
 {
-	render_cap_t(m, "CapInh:\t", &p->cap_inheritable);
-	render_cap_t(m, "CapPrm:\t", &p->cap_permitted);
-	render_cap_t(m, "CapEff:\t", &p->cap_effective);
-	render_cap_t(m, "CapBnd:\t", &p->cap_bset);
+	const struct cred *cred;
+	kernel_cap_t cap_inheritable, cap_permitted, cap_effective, cap_bset;
+
+	rcu_read_lock();
+	cred = __task_cred(p);
+	cap_inheritable	= cred->cap_inheritable;
+	cap_permitted	= cred->cap_permitted;
+	cap_effective	= cred->cap_effective;
+	cap_bset	= cred->cap_bset;
+	rcu_read_unlock();
+
+	render_cap_t(m, "CapInh:\t", &cap_inheritable);
+	render_cap_t(m, "CapPrm:\t", &cap_permitted);
+	render_cap_t(m, "CapEff:\t", &cap_effective);
+	render_cap_t(m, "CapBnd:\t", &cap_bset);
 }
 
 static inline void task_context_switch_counts(struct seq_file *m,
@@ -340,6 +353,7 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 	char state;
 	pid_t ppid = 0, pgid = -1, sid = -1;
 	int num_threads = 0;
+	int permitted;
 	struct mm_struct *mm;
 	unsigned long long start_time;
 	unsigned long cmin_flt = 0, cmaj_flt = 0;
@@ -352,11 +366,14 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 
 	state = *get_task_state(task);
 	vsize = eip = esp = 0;
+	permitted = ptrace_may_access(task, PTRACE_MODE_READ);
 	mm = get_task_mm(task);
 	if (mm) {
 		vsize = task_vsize(mm);
-		eip = KSTK_EIP(task);
-		esp = KSTK_ESP(task);
+		if (permitted) {
+			eip = KSTK_EIP(task);
+			esp = KSTK_ESP(task);
+		}
 	}
 
 	get_task_comm(tcomm, task);
@@ -412,7 +429,7 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 		unlock_task_sighand(task, &flags);
 	}
 
-	if (!whole || num_threads < 2)
+	if (permitted && (!whole || num_threads < 2))
 		wchan = get_wchan(task);
 	if (!whole) {
 		min_flt = task->min_flt;
@@ -464,7 +481,7 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 		rsslim,
 		mm ? mm->start_code : 0,
 		mm ? mm->end_code : 0,
-		mm ? mm->start_stack : 0,
+		(permitted && mm) ? mm->start_stack : 0,
 		esp,
 		eip,
 		/* The signal information here is obsolete.

@@ -103,8 +103,9 @@
 #define AE_BAD_OCTAL_CONSTANT           (acpi_status) (0x0006 | AE_CODE_PROGRAMMER)
 #define AE_BAD_DECIMAL_CONSTANT         (acpi_status) (0x0007 | AE_CODE_PROGRAMMER)
 #define AE_MISSING_ARGUMENTS            (acpi_status) (0x0008 | AE_CODE_PROGRAMMER)
+#define AE_BAD_ADDRESS                  (acpi_status) (0x0009 | AE_CODE_PROGRAMMER)
 
-#define AE_CODE_PGM_MAX                 0x0008
+#define AE_CODE_PGM_MAX                 0x0009
 
 /*
  * Acpi table exceptions
@@ -153,8 +154,9 @@
 #define AE_AML_CIRCULAR_REFERENCE       (acpi_status) (0x001E | AE_CODE_AML)
 #define AE_AML_BAD_RESOURCE_LENGTH      (acpi_status) (0x001F | AE_CODE_AML)
 #define AE_AML_ILLEGAL_ADDRESS          (acpi_status) (0x0020 | AE_CODE_AML)
+#define AE_AML_INFINITE_LOOP            (acpi_status) (0x0021 | AE_CODE_AML)
 
-#define AE_CODE_AML_MAX                 0x0020
+#define AE_CODE_AML_MAX                 0x0021
 
 /*
  * Internal exceptions used for control
@@ -174,6 +176,8 @@
 #define AE_CTRL_PARSE_PENDING           (acpi_status) (0x000D | AE_CODE_CONTROL)
 
 #define AE_CODE_CTRL_MAX                0x000D
+
+/* Exception strings for acpi_format_exception */
 
 #ifdef DEFINE_ACPI_GLOBALS
 
@@ -221,7 +225,8 @@ char const *acpi_gbl_exception_names_pgm[] = {
 	"AE_BAD_HEX_CONSTANT",
 	"AE_BAD_OCTAL_CONSTANT",
 	"AE_BAD_DECIMAL_CONSTANT",
-	"AE_MISSING_ARGUMENTS"
+	"AE_MISSING_ARGUMENTS",
+	"AE_BAD_ADDRESS"
 };
 
 char const *acpi_gbl_exception_names_tbl[] = {
@@ -267,6 +272,7 @@ char const *acpi_gbl_exception_names_aml[] = {
 	"AE_AML_CIRCULAR_REFERENCE",
 	"AE_AML_BAD_RESOURCE_LENGTH",
 	"AE_AML_ILLEGAL_ADDRESS",
+	"AE_AML_INFINITE_LOOP"
 };
 
 char const *acpi_gbl_exception_names_ctrl[] = {

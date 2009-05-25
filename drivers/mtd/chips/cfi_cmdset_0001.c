@@ -58,8 +58,8 @@ static int cfi_intelext_write_buffers(struct mtd_info *, loff_t, size_t, size_t 
 static int cfi_intelext_writev(struct mtd_info *, const struct kvec *, unsigned long, loff_t, size_t *);
 static int cfi_intelext_erase_varsize(struct mtd_info *, struct erase_info *);
 static void cfi_intelext_sync (struct mtd_info *);
-static int cfi_intelext_lock(struct mtd_info *mtd, loff_t ofs, size_t len);
-static int cfi_intelext_unlock(struct mtd_info *mtd, loff_t ofs, size_t len);
+static int cfi_intelext_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
+static int cfi_intelext_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 #ifdef CONFIG_MTD_OTP
 static int cfi_intelext_read_fact_prot_reg (struct mtd_info *, loff_t, size_t, size_t *, u_char *);
 static int cfi_intelext_read_user_prot_reg (struct mtd_info *, loff_t, size_t, size_t *, u_char *);
@@ -558,8 +558,8 @@ static struct mtd_info *cfi_intelext_setup(struct mtd_info *mtd)
 	}
 
 	for (i=0; i<mtd->numeraseregions;i++){
-		printk(KERN_DEBUG "erase region %d: offset=0x%x,size=0x%x,blocks=%d\n",
-		       i,mtd->eraseregions[i].offset,
+		printk(KERN_DEBUG "erase region %d: offset=0x%llx,size=0x%x,blocks=%d\n",
+		       i,(unsigned long long)mtd->eraseregions[i].offset,
 		       mtd->eraseregions[i].erasesize,
 		       mtd->eraseregions[i].numblocks);
 	}
@@ -1236,10 +1236,14 @@ static int inval_cache_and_wait_for_operation(
 			remove_wait_queue(&chip->wq, &wait);
 			spin_lock(chip->mutex);
 		}
-		if (chip->erase_suspended || chip->write_suspended)  {
-			/* Suspend has occured while sleep: reset timeout */
+		if (chip->erase_suspended && chip_state == FL_ERASING)  {
+			/* Erase suspend occured while sleep: reset timeout */
 			timeo = reset_timeo;
 			chip->erase_suspended = 0;
+		}
+		if (chip->write_suspended && chip_state == FL_WRITING)  {
+			/* Write suspend occured while sleep: reset timeout */
+			timeo = reset_timeo;
 			chip->write_suspended = 0;
 		}
 	}
@@ -2058,7 +2062,7 @@ out:	put_chip(map, chip, adr);
 	return ret;
 }
 
-static int cfi_intelext_lock(struct mtd_info *mtd, loff_t ofs, size_t len)
+static int cfi_intelext_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	int ret;
 
@@ -2082,7 +2086,7 @@ static int cfi_intelext_lock(struct mtd_info *mtd, loff_t ofs, size_t len)
 	return ret;
 }
 
-static int cfi_intelext_unlock(struct mtd_info *mtd, loff_t ofs, size_t len)
+static int cfi_intelext_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	int ret;
 

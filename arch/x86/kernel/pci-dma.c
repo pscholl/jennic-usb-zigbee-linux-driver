@@ -1,4 +1,5 @@
 #include <linux/dma-mapping.h>
+#include <linux/dma-debug.h>
 #include <linux/dmar.h>
 #include <linux/bootmem.h>
 #include <linux/pci.h>
@@ -6,12 +7,13 @@
 #include <asm/proto.h>
 #include <asm/dma.h>
 #include <asm/iommu.h>
+#include <asm/gart.h>
 #include <asm/calgary.h>
 #include <asm/amd_iommu.h>
 
 static int forbid_dac __read_mostly;
 
-struct dma_mapping_ops *dma_ops;
+struct dma_map_ops *dma_ops;
 EXPORT_SYMBOL(dma_ops);
 
 static int iommu_sac_force __read_mostly;
@@ -30,11 +32,6 @@ int no_iommu __read_mostly;
 /* Set this to 1 if there is a HW IOMMU in the system */
 int iommu_detected __read_mostly = 0;
 
-/* This tells the BIO block layer to assume merging. Default to off
-   because we cannot guarantee merging later. */
-int iommu_bio_merge __read_mostly = 0;
-EXPORT_SYMBOL(iommu_bio_merge);
-
 dma_addr_t bad_dma_address __read_mostly = 0;
 EXPORT_SYMBOL(bad_dma_address);
 
@@ -42,11 +39,14 @@ EXPORT_SYMBOL(bad_dma_address);
    be probably a smaller DMA mask, but this is bug-to-bug compatible
    to older i386. */
 struct device x86_dma_fallback_dev = {
-	.bus_id = "fallback device",
-	.coherent_dma_mask = DMA_32BIT_MASK,
+	.init_name = "fallback device",
+	.coherent_dma_mask = DMA_BIT_MASK(32),
 	.dma_mask = &x86_dma_fallback_dev.coherent_dma_mask,
 };
 EXPORT_SYMBOL(x86_dma_fallback_dev);
+
+/* Number of entries preallocated for DMA-API debugging */
+#define PREALLOC_DMA_DEBUG_ENTRIES       32768
 
 int dma_set_mask(struct device *dev, u64 mask)
 {
@@ -105,11 +105,15 @@ static void __init dma32_free_bootmem(void)
 	dma32_bootmem_ptr = NULL;
 	dma32_bootmem_size = 0;
 }
+#endif
 
 void __init pci_iommu_alloc(void)
 {
+#ifdef CONFIG_X86_64
 	/* free the range so iommu could get some range less than 4G */
 	dma32_free_bootmem();
+#endif
+
 	/*
 	 * The order of these functions is important for
 	 * fall-back/fail-over reasons
@@ -124,15 +128,6 @@ void __init pci_iommu_alloc(void)
 
 	pci_swiotlb_init();
 }
-
-unsigned long iommu_nr_pages(unsigned long addr, unsigned long len)
-{
-	unsigned long size = roundup((addr & ~PAGE_MASK) + len, PAGE_SIZE);
-
-	return size >> PAGE_SHIFT;
-}
-EXPORT_SYMBOL(iommu_nr_pages);
-#endif
 
 void *dma_generic_alloc_coherent(struct device *dev, size_t size,
 				 dma_addr_t *dma_addr, gfp_t flag)
@@ -153,7 +148,7 @@ again:
 	if (!is_buffer_dma_capable(dma_mask, addr, size)) {
 		__free_pages(page, get_order(size));
 
-		if (dma_mask < DMA_32BIT_MASK && !(flag & GFP_DMA)) {
+		if (dma_mask < DMA_BIT_MASK(32) && !(flag & GFP_DMA)) {
 			flag = (flag & ~GFP_DMA32) | GFP_DMA;
 			goto again;
 		}
@@ -188,7 +183,6 @@ static __init int iommu_setup(char *p)
 		}
 
 		if (!strncmp(p, "biomerge", 8)) {
-			iommu_bio_merge = 4096;
 			iommu_merge = 1;
 			force_iommu = 1;
 		}
@@ -234,7 +228,7 @@ early_param("iommu", iommu_setup);
 
 int dma_supported(struct device *dev, u64 mask)
 {
-	struct dma_mapping_ops *ops = get_dma_ops(dev);
+	struct dma_map_ops *ops = get_dma_ops(dev);
 
 #ifdef CONFIG_PCI
 	if (mask > 0xffffffff && forbid_dac > 0) {
@@ -249,7 +243,7 @@ int dma_supported(struct device *dev, u64 mask)
 	/* Copied from i386. Doesn't make much sense, because it will
 	   only work for pci_alloc_coherent.
 	   The caller just has to use GFP_DMA in this case. */
-	if (mask < DMA_24BIT_MASK)
+	if (mask < DMA_BIT_MASK(24))
 		return 0;
 
 	/* Tell the device to use SAC when IOMMU force is on.  This
@@ -264,7 +258,7 @@ int dma_supported(struct device *dev, u64 mask)
 	   SAC for these.  Assume all masks <= 40 bits are of this
 	   type. Normally this doesn't make any difference, but gives
 	   more gentle handling of IOMMU overflow. */
-	if (iommu_sac_force && (mask >= DMA_40BIT_MASK)) {
+	if (iommu_sac_force && (mask >= DMA_BIT_MASK(40))) {
 		dev_info(dev, "Force SAC with mask %Lx\n", mask);
 		return 0;
 	}
@@ -275,6 +269,12 @@ EXPORT_SYMBOL(dma_supported);
 
 static int __init pci_iommu_init(void)
 {
+	dma_debug_init(PREALLOC_DMA_DEBUG_ENTRIES);
+
+#ifdef CONFIG_PCI
+	dma_debug_add_bus(&pci_bus_type);
+#endif
+
 	calgary_iommu_init();
 
 	intel_iommu_init();
@@ -300,8 +300,7 @@ fs_initcall(pci_iommu_init);
 static __devinit void via_no_dac(struct pci_dev *dev)
 {
 	if ((dev->class >> 8) == PCI_CLASS_BRIDGE_PCI && forbid_dac == 0) {
-		printk(KERN_INFO "PCI: VIA PCI bridge detected."
-				 "Disabling DAC.\n");
+		dev_info(&dev->dev, "disabling DAC on VIA PCI bridge\n");
 		forbid_dac = 1;
 	}
 }

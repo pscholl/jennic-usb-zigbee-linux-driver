@@ -39,6 +39,7 @@ void *kmap_atomic(struct page *page, enum km_type type)
 	if (!PageHighMem(page))
 		return page_address(page);
 
+	debug_kmap_atomic(type);
 	idx = type + KM_TYPE_NR*smp_processor_id();
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
 
@@ -62,6 +63,7 @@ void *kmap_atomic(struct page *page, enum km_type type)
 
 	return (void*) vaddr;
 }
+EXPORT_SYMBOL(kmap_atomic);
 
 void kunmap_atomic(void *kvaddr, enum km_type type)
 {
@@ -98,6 +100,7 @@ void kunmap_atomic(void *kvaddr, enum km_type type)
 
 	pagefault_enable();
 }
+EXPORT_SYMBOL(kunmap_atomic);
 
 /* We may be fed a pagetable here by ptep_to_xxx and others. */
 struct page *kmap_atomic_to_page(void *ptr)

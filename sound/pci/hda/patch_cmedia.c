@@ -28,7 +28,6 @@
 #include <sound/core.h>
 #include "hda_codec.h"
 #include "hda_local.h"
-#include "hda_patch.h"
 #define NUM_PINS	11
 
 
@@ -681,13 +680,13 @@ static int patch_cmi9880(struct hda_codec *codec)
 		struct auto_pin_cfg cfg;
 
 		/* collect pin default configuration */
-		port_e = snd_hda_codec_read(codec, 0x0f, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
-		port_f = snd_hda_codec_read(codec, 0x10, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
+		port_e = snd_hda_codec_get_pincfg(codec, 0x0f);
+		port_f = snd_hda_codec_get_pincfg(codec, 0x10);
 		spec->front_panel = 1;
 		if (get_defcfg_connect(port_e) == AC_JACK_PORT_NONE ||
 		    get_defcfg_connect(port_f) == AC_JACK_PORT_NONE) {
-			port_g = snd_hda_codec_read(codec, 0x1f, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
-			port_h = snd_hda_codec_read(codec, 0x20, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
+			port_g = snd_hda_codec_get_pincfg(codec, 0x1f);
+			port_h = snd_hda_codec_get_pincfg(codec, 0x20);
 			spec->channel_modes = cmi9880_channel_modes;
 			/* no front panel */
 			if (get_defcfg_connect(port_g) == AC_JACK_PORT_NONE ||
@@ -704,8 +703,8 @@ static int patch_cmi9880(struct hda_codec *codec)
 			spec->multiout.max_channels = cmi9880_channel_modes[0].channels;
 		} else {
 			spec->input_mux = &cmi9880_basic_mux;
-			port_spdifi = snd_hda_codec_read(codec, 0x13, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
-			port_spdifo = snd_hda_codec_read(codec, 0x12, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
+			port_spdifi = snd_hda_codec_get_pincfg(codec, 0x13);
+			port_spdifo = snd_hda_codec_get_pincfg(codec, 0x12);
 			if (get_defcfg_connect(port_spdifo) != AC_JACK_PORT_NONE)
 				spec->multiout.dig_out_nid = CMI_DIG_OUT_NID;
 			if (get_defcfg_connect(port_spdifi) != AC_JACK_PORT_NONE)
@@ -736,8 +735,32 @@ static int patch_cmi9880(struct hda_codec *codec)
 /*
  * patch entries
  */
-struct hda_codec_preset snd_hda_preset_cmedia[] = {
+static struct hda_codec_preset snd_hda_preset_cmedia[] = {
 	{ .id = 0x13f69880, .name = "CMI9880", .patch = patch_cmi9880 },
  	{ .id = 0x434d4980, .name = "CMI9880", .patch = patch_cmi9880 },
 	{} /* terminator */
 };
+
+MODULE_ALIAS("snd-hda-codec-id:13f69880");
+MODULE_ALIAS("snd-hda-codec-id:434d4980");
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("C-Media HD-audio codec");
+
+static struct hda_codec_preset_list cmedia_list = {
+	.preset = snd_hda_preset_cmedia,
+	.owner = THIS_MODULE,
+};
+
+static int __init patch_cmedia_init(void)
+{
+	return snd_hda_add_codec_preset(&cmedia_list);
+}
+
+static void __exit patch_cmedia_exit(void)
+{
+	snd_hda_delete_codec_preset(&cmedia_list);
+}
+
+module_init(patch_cmedia_init)
+module_exit(patch_cmedia_exit)

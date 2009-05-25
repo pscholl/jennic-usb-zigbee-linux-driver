@@ -14,6 +14,8 @@
 
 struct module;
 
+#define NF_CT_HELPER_NAME_LEN	16
+
 struct nf_conntrack_helper
 {
 	struct hlist_node hnode;	/* Internal use. */
@@ -39,15 +41,14 @@ struct nf_conntrack_helper
 };
 
 extern struct nf_conntrack_helper *
-__nf_ct_helper_find(const struct nf_conntrack_tuple *tuple);
-
-extern struct nf_conntrack_helper *
 __nf_conntrack_helper_find_byname(const char *name);
 
 extern int nf_conntrack_helper_register(struct nf_conntrack_helper *);
 extern void nf_conntrack_helper_unregister(struct nf_conntrack_helper *);
 
 extern struct nf_conn_help *nf_ct_helper_ext_add(struct nf_conn *ct, gfp_t gfp);
+
+extern int __nf_ct_try_assign_helper(struct nf_conn *ct, gfp_t flags);
 
 static inline struct nf_conn_help *nfct_help(const struct nf_conn *ct)
 {

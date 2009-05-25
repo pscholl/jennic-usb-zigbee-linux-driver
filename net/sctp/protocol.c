@@ -102,15 +102,13 @@ struct sock *sctp_get_ctl_sock(void)
 /* Set up the proc fs entry for the SCTP protocol. */
 static __init int sctp_proc_init(void)
 {
+	if (percpu_counter_init(&sctp_sockets_allocated, 0))
+		goto out_nomem;
 #ifdef CONFIG_PROC_FS
 	if (!proc_net_sctp) {
-		struct proc_dir_entry *ent;
-		ent = proc_mkdir("sctp", init_net.proc_net);
-		if (ent) {
-			ent->owner = THIS_MODULE;
-			proc_net_sctp = ent;
-		} else
-			goto out_nomem;
+		proc_net_sctp = proc_mkdir("sctp", init_net.proc_net);
+		if (!proc_net_sctp)
+			goto out_free_percpu;
 	}
 
 	if (sctp_snmp_proc_init())
@@ -135,11 +133,14 @@ out_snmp_proc_init:
 		proc_net_sctp = NULL;
 		remove_proc_entry("sctp", init_net.proc_net);
 	}
-out_nomem:
-	return -ENOMEM;
+out_free_percpu:
+	percpu_counter_destroy(&sctp_sockets_allocated);
 #else
 	return 0;
 #endif /* CONFIG_PROC_FS */
+
+out_nomem:
+	return -ENOMEM;
 }
 
 /* Clean up the proc fs entry for the SCTP protocol.
@@ -482,9 +483,8 @@ static struct dst_entry *sctp_v4_get_dst(struct sctp_association *asoc,
 	if (saddr)
 		fl.fl4_src = saddr->v4.sin_addr.s_addr;
 
-	SCTP_DEBUG_PRINTK("%s: DST:%u.%u.%u.%u, SRC:%u.%u.%u.%u - ",
-			  __func__, NIPQUAD(fl.fl4_dst),
-			  NIPQUAD(fl.fl4_src));
+	SCTP_DEBUG_PRINTK("%s: DST:%pI4, SRC:%pI4 - ",
+			  __func__, &fl.fl4_dst, &fl.fl4_src);
 
 	if (!ip_route_output_key(&init_net, &rt, &fl)) {
 		dst = &rt->u.dst;
@@ -540,8 +540,8 @@ out_unlock:
 	rcu_read_unlock();
 out:
 	if (dst)
-		SCTP_DEBUG_PRINTK("rt_dst:%u.%u.%u.%u, rt_src:%u.%u.%u.%u\n",
-				  NIPQUAD(rt->rt_dst), NIPQUAD(rt->rt_src));
+		SCTP_DEBUG_PRINTK("rt_dst:%pI4, rt_src:%pI4\n",
+				  &rt->rt_dst, &rt->rt_src);
 	else
 		SCTP_DEBUG_PRINTK("NO ROUTE\n");
 
@@ -585,46 +585,21 @@ static int sctp_v4_is_ce(const struct sk_buff *skb)
 static struct sock *sctp_v4_create_accept_sk(struct sock *sk,
 					     struct sctp_association *asoc)
 {
-	struct inet_sock *inet = inet_sk(sk);
-	struct inet_sock *newinet;
 	struct sock *newsk = sk_alloc(sock_net(sk), PF_INET, GFP_KERNEL,
 			sk->sk_prot);
+	struct inet_sock *newinet;
 
 	if (!newsk)
 		goto out;
 
 	sock_init_data(NULL, newsk);
 
-	newsk->sk_type = SOCK_STREAM;
-
-	newsk->sk_no_check = sk->sk_no_check;
-	newsk->sk_reuse = sk->sk_reuse;
-	newsk->sk_shutdown = sk->sk_shutdown;
-
-	newsk->sk_destruct = inet_sock_destruct;
-	newsk->sk_family = PF_INET;
-	newsk->sk_protocol = IPPROTO_SCTP;
-	newsk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
+	sctp_copy_sock(newsk, sk, asoc);
 	sock_reset_flag(newsk, SOCK_ZAPPED);
 
 	newinet = inet_sk(newsk);
 
-	/* Initialize sk's sport, dport, rcv_saddr and daddr for
-	 * getsockname() and getpeername()
-	 */
-	newinet->sport = inet->sport;
-	newinet->saddr = inet->saddr;
-	newinet->rcv_saddr = inet->rcv_saddr;
-	newinet->dport = htons(asoc->peer.port);
 	newinet->daddr = asoc->peer.primary_addr.v4.sin_addr.s_addr;
-	newinet->pmtudisc = inet->pmtudisc;
-	newinet->id = asoc->next_tsn ^ jiffies;
-
-	newinet->uc_ttl = -1;
-	newinet->mc_loop = 1;
-	newinet->mc_ttl = 1;
-	newinet->mc_index = 0;
-	newinet->mc_list = NULL;
 
 	sk_refcnt_debug_inc(newsk);
 
@@ -646,7 +621,7 @@ static void sctp_v4_addr_v4map(struct sctp_sock *sp, union sctp_addr *addr)
 /* Dump the v4 addr to the seq file. */
 static void sctp_v4_seq_dump_addr(struct seq_file *seq, union sctp_addr *addr)
 {
-	seq_printf(seq, "%d.%d.%d.%d ", NIPQUAD(addr->v4.sin_addr));
+	seq_printf(seq, "%pI4 ", &addr->v4.sin_addr);
 }
 
 static void sctp_v4_ecn_capable(struct sock *sk)
@@ -713,15 +688,20 @@ static int sctp_inetaddr_event(struct notifier_block *this, unsigned long ev,
 static int sctp_ctl_sock_init(void)
 {
 	int err;
-	sa_family_t family;
+	sa_family_t family = PF_INET;
 
 	if (sctp_get_pf_specific(PF_INET6))
 		family = PF_INET6;
-	else
-		family = PF_INET;
 
 	err = inet_ctl_sock_create(&sctp_ctl_sock, family,
 				   SOCK_SEQPACKET, IPPROTO_SCTP, &init_net);
+
+	/* If IPv6 socket could not be created, try the IPv4 socket */
+	if (err < 0 && family == PF_INET6)
+		err = inet_ctl_sock_create(&sctp_ctl_sock, AF_INET,
+					   SOCK_SEQPACKET, IPPROTO_SCTP,
+					   &init_net);
+
 	if (err < 0) {
 		printk(KERN_ERR
 		       "SCTP: Failed to create the SCTP control socket.\n");
@@ -866,11 +846,10 @@ static inline int sctp_v4_xmit(struct sk_buff *skb,
 {
 	struct inet_sock *inet = inet_sk(skb->sk);
 
-	SCTP_DEBUG_PRINTK("%s: skb:%p, len:%d, "
-			  "src:%u.%u.%u.%u, dst:%u.%u.%u.%u\n",
+	SCTP_DEBUG_PRINTK("%s: skb:%p, len:%d, src:%pI4, dst:%pI4\n",
 			  __func__, skb, skb->len,
-			  NIPQUAD(skb->rtable->rt_src),
-			  NIPQUAD(skb->rtable->rt_dst));
+			  &skb->rtable->rt_src,
+			  &skb->rtable->rt_dst);
 
 	inet->pmtudisc = transport->param_flags & SPP_PMTUD_ENABLE ?
 			 IP_PMTUDISC_DO : IP_PMTUDISC_DONT;
@@ -1319,9 +1298,8 @@ SCTP_STATIC __init int sctp_init(void)
 out:
 	return status;
 err_v6_add_protocol:
-	sctp_v6_del_protocol();
-err_add_protocol:
 	sctp_v4_del_protocol();
+err_add_protocol:
 	inet_ctl_sock_destroy(sctp_ctl_sock);
 err_ctl_sock_init:
 	sctp_v6_protosw_exit();
@@ -1332,7 +1310,6 @@ err_protosw_init:
 	sctp_v4_pf_exit();
 	sctp_v6_pf_exit();
 	sctp_sysctl_unregister();
-	list_del(&sctp_af_inet.list);
 	free_pages((unsigned long)sctp_port_hashtable,
 		   get_order(sctp_port_hashsize *
 			     sizeof(struct sctp_bind_hashbucket)));
@@ -1380,7 +1357,6 @@ SCTP_STATIC __exit void sctp_exit(void)
 	sctp_v4_pf_exit();
 
 	sctp_sysctl_unregister();
-	list_del(&sctp_af_inet.list);
 
 	free_pages((unsigned long)sctp_assoc_hashtable,
 		   get_order(sctp_assoc_hashsize *
@@ -1408,4 +1384,6 @@ MODULE_ALIAS("net-pf-" __stringify(PF_INET) "-proto-132");
 MODULE_ALIAS("net-pf-" __stringify(PF_INET6) "-proto-132");
 MODULE_AUTHOR("Linux Kernel SCTP developers <lksctp-developers@lists.sourceforge.net>");
 MODULE_DESCRIPTION("Support for the SCTP protocol (RFC2960)");
+module_param_named(no_checksums, sctp_checksum_disable, bool, 0644);
+MODULE_PARM_DESC(no_checksums, "Disable checksums computing and verification");
 MODULE_LICENSE("GPL");

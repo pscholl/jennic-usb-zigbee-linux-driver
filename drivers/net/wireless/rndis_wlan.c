@@ -37,11 +37,11 @@
 #include <linux/usb.h>
 #include <linux/usb/cdc.h>
 #include <linux/wireless.h>
+#include <linux/ieee80211.h>
 #include <linux/if_arp.h>
 #include <linux/ctype.h>
 #include <linux/spinlock.h>
 #include <net/iw_handler.h>
-#include <net/ieee80211.h>
 #include <linux/usb/usbnet.h>
 #include <linux/usb/rndis_host.h>
 
@@ -90,44 +90,44 @@ MODULE_PARM_DESC(workaround_interval,
 
 
 /* various RNDIS OID defs */
-#define OID_GEN_LINK_SPEED			ccpu2(0x00010107)
-#define OID_GEN_RNDIS_CONFIG_PARAMETER		ccpu2(0x0001021b)
+#define OID_GEN_LINK_SPEED			cpu_to_le32(0x00010107)
+#define OID_GEN_RNDIS_CONFIG_PARAMETER		cpu_to_le32(0x0001021b)
 
-#define OID_GEN_XMIT_OK				ccpu2(0x00020101)
-#define OID_GEN_RCV_OK				ccpu2(0x00020102)
-#define OID_GEN_XMIT_ERROR			ccpu2(0x00020103)
-#define OID_GEN_RCV_ERROR			ccpu2(0x00020104)
-#define OID_GEN_RCV_NO_BUFFER			ccpu2(0x00020105)
+#define OID_GEN_XMIT_OK				cpu_to_le32(0x00020101)
+#define OID_GEN_RCV_OK				cpu_to_le32(0x00020102)
+#define OID_GEN_XMIT_ERROR			cpu_to_le32(0x00020103)
+#define OID_GEN_RCV_ERROR			cpu_to_le32(0x00020104)
+#define OID_GEN_RCV_NO_BUFFER			cpu_to_le32(0x00020105)
 
-#define OID_802_3_PERMANENT_ADDRESS		ccpu2(0x01010101)
-#define OID_802_3_CURRENT_ADDRESS		ccpu2(0x01010102)
-#define OID_802_3_MULTICAST_LIST		ccpu2(0x01010103)
-#define OID_802_3_MAXIMUM_LIST_SIZE		ccpu2(0x01010104)
+#define OID_802_3_PERMANENT_ADDRESS		cpu_to_le32(0x01010101)
+#define OID_802_3_CURRENT_ADDRESS		cpu_to_le32(0x01010102)
+#define OID_802_3_MULTICAST_LIST		cpu_to_le32(0x01010103)
+#define OID_802_3_MAXIMUM_LIST_SIZE		cpu_to_le32(0x01010104)
 
-#define OID_802_11_BSSID			ccpu2(0x0d010101)
-#define OID_802_11_SSID				ccpu2(0x0d010102)
-#define OID_802_11_INFRASTRUCTURE_MODE		ccpu2(0x0d010108)
-#define OID_802_11_ADD_WEP			ccpu2(0x0d010113)
-#define OID_802_11_REMOVE_WEP			ccpu2(0x0d010114)
-#define OID_802_11_DISASSOCIATE			ccpu2(0x0d010115)
-#define OID_802_11_AUTHENTICATION_MODE		ccpu2(0x0d010118)
-#define OID_802_11_PRIVACY_FILTER		ccpu2(0x0d010119)
-#define OID_802_11_BSSID_LIST_SCAN		ccpu2(0x0d01011a)
-#define OID_802_11_ENCRYPTION_STATUS		ccpu2(0x0d01011b)
-#define OID_802_11_ADD_KEY			ccpu2(0x0d01011d)
-#define OID_802_11_REMOVE_KEY			ccpu2(0x0d01011e)
-#define OID_802_11_ASSOCIATION_INFORMATION	ccpu2(0x0d01011f)
-#define OID_802_11_PMKID			ccpu2(0x0d010123)
-#define OID_802_11_NETWORK_TYPES_SUPPORTED	ccpu2(0x0d010203)
-#define OID_802_11_NETWORK_TYPE_IN_USE		ccpu2(0x0d010204)
-#define OID_802_11_TX_POWER_LEVEL		ccpu2(0x0d010205)
-#define OID_802_11_RSSI				ccpu2(0x0d010206)
-#define OID_802_11_RSSI_TRIGGER			ccpu2(0x0d010207)
-#define OID_802_11_FRAGMENTATION_THRESHOLD	ccpu2(0x0d010209)
-#define OID_802_11_RTS_THRESHOLD		ccpu2(0x0d01020a)
-#define OID_802_11_SUPPORTED_RATES		ccpu2(0x0d01020e)
-#define OID_802_11_CONFIGURATION		ccpu2(0x0d010211)
-#define OID_802_11_BSSID_LIST			ccpu2(0x0d010217)
+#define OID_802_11_BSSID			cpu_to_le32(0x0d010101)
+#define OID_802_11_SSID				cpu_to_le32(0x0d010102)
+#define OID_802_11_INFRASTRUCTURE_MODE		cpu_to_le32(0x0d010108)
+#define OID_802_11_ADD_WEP			cpu_to_le32(0x0d010113)
+#define OID_802_11_REMOVE_WEP			cpu_to_le32(0x0d010114)
+#define OID_802_11_DISASSOCIATE			cpu_to_le32(0x0d010115)
+#define OID_802_11_AUTHENTICATION_MODE		cpu_to_le32(0x0d010118)
+#define OID_802_11_PRIVACY_FILTER		cpu_to_le32(0x0d010119)
+#define OID_802_11_BSSID_LIST_SCAN		cpu_to_le32(0x0d01011a)
+#define OID_802_11_ENCRYPTION_STATUS		cpu_to_le32(0x0d01011b)
+#define OID_802_11_ADD_KEY			cpu_to_le32(0x0d01011d)
+#define OID_802_11_REMOVE_KEY			cpu_to_le32(0x0d01011e)
+#define OID_802_11_ASSOCIATION_INFORMATION	cpu_to_le32(0x0d01011f)
+#define OID_802_11_PMKID			cpu_to_le32(0x0d010123)
+#define OID_802_11_NETWORK_TYPES_SUPPORTED	cpu_to_le32(0x0d010203)
+#define OID_802_11_NETWORK_TYPE_IN_USE		cpu_to_le32(0x0d010204)
+#define OID_802_11_TX_POWER_LEVEL		cpu_to_le32(0x0d010205)
+#define OID_802_11_RSSI				cpu_to_le32(0x0d010206)
+#define OID_802_11_RSSI_TRIGGER			cpu_to_le32(0x0d010207)
+#define OID_802_11_FRAGMENTATION_THRESHOLD	cpu_to_le32(0x0d010209)
+#define OID_802_11_RTS_THRESHOLD		cpu_to_le32(0x0d01020a)
+#define OID_802_11_SUPPORTED_RATES		cpu_to_le32(0x0d01020e)
+#define OID_802_11_CONFIGURATION		cpu_to_le32(0x0d010211)
+#define OID_802_11_BSSID_LIST			cpu_to_le32(0x0d010217)
 
 
 /* Typical noise/maximum signal level values taken from ndiswrapper iw_ndis.h */
@@ -144,8 +144,8 @@ MODULE_PARM_DESC(workaround_interval,
 
 
 /* codes for "status" field of completion messages */
-#define RNDIS_STATUS_ADAPTER_NOT_READY		ccpu2(0xc0010011)
-#define RNDIS_STATUS_ADAPTER_NOT_OPEN		ccpu2(0xc0010012)
+#define RNDIS_STATUS_ADAPTER_NOT_READY		cpu_to_le32(0xc0010011)
+#define RNDIS_STATUS_ADAPTER_NOT_OPEN		cpu_to_le32(0xc0010012)
 
 
 /* NDIS data structures. Taken from wpa_supplicant driver_ndis.c
@@ -369,9 +369,6 @@ struct rndis_wext_private {
 };
 
 
-static const int freq_chan[] = { 2412, 2417, 2422, 2427, 2432, 2437, 2442,
-				2447, 2452, 2457, 2462, 2467, 2472, 2484 };
-
 static const int rates_80211g[8] = { 6, 9, 12, 18, 24, 36, 48, 54 };
 
 static const int bcm4320_power_output[4] = { 25, 50, 75, 100 };
@@ -445,7 +442,7 @@ static int rndis_query_oid(struct usbnet *dev, __le32 oid, void *data, int *len)
 
 	memset(u.get, 0, sizeof *u.get);
 	u.get->msg_type = RNDIS_MSG_QUERY;
-	u.get->msg_len = ccpu2(sizeof *u.get);
+	u.get->msg_len = cpu_to_le32(sizeof *u.get);
 	u.get->oid = oid;
 
 	ret = rndis_command(dev, u.header, buflen);
@@ -494,8 +491,8 @@ static int rndis_set_oid(struct usbnet *dev, __le32 oid, void *data, int len)
 	u.set->msg_len = cpu_to_le32(sizeof(*u.set) + len);
 	u.set->oid = oid;
 	u.set->len = cpu_to_le32(len);
-	u.set->offset = ccpu2(sizeof(*u.set) - 8);
-	u.set->handle = ccpu2(0);
+	u.set->offset = cpu_to_le32(sizeof(*u.set) - 8);
+	u.set->handle = cpu_to_le32(0);
 	memcpy(u.buf + sizeof(*u.set), data, len);
 
 	ret = rndis_command(dev, u.header, buflen);
@@ -640,8 +637,8 @@ static void dsconfig_to_freq(unsigned int dsconfig, struct iw_freq *freq)
 static int freq_to_dsconfig(struct iw_freq *freq, unsigned int *dsconfig)
 {
 	if (freq->m < 1000 && freq->e == 0) {
-		if (freq->m >= 1 && freq->m <= ARRAY_SIZE(freq_chan))
-			*dsconfig = freq_chan[freq->m - 1] * 1000;
+		if (freq->m >= 1 && freq->m <= 14)
+			*dsconfig = ieee80211_dsss_chan_to_freq(freq->m) * 1000;
 		else
 			return -1;
 	} else {
@@ -1104,7 +1101,7 @@ static int rndis_iw_get_range(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
 	struct iw_range *range = (struct iw_range *)extra;
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	int len, ret, i, j, num, has_80211g_rates;
 	u8 rates[8];
@@ -1178,11 +1175,11 @@ static int rndis_iw_get_range(struct net_device *dev,
 		range->throughput = 11 * 1000 * 1000 / 2;
 	}
 
-	range->num_channels = ARRAY_SIZE(freq_chan);
+	range->num_channels = 14;
 
-	for (i = 0; i < ARRAY_SIZE(freq_chan) && i < IW_MAX_FREQUENCIES; i++) {
+	for (i = 0; (i < 14) && (i < IW_MAX_FREQUENCIES); i++) {
 		range->freq[i].i = i + 1;
-		range->freq[i].m = freq_chan[i] * 100000;
+		range->freq[i].m = ieee80211_dsss_chan_to_freq(i + 1) * 100000;
 		range->freq[i].e = 1;
 	}
 	range->num_frequency = i;
@@ -1210,7 +1207,7 @@ static int rndis_iw_get_range(struct net_device *dev,
 static int rndis_iw_get_name(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 
 	strcpy(wrqu->name, priv->name);
@@ -1223,7 +1220,7 @@ static int rndis_iw_set_essid(struct net_device *dev,
 {
 	struct ndis_80211_ssid ssid;
 	int length = wrqu->essid.length;
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 
 	devdbg(usbdev, "SIOCSIWESSID: [flags:%d,len:%d] '%.32s'",
 		wrqu->essid.flags, wrqu->essid.length, essid);
@@ -1250,7 +1247,7 @@ static int rndis_iw_get_essid(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *essid)
 {
 	struct ndis_80211_ssid ssid;
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	int ret;
 
 	ret = get_essid(usbdev, &ssid);
@@ -1273,15 +1270,14 @@ static int rndis_iw_get_essid(struct net_device *dev,
 static int rndis_iw_get_bssid(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	unsigned char bssid[ETH_ALEN];
 	int ret;
-	DECLARE_MAC_BUF(mac);
 
 	ret = get_bssid(usbdev, bssid);
 
 	if (ret == 0)
-		devdbg(usbdev, "SIOCGIWAP: %s", print_mac(mac, bssid));
+		devdbg(usbdev, "SIOCGIWAP: %pM", bssid);
 	else
 		devdbg(usbdev, "SIOCGIWAP: <not associated>");
 
@@ -1295,12 +1291,11 @@ static int rndis_iw_get_bssid(struct net_device *dev,
 static int rndis_iw_set_bssid(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	u8 *bssid = (u8 *)wrqu->ap_addr.sa_data;
-	DECLARE_MAC_BUF(mac);
 	int ret;
 
-	devdbg(usbdev, "SIOCSIWAP: %s", print_mac(mac, bssid));
+	devdbg(usbdev, "SIOCSIWAP: %pM", bssid);
 
 	ret = rndis_set_oid(usbdev, OID_802_11_BSSID, bssid, ETH_ALEN);
 
@@ -1318,7 +1313,7 @@ static int rndis_iw_set_auth(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
 	struct iw_param *p = &wrqu->param;
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	int ret = -ENOTSUPP;
 
@@ -1399,7 +1394,7 @@ static int rndis_iw_get_auth(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
 	struct iw_param *p = &wrqu->param;
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 
 	switch (p->flags & IW_AUTH_INDEX) {
@@ -1431,7 +1426,7 @@ static int rndis_iw_get_mode(struct net_device *dev,
 				struct iw_request_info *info,
 				union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 
 	switch (priv->infra_mode) {
@@ -1454,7 +1449,7 @@ static int rndis_iw_get_mode(struct net_device *dev,
 static int rndis_iw_set_mode(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	int mode;
 
 	devdbg(usbdev, "SIOCSIWMODE: %08x", wrqu->mode);
@@ -1479,7 +1474,7 @@ static int rndis_iw_set_mode(struct net_device *dev,
 static int rndis_iw_set_encode(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	int ret, index, key_len;
 	u8 *key;
@@ -1542,7 +1537,7 @@ static int rndis_iw_set_encode_ext(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
 	struct iw_encode_ext *ext = (struct iw_encode_ext *)extra;
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	struct ndis_80211_key ndis_key;
 	int keyidx, ret;
@@ -1627,7 +1622,7 @@ static int rndis_iw_set_encode_ext(struct net_device *dev,
 static int rndis_iw_set_scan(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	union iwreq_data evt;
 	int ret = -EINVAL;
 	__le32 tmp;
@@ -1635,7 +1630,7 @@ static int rndis_iw_set_scan(struct net_device *dev,
 	devdbg(usbdev, "SIOCSIWSCAN");
 
 	if (wrqu->data.flags == 0) {
-		tmp = ccpu2(1);
+		tmp = cpu_to_le32(1);
 		ret = rndis_set_oid(usbdev, OID_802_11_BSSID_LIST_SCAN, &tmp,
 								sizeof(tmp));
 		evt.data.flags = 0;
@@ -1651,20 +1646,17 @@ static char *rndis_translate_scan(struct net_device *dev,
 				  char *end_buf,
 				  struct ndis_80211_bssid_ex *bssid)
 {
-#ifdef DEBUG
-	struct usbnet *usbdev = dev->priv;
-#endif
-	struct ieee80211_info_element *ie;
+	struct usbnet *usbdev = netdev_priv(dev);
+	u8 *ie;
 	char *current_val;
 	int bssid_len, ie_len, i;
 	u32 beacon, atim;
 	struct iw_event iwe;
 	unsigned char sbuf[32];
-	DECLARE_MAC_BUF(mac);
 
 	bssid_len = le32_to_cpu(bssid->length);
 
-	devdbg(usbdev, "BSSID %s", print_mac(mac, bssid->mac));
+	devdbg(usbdev, "BSSID %pM", bssid->mac);
 	iwe.cmd = SIOCGIWAP;
 	iwe.u.ap_addr.sa_family = ARPHRD_ETHER;
 	memcpy(iwe.u.ap_addr.sa_data, bssid->mac, ETH_ALEN);
@@ -1753,20 +1745,20 @@ static char *rndis_translate_scan(struct net_device *dev,
 	ie_len = min(bssid_len - (int)sizeof(*bssid),
 					(int)le32_to_cpu(bssid->ie_length));
 	ie_len -= sizeof(struct ndis_80211_fixed_ies);
-	while (ie_len >= sizeof(*ie) && sizeof(*ie) + ie->len <= ie_len) {
-		if ((ie->id == MFIE_TYPE_GENERIC && ie->len >= 4 &&
-				memcmp(ie->data, "\x00\x50\xf2\x01", 4) == 0) ||
-				ie->id == MFIE_TYPE_RSN) {
+	while (ie_len >= 2 && 2 + ie[1] <= ie_len) {
+		if ((ie[0] == WLAN_EID_GENERIC && ie[1] >= 4 &&
+		     memcmp(ie + 2, "\x00\x50\xf2\x01", 4) == 0) ||
+		    ie[0] == WLAN_EID_RSN) {
 			devdbg(usbdev, "IE: WPA%d",
-					(ie->id == MFIE_TYPE_RSN) ? 2 : 1);
+					(ie[0] == WLAN_EID_RSN) ? 2 : 1);
 			iwe.cmd = IWEVGENIE;
-			iwe.u.data.length = min(ie->len + 2, MAX_WPA_IE_LEN);
-			cev = iwe_stream_add_point(info, cev, end_buf, &iwe,
-								(u8 *)ie);
+			/* arbitrary cut-off at 64 */
+			iwe.u.data.length = min(ie[1] + 2, 64);
+			cev = iwe_stream_add_point(info, cev, end_buf, &iwe, ie);
 		}
 
-		ie_len -= sizeof(*ie) + ie->len;
-		ie = (struct ieee80211_info_element *)&ie->data[ie->len];
+		ie_len -= 2 + ie[1];
+		ie += 2 + ie[1];
 	}
 
 	return cev;
@@ -1776,7 +1768,7 @@ static char *rndis_translate_scan(struct net_device *dev,
 static int rndis_iw_get_scan(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	void *buf = NULL;
 	char *cev = extra;
 	struct ndis_80211_bssid_list_ex *bssid_list;
@@ -1822,7 +1814,7 @@ out:
 static int rndis_iw_set_genie(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	int ret = 0;
 
@@ -1856,7 +1848,7 @@ static int rndis_iw_set_genie(struct net_device *dev,
 static int rndis_iw_get_genie(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 
 	devdbg(usbdev, "SIOCGIWGENIE");
@@ -1879,7 +1871,7 @@ static int rndis_iw_get_genie(struct net_device *dev,
 static int rndis_iw_set_rts(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	__le32 tmp;
 	devdbg(usbdev, "SIOCSIWRTS");
 
@@ -1892,7 +1884,7 @@ static int rndis_iw_set_rts(struct net_device *dev,
 static int rndis_iw_get_rts(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	__le32 tmp;
 	int len, ret;
 
@@ -1913,7 +1905,7 @@ static int rndis_iw_get_rts(struct net_device *dev,
 static int rndis_iw_set_frag(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	__le32 tmp;
 
 	devdbg(usbdev, "SIOCSIWFRAG");
@@ -1927,7 +1919,7 @@ static int rndis_iw_set_frag(struct net_device *dev,
 static int rndis_iw_get_frag(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	__le32 tmp;
 	int len, ret;
 
@@ -1947,7 +1939,7 @@ static int rndis_iw_get_frag(struct net_device *dev,
 static int rndis_iw_set_nick(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 
 	devdbg(usbdev, "SIOCSIWNICK");
@@ -1964,7 +1956,7 @@ static int rndis_iw_set_nick(struct net_device *dev,
 static int rndis_iw_get_nick(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 
 	wrqu->data.flags = 1;
@@ -1980,7 +1972,7 @@ static int rndis_iw_get_nick(struct net_device *dev,
 static int rndis_iw_set_freq(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct ndis_80211_conf config;
 	unsigned int dsconfig;
 	int len, ret;
@@ -2011,7 +2003,7 @@ static int rndis_iw_set_freq(struct net_device *dev,
 static int rndis_iw_get_freq(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct ndis_80211_conf config;
 	int len, ret;
 
@@ -2028,7 +2020,7 @@ static int rndis_iw_get_freq(struct net_device *dev,
 static int rndis_iw_get_txpower(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	__le32 tx_power;
 	int ret = 0, len;
@@ -2062,7 +2054,7 @@ static int rndis_iw_get_txpower(struct net_device *dev,
 static int rndis_iw_set_txpower(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	__le32 tx_power = 0;
 	int ret = 0;
@@ -2114,7 +2106,7 @@ static int rndis_iw_set_txpower(struct net_device *dev,
 static int rndis_iw_get_rate(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	__le32 tmp;
 	int ret, len;
 
@@ -2132,7 +2124,7 @@ static int rndis_iw_get_rate(struct net_device *dev,
 static int rndis_iw_set_mlme(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	struct iw_mlme *mlme = (struct iw_mlme *)extra;
 	unsigned char bssid[ETH_ALEN];
@@ -2157,7 +2149,7 @@ static int rndis_iw_set_mlme(struct net_device *dev,
 
 static struct iw_statistics *rndis_get_wireless_stats(struct net_device *dev)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 	unsigned long flags;
 
@@ -2287,7 +2279,7 @@ get_bssid:
 
 static void rndis_wext_set_multicast_list(struct net_device *dev)
 {
-	struct usbnet *usbdev = dev->priv;
+	struct usbnet *usbdev = netdev_priv(dev);
 	struct rndis_wext_private *priv = get_rndis_wext_priv(usbdev);
 
 	if (test_bit(WORK_SET_MULTICAST_LIST, &priv->work_pending))
@@ -2436,7 +2428,7 @@ static void rndis_update_wireless_stats(struct work_struct *work)
 		/* Send scan OID. Use of both OIDs is required to get device
 		 * working.
 		 */
-		tmp = ccpu2(1);
+		tmp = cpu_to_le32(1);
 		rndis_set_oid(usbdev, OID_802_11_BSSID_LIST_SCAN, &tmp,
 								sizeof(tmp));
 
@@ -2532,6 +2524,17 @@ static int bcm4320_early_init(struct usbnet *usbdev)
 	return 0;
 }
 
+/* same as rndis_netdev_ops but with local multicast handler */
+static const struct net_device_ops rndis_wext_netdev_ops = {
+	.ndo_open		= usbnet_open,
+	.ndo_stop		= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_multicast_list	= rndis_wext_set_multicast_list,
+};
+
 
 static int rndis_wext_bind(struct usbnet *usbdev, struct usb_interface *intf)
 {
@@ -2555,6 +2558,11 @@ static int rndis_wext_bind(struct usbnet *usbdev, struct usb_interface *intf)
 	mutex_init(&priv->command_lock);
 	spin_lock_init(&priv->stats_lock);
 
+	/* because rndis_command() sleeps we need to use workqueue */
+	priv->workqueue = create_singlethread_workqueue("rndis_wlan");
+	INIT_WORK(&priv->work, rndis_wext_worker);
+	INIT_DELAYED_WORK(&priv->stats_work, rndis_update_wireless_stats);
+
 	/* try bind rndis_host */
 	retval = generic_rndis_bind(usbdev, intf, FLAG_RNDIS_PHYM_WIRELESS);
 	if (retval < 0)
@@ -2567,7 +2575,8 @@ static int rndis_wext_bind(struct usbnet *usbdev, struct usb_interface *intf)
 	 * rndis_host wants to avoid all OID as much as possible
 	 * so do promisc/multicast handling in rndis_wext.
 	 */
-	usbdev->net->set_multicast_list = rndis_wext_set_multicast_list;
+	usbdev->net->netdev_ops = &rndis_wext_netdev_ops;
+
 	tmp = RNDIS_PACKET_TYPE_DIRECTED | RNDIS_PACKET_TYPE_BROADCAST;
 	retval = rndis_set_oid(usbdev, OID_GEN_CURRENT_PACKET_FILTER, &tmp,
 								sizeof(tmp));
@@ -2599,16 +2608,17 @@ static int rndis_wext_bind(struct usbnet *usbdev, struct usb_interface *intf)
 	disassociate(usbdev, 1);
 	netif_carrier_off(usbdev->net);
 
-	/* because rndis_command() sleeps we need to use workqueue */
-	priv->workqueue = create_singlethread_workqueue("rndis_wlan");
-	INIT_DELAYED_WORK(&priv->stats_work, rndis_update_wireless_stats);
 	queue_delayed_work(priv->workqueue, &priv->stats_work,
 		round_jiffies_relative(STATS_UPDATE_JIFFIES));
-	INIT_WORK(&priv->work, rndis_wext_worker);
 
 	return 0;
 
 fail:
+	cancel_delayed_work_sync(&priv->stats_work);
+	cancel_work_sync(&priv->work);
+	flush_workqueue(priv->workqueue);
+	destroy_workqueue(priv->workqueue);
+
 	kfree(priv);
 	return retval;
 }

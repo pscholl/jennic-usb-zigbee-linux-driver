@@ -153,6 +153,7 @@ extern unsigned long cached_to_uncached;
 extern struct dentry *sh_debugfs_root;
 
 void per_cpu_trap_init(void);
+void default_idle(void);
 
 asmlinkage void break_point_trap(void);
 
@@ -175,6 +176,8 @@ asmlinkage void name##_trap_handler(unsigned int vec, struct pt_regs *regs)
 BUILD_TRAP_HANDLER(address_error);
 BUILD_TRAP_HANDLER(debug);
 BUILD_TRAP_HANDLER(bug);
+BUILD_TRAP_HANDLER(breakpoint);
+BUILD_TRAP_HANDLER(singlestep);
 BUILD_TRAP_HANDLER(fpu_error);
 BUILD_TRAP_HANDLER(fpu_state_restore);
 

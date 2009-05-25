@@ -5,7 +5,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2005 - 2008 Intel Corporation. All rights reserved.
+ * Copyright(c) 2005 - 2009 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -25,12 +25,12 @@
  * in the file called LICENSE.GPL.
  *
  * Contact Information:
- * James P. Ketrenos <ipw2100-admin@linux.intel.com>
+ *  Intel Linux Wireless <ilw@linux.intel.com>
  * Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
  *
  * BSD LICENSE
  *
- * Copyright(c) 2005 - 2008 Intel Corporation. All rights reserved.
+ * Copyright(c) 2005 - 2009 Intel Corporation. All rights reserved.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -60,6 +60,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
+#ifndef __iwl_csr_h__
+#define __iwl_csr_h__
 /*=== CSR (control and status registers) ===*/
 #define CSR_BASE    (0x000)
 
@@ -209,14 +211,19 @@
 #define CSR_HW_REV_TYPE_5350           (0x0000030)
 #define CSR_HW_REV_TYPE_5100           (0x0000050)
 #define CSR_HW_REV_TYPE_5150           (0x0000040)
+#define CSR_HW_REV_TYPE_1000           (0x0000060)
+#define CSR_HW_REV_TYPE_6x00           (0x0000070)
+#define CSR_HW_REV_TYPE_6x50           (0x0000080)
 #define CSR_HW_REV_TYPE_NONE           (0x00000F0)
 
 /* EEPROM REG */
 #define CSR_EEPROM_REG_READ_VALID_MSK	(0x00000001)
 #define CSR_EEPROM_REG_BIT_CMD		(0x00000002)
+#define CSR_EEPROM_REG_MSK_ADDR		(0x0000FFFC)
+#define CSR_EEPROM_REG_MSK_DATA		(0xFFFF0000)
 
 /* EEPROM GP */
-#define CSR_EEPROM_GP_VALID_MSK		(0x00000006)
+#define CSR_EEPROM_GP_VALID_MSK		(0x00000007)
 #define CSR_EEPROM_GP_BAD_SIGNATURE	(0x00000000)
 #define CSR_EEPROM_GP_IF_OWNER_MSK	(0x00000180)
 
@@ -286,4 +293,4 @@
 #define HBUS_TARG_MBX_C_REG_BIT_CMD_BLOCKED         (0x00000004)
 
 
-
+#endif /* !__iwl_csr_h__ */

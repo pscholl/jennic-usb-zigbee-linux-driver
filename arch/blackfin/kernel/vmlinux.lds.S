@@ -68,6 +68,8 @@ SECTIONS
 		__etext = .;
 	}
 
+	NOTES
+
 	/* Just in case the first read only is a 32-bit access */
 	RO_DATA(4)
 
@@ -109,7 +111,6 @@ SECTIONS
 #endif
 
 		DATA_DATA
-		*(.data.*)
 		CONSTRUCTORS
 
 		/* make sure the init_task is aligned to the
@@ -161,12 +162,14 @@ SECTIONS
 		*(.con_initcall.init)
 		___con_initcall_end = .;
 	}
+	PERCPU(4)
 	SECURITY_INIT
 	.init.ramfs :
 	{
 		. = ALIGN(4);
 		___initramfs_start = .;
 		*(.init.ramfs)
+		. = ALIGN(4);
 		___initramfs_end = .;
 	}
 
@@ -180,6 +183,7 @@ SECTIONS
 		. = ALIGN(4);
 		__etext_l1 = .;
 	}
+	ASSERT (SIZEOF(.text_l1) <= L1_CODE_LENGTH, "L1 text overflow!")
 
 	.data_l1 L1_DATA_A_START : AT(LOADADDR(.text_l1) + SIZEOF(.text_l1))
 	{
@@ -197,6 +201,7 @@ SECTIONS
 		. = ALIGN(4);
 		__ebss_l1 = .;
 	}
+	ASSERT (SIZEOF(.data_a_l1) <= L1_DATA_A_LENGTH, "L1 data A overflow!")
 
 	.data_b_l1 L1_DATA_B_START : AT(LOADADDR(.data_l1) + SIZEOF(.data_l1))
 	{
@@ -211,8 +216,9 @@ SECTIONS
 		. = ALIGN(4);
 		__ebss_b_l1 = .;
 	}
+	ASSERT (SIZEOF(.data_b_l1) <= L1_DATA_B_LENGTH, "L1 data B overflow!")
 
-	__l2_lma_start = .;
+	__l2_lma_start = LOADADDR(.data_b_l1) + SIZEOF(.data_b_l1);
 
 	.text_data_l2 L2_START : AT(LOADADDR(.data_b_l1) + SIZEOF(.data_b_l1))
 	{
@@ -236,11 +242,12 @@ SECTIONS
 		. = ALIGN(4);
 		__ebss_l2 = .;
 	}
+	ASSERT (SIZEOF(.text_data_l1) <= L2_LENGTH, "L2 overflow!")
 
 	/* Force trailing alignment of our init section so that when we
 	 * free our init memory, we don't leave behind a partial page.
 	 */
-	. = LOADADDR(.data_b_l1) + SIZEOF(.data_b_l1);
+	. = LOADADDR(.text_data_l2) + SIZEOF(.text_data_l2);
 	. = ALIGN(PAGE_SIZE);
 	___init_end = .;
 

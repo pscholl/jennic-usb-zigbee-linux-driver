@@ -31,6 +31,9 @@
  *
  */
 
+#define KMSG_COMPONENT "netiucv"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+
 #undef DEBUG
 
 #include <linux/module.h>
@@ -846,7 +849,8 @@ static void conn_action_connsever(fsm_instance *fi, int event, void *arg)
 
 	fsm_deltimer(&conn->timer);
 	iucv_path_sever(conn->path, NULL);
-	PRINT_INFO("%s: Remote dropped connection\n", netdev->name);
+	dev_info(privptr->dev, "The peer interface of the IUCV device"
+		" has closed the connection\n");
 	IUCV_DBF_TEXT(data, 2,
 		      "conn_action_connsever: Remote dropped connection\n");
 	fsm_newstate(fi, CONN_STATE_STARTWAIT);
@@ -856,13 +860,15 @@ static void conn_action_connsever(fsm_instance *fi, int event, void *arg)
 static void conn_action_start(fsm_instance *fi, int event, void *arg)
 {
 	struct iucv_connection *conn = arg;
+	struct net_device *netdev = conn->netdev;
+	struct netiucv_priv *privptr = netdev_priv(netdev);
 	int rc;
 
 	IUCV_DBF_TEXT(trace, 3, __func__);
 
 	fsm_newstate(fi, CONN_STATE_STARTWAIT);
 	IUCV_DBF_TEXT_(setup, 2, "%s('%s'): connecting ...\n",
-		    conn->netdev->name, conn->userid);
+		netdev->name, conn->userid);
 
 	/*
 	 * We must set the state before calling iucv_connect because the
@@ -876,41 +882,45 @@ static void conn_action_start(fsm_instance *fi, int event, void *arg)
 			       NULL, iucvMagic, conn);
 	switch (rc) {
 	case 0:
-		conn->netdev->tx_queue_len = conn->path->msglim;
+		netdev->tx_queue_len = conn->path->msglim;
 		fsm_addtimer(&conn->timer, NETIUCV_TIMEOUT_5SEC,
 			     CONN_EVENT_TIMER, conn);
 		return;
 	case 11:
-		PRINT_INFO("%s: User %s is currently not available.\n",
-			   conn->netdev->name,
-			   netiucv_printname(conn->userid));
+		dev_warn(privptr->dev,
+			"The IUCV device failed to connect to z/VM guest %s\n",
+			netiucv_printname(conn->userid));
 		fsm_newstate(fi, CONN_STATE_STARTWAIT);
 		break;
 	case 12:
-		PRINT_INFO("%s: User %s is currently not ready.\n",
-			   conn->netdev->name,
-			   netiucv_printname(conn->userid));
+		dev_warn(privptr->dev,
+			"The IUCV device failed to connect to the peer on z/VM"
+			" guest %s\n", netiucv_printname(conn->userid));
 		fsm_newstate(fi, CONN_STATE_STARTWAIT);
 		break;
 	case 13:
-		PRINT_WARN("%s: Too many IUCV connections.\n",
-			   conn->netdev->name);
+		dev_err(privptr->dev,
+			"Connecting the IUCV device would exceed the maximum"
+			" number of IUCV connections\n");
 		fsm_newstate(fi, CONN_STATE_CONNERR);
 		break;
 	case 14:
-		PRINT_WARN("%s: User %s has too many IUCV connections.\n",
-			   conn->netdev->name,
-			   netiucv_printname(conn->userid));
+		dev_err(privptr->dev,
+			"z/VM guest %s has too many IUCV connections"
+			" to connect with the IUCV device\n",
+			netiucv_printname(conn->userid));
 		fsm_newstate(fi, CONN_STATE_CONNERR);
 		break;
 	case 15:
-		PRINT_WARN("%s: No IUCV authorization in CP directory.\n",
-			   conn->netdev->name);
+		dev_err(privptr->dev,
+			"The IUCV device cannot connect to a z/VM guest with no"
+			" IUCV authorization\n");
 		fsm_newstate(fi, CONN_STATE_CONNERR);
 		break;
 	default:
-		PRINT_WARN("%s: iucv_connect returned error %d\n",
-			   conn->netdev->name, rc);
+		dev_err(privptr->dev,
+			"Connecting the IUCV device failed with error %d\n",
+			rc);
 		fsm_newstate(fi, CONN_STATE_CONNERR);
 		break;
 	}
@@ -1059,8 +1069,9 @@ dev_action_connup(fsm_instance *fi, int event, void *arg)
 	switch (fsm_getstate(fi)) {
 		case DEV_STATE_STARTWAIT:
 			fsm_newstate(fi, DEV_STATE_RUNNING);
-			PRINT_INFO("%s: connected with remote side %s\n",
-			       dev->name, privptr->conn->userid);
+			dev_info(privptr->dev,
+				"The IUCV device has been connected"
+				" successfully to %s\n", privptr->conn->userid);
 			IUCV_DBF_TEXT(setup, 3,
 				"connection is up and running\n");
 			break;
@@ -1301,7 +1312,7 @@ static int netiucv_tx(struct sk_buff *skb, struct net_device *dev)
 
 	if (netiucv_test_and_set_busy(dev)) {
 		IUCV_DBF_TEXT(data, 2, "EBUSY from netiucv_tx\n");
-		return -EBUSY;
+		return NETDEV_TX_BUSY;
 	}
 	dev->trans_start = jiffies;
 	rc = netiucv_transmit_skb(privptr->conn, skb) != 0;
@@ -1865,20 +1876,24 @@ static void netiucv_free_netdevice(struct net_device *dev)
 /**
  * Initialize a net device. (Called from kernel in alloc_netdev())
  */
+static const struct net_device_ops netiucv_netdev_ops = {
+	.ndo_open		= netiucv_open,
+	.ndo_stop		= netiucv_close,
+	.ndo_get_stats		= netiucv_stats,
+	.ndo_start_xmit		= netiucv_tx,
+	.ndo_change_mtu	   	= netiucv_change_mtu,
+};
+
 static void netiucv_setup_netdevice(struct net_device *dev)
 {
 	dev->mtu	         = NETIUCV_MTU_DEFAULT;
-	dev->hard_start_xmit     = netiucv_tx;
-	dev->open	         = netiucv_open;
-	dev->stop	         = netiucv_close;
-	dev->get_stats	         = netiucv_stats;
-	dev->change_mtu          = netiucv_change_mtu;
 	dev->destructor          = netiucv_free_netdevice;
 	dev->hard_header_len     = NETIUCV_HDRLEN;
 	dev->addr_len            = 0;
 	dev->type                = ARPHRD_SLIP;
 	dev->tx_queue_len        = NETIUCV_QUEUELEN_DEFAULT;
 	dev->flags	         = IFF_POINTOPOINT | IFF_NOARP;
+	dev->netdev_ops		 = &netiucv_netdev_ops;
 }
 
 /**
@@ -1982,6 +1997,8 @@ static ssize_t conn_write(struct device_driver *drv,
 	if (rc)
 		goto out_unreg;
 
+	dev_info(priv->dev, "The IUCV interface to %s has been"
+		" established successfully\n", netiucv_printname(username));
 
 	return count;
 
@@ -2027,10 +2044,9 @@ static ssize_t remove_write (struct device_driver *drv,
 			continue;
 		read_unlock_bh(&iucv_connection_rwlock);
                 if (ndev->flags & (IFF_UP | IFF_RUNNING)) {
-			PRINT_WARN("netiucv: net device %s active with peer "
-				   "%s\n", ndev->name, priv->conn->userid);
-                        PRINT_WARN("netiucv: %s cannot be removed\n",
-				   ndev->name);
+			dev_warn(dev, "The IUCV device is connected"
+				" to %s and cannot be removed\n",
+				priv->conn->userid);
 			IUCV_DBF_TEXT(data, 2, "remove_write: still active\n");
 			return -EPERM;
                 }
@@ -2062,7 +2078,7 @@ static struct attribute_group *netiucv_drv_attr_groups[] = {
 
 static void netiucv_banner(void)
 {
-	PRINT_INFO("NETIUCV driver initialized\n");
+	pr_info("driver initialized\n");
 }
 
 static void __exit netiucv_exit(void)
@@ -2088,7 +2104,7 @@ static void __exit netiucv_exit(void)
 	iucv_unregister(&netiucv_handler, 1);
 	iucv_unregister_dbf_views();
 
-	PRINT_INFO("NETIUCV driver unloaded\n");
+	pr_info("driver unloaded\n");
 	return;
 }
 

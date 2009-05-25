@@ -79,6 +79,11 @@ int alpha_l3_cacheshape;
 unsigned long alpha_verbose_mcheck = CONFIG_VERBOSE_MCHECK_ON;
 #endif
 
+#ifdef CONFIG_NUMA
+struct cpumask node_to_cpumask_map[MAX_NUMNODES] __read_mostly;
+EXPORT_SYMBOL(node_to_cpumask_map);
+#endif
+
 /* Which processor we booted from.  */
 int boot_cpuid;
 
@@ -1250,7 +1255,7 @@ show_cpuinfo(struct seq_file *f, void *slot)
 		       platform_string(), nr_processors);
 
 #ifdef CONFIG_SMP
-	seq_printf(f, "cpus active\t\t: %d\n"
+	seq_printf(f, "cpus active\t\t: %u\n"
 		      "cpu active mask\t\t: %016lx\n",
 		       num_online_cpus(), cpus_addr(cpu_possible_map)[0]);
 #endif

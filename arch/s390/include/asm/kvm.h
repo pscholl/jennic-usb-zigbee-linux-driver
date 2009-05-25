@@ -13,7 +13,7 @@
  *    Author(s): Carsten Otte <cotte@de.ibm.com>
  *               Christian Borntraeger <borntraeger@de.ibm.com>
  */
-#include <asm/types.h>
+#include <linux/types.h>
 
 /* for KVM_GET_IRQCHIP and KVM_SET_IRQCHIP */
 struct kvm_pic_state {
@@ -40,6 +40,13 @@ struct kvm_sregs {
 struct kvm_fpu {
 	__u32 fpc;
 	__u64 fprs[16];
+};
+
+struct kvm_debug_exit_arch {
+};
+
+/* for KVM_SET_GUEST_DEBUG */
+struct kvm_guest_debug_arch {
 };
 
 #endif

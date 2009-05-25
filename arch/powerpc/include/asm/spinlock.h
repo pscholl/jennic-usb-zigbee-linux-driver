@@ -277,7 +277,7 @@ static inline void __raw_read_unlock(raw_rwlock_t *rw)
 	bne-		1b"
 	: "=&r"(tmp)
 	: "r"(&rw->lock)
-	: "cr0", "memory");
+	: "cr0", "xer", "memory");
 }
 
 static inline void __raw_write_unlock(raw_rwlock_t *rw)
@@ -286,6 +286,9 @@ static inline void __raw_write_unlock(raw_rwlock_t *rw)
 				LWSYNC_ON_SMP: : :"memory");
 	rw->lock = 0;
 }
+
+#define __raw_read_lock_flags(lock, flags) __raw_read_lock(lock)
+#define __raw_write_lock_flags(lock, flags) __raw_write_lock(lock)
 
 #define _raw_spin_relax(lock)	__spin_yield(lock)
 #define _raw_read_relax(lock)	__rw_yield(lock)

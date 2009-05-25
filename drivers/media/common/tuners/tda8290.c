@@ -22,7 +22,7 @@
 
 #include <linux/i2c.h>
 #include <linux/delay.h>
-#include <linux/videodev.h>
+#include <linux/videodev2.h>
 #include "tuner-i2c.h"
 #include "tda8290.h"
 #include "tda827x.h"
@@ -31,6 +31,9 @@
 static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "enable verbose debug messages");
+
+static int deemphasis_50;
+MODULE_PARM_DESC(deemphasis_50, "0 - 75us deemphasis; 1 - 50us deemphasis");
 
 /* ---------------------------------------------------------------------- */
 
@@ -139,8 +142,33 @@ static void set_audio(struct dvb_frontend *fe,
 		mode = "xx";
 	}
 
-	tuner_dbg("setting tda829x to system %s\n", mode);
+	if (params->mode == V4L2_TUNER_RADIO) {
+		priv->tda8290_easy_mode = 0x01;		/* Start with MN values */
+		tuner_dbg("setting to radio FM\n");
+	} else {
+		tuner_dbg("setting tda829x to system %s\n", mode);
+	}
 }
+
+static struct {
+	unsigned char seq[2];
+} fm_mode[] = {
+	{ { 0x01, 0x81} },	/* Put device into expert mode */
+	{ { 0x03, 0x48} },	/* Disable NOTCH and VIDEO filters */
+	{ { 0x04, 0x04} },	/* Disable color carrier filter (SSIF) */
+	{ { 0x05, 0x04} },	/* ADC headroom */
+	{ { 0x06, 0x10} },	/* group delay flat */
+
+	{ { 0x07, 0x00} },	/* use the same radio DTO values as a tda8295 */
+	{ { 0x08, 0x00} },
+	{ { 0x09, 0x80} },
+	{ { 0x0a, 0xda} },
+	{ { 0x0b, 0x4b} },
+	{ { 0x0c, 0x68} },
+
+	{ { 0x0d, 0x00} },	/* PLL off, no video carrier detect */
+	{ { 0x14, 0x00} },	/* disable auto mute if no video */
+};
 
 static void tda8290_set_params(struct dvb_frontend *fe,
 			       struct analog_parameters *params)
@@ -178,15 +206,29 @@ static void tda8290_set_params(struct dvb_frontend *fe,
 	tuner_i2c_xfer_send(&priv->i2c_props, soft_reset, 2);
 	msleep(1);
 
-	expert_mode[1] = priv->tda8290_easy_mode + 0x80;
-	tuner_i2c_xfer_send(&priv->i2c_props, expert_mode, 2);
-	tuner_i2c_xfer_send(&priv->i2c_props, gainset_off, 2);
-	tuner_i2c_xfer_send(&priv->i2c_props, if_agc_spd, 2);
-	if (priv->tda8290_easy_mode & 0x60)
-		tuner_i2c_xfer_send(&priv->i2c_props, adc_head_9, 2);
-	else
-		tuner_i2c_xfer_send(&priv->i2c_props, adc_head_6, 2);
-	tuner_i2c_xfer_send(&priv->i2c_props, pll_bw_nom, 2);
+	if (params->mode == V4L2_TUNER_RADIO) {
+		unsigned char deemphasis[]  = { 0x13, 1 };
+
+		/* FIXME: allow using a different deemphasis */
+
+		if (deemphasis_50)
+			deemphasis[1] = 2;
+
+		for (i = 0; i < ARRAY_SIZE(fm_mode); i++)
+			tuner_i2c_xfer_send(&priv->i2c_props, fm_mode[i].seq, 2);
+
+		tuner_i2c_xfer_send(&priv->i2c_props, deemphasis, 2);
+	} else {
+		expert_mode[1] = priv->tda8290_easy_mode + 0x80;
+		tuner_i2c_xfer_send(&priv->i2c_props, expert_mode, 2);
+		tuner_i2c_xfer_send(&priv->i2c_props, gainset_off, 2);
+		tuner_i2c_xfer_send(&priv->i2c_props, if_agc_spd, 2);
+		if (priv->tda8290_easy_mode & 0x60)
+			tuner_i2c_xfer_send(&priv->i2c_props, adc_head_9, 2);
+		else
+			tuner_i2c_xfer_send(&priv->i2c_props, adc_head_6, 2);
+		tuner_i2c_xfer_send(&priv->i2c_props, pll_bw_nom, 2);
+	}
 
 	tda8290_i2c_bridge(fe, 1);
 
@@ -524,8 +566,11 @@ static int tda829x_find_tuner(struct dvb_frontend *fe)
 	u8 data;
 	struct i2c_msg msg = { .flags = I2C_M_RD, .buf = &data, .len = 1 };
 
-	if (NULL == analog_ops->i2c_gate_ctrl)
+	if (!analog_ops->i2c_gate_ctrl) {
+		printk(KERN_ERR "tda8290: no gate control were provided!\n");
+
 		return -EINVAL;
+	}
 
 	analog_ops->i2c_gate_ctrl(fe, 1);
 
@@ -573,11 +618,13 @@ static int tda829x_find_tuner(struct dvb_frontend *fe)
 
 	if (ret != 1) {
 		tuner_warn("tuner access failed!\n");
+		analog_ops->i2c_gate_ctrl(fe, 0);
 		return -EREMOTEIO;
 	}
 
 	if ((data == 0x83) || (data == 0x84)) {
 		priv->ver |= TDA18271;
+		tda829x_tda18271_config.config = priv->cfg.config;
 		dvb_attach(tda18271_attach, fe, priv->tda827x_addr,
 			   priv->i2c_props.adap, &tda829x_tda18271_config);
 	} else {
@@ -724,7 +771,8 @@ struct dvb_frontend *tda829x_attach(struct dvb_frontend *fe,
 	fe->ops.analog_ops.info.name = name;
 
 	if (priv->ver & TDA8290) {
-		tda8290_init_tuner(fe);
+		if (priv->ver & (TDA8275 | TDA8275A))
+			tda8290_init_tuner(fe);
 		tda8290_init_if(fe);
 	} else if (priv->ver & TDA8295)
 		tda8295_init_if(fe);

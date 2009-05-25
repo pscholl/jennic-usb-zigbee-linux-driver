@@ -256,13 +256,11 @@ struct netlbl_af4list *netlbl_af4list_remove(__be32 addr, __be32 mask,
 {
 	struct netlbl_af4list *entry;
 
-	entry = netlbl_af4list_search(addr, head);
-	if (entry != NULL && entry->addr == addr && entry->mask == mask) {
-		netlbl_af4list_remove_entry(entry);
-		return entry;
-	}
-
-	return NULL;
+	entry = netlbl_af4list_search_exact(addr, mask, head);
+	if (entry == NULL)
+		return NULL;
+	netlbl_af4list_remove_entry(entry);
+	return entry;
 }
 
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
@@ -299,15 +297,11 @@ struct netlbl_af6list *netlbl_af6list_remove(const struct in6_addr *addr,
 {
 	struct netlbl_af6list *entry;
 
-	entry = netlbl_af6list_search(addr, head);
-	if (entry != NULL &&
-	    ipv6_addr_equal(&entry->addr, addr) &&
-	    ipv6_addr_equal(&entry->mask, mask)) {
-		netlbl_af6list_remove_entry(entry);
-		return entry;
-	}
-
-	return NULL;
+	entry = netlbl_af6list_search_exact(addr, mask, head);
+	if (entry == NULL)
+		return NULL;
+	netlbl_af6list_remove_entry(entry);
+	return entry;
 }
 #endif /* IPv6 */
 
@@ -337,7 +331,7 @@ void netlbl_af4list_audit_addr(struct audit_buffer *audit_buf,
 
 	if (dev != NULL)
 		audit_log_format(audit_buf, " netif=%s", dev);
-	audit_log_format(audit_buf, " %s=" NIPQUAD_FMT, dir, NIPQUAD(addr));
+	audit_log_format(audit_buf, " %s=%pI4", dir, &addr);
 	if (mask_val != 0xffffffff) {
 		u32 mask_len = 0;
 		while (mask_val > 0) {
@@ -371,7 +365,7 @@ void netlbl_af6list_audit_addr(struct audit_buffer *audit_buf,
 
 	if (dev != NULL)
 		audit_log_format(audit_buf, " netif=%s", dev);
-	audit_log_format(audit_buf, " %s=" NIP6_FMT, dir, NIP6(*addr));
+	audit_log_format(audit_buf, " %s=%pI6", dir, addr);
 	if (ntohl(mask->s6_addr32[3]) != 0xffffffff) {
 		u32 mask_len = 0;
 		u32 mask_val;

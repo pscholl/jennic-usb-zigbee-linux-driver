@@ -165,10 +165,9 @@ struct pnp_card *pnp_alloc_card(struct pnp_protocol *protocol, int id, char *pnp
 	card->number = id;
 
 	card->dev.parent = &card->protocol->dev;
-	sprintf(card->dev.bus_id, "%02x:%02x", card->protocol->number,
-		card->number);
+	dev_set_name(&card->dev, "%02x:%02x", card->protocol->number, card->number);
 
-	card->dev.coherent_dma_mask = DMA_24BIT_MASK;
+	card->dev.coherent_dma_mask = DMA_BIT_MASK(24);
 	card->dev.dma_mask = &card->dev.coherent_dma_mask;
 
 	dev_id = pnp_add_card_id(card, pnpid);
@@ -295,8 +294,8 @@ int pnp_add_card_device(struct pnp_card *card, struct pnp_dev *dev)
 {
 	dev->dev.parent = &card->dev;
 	dev->card_link = NULL;
-	snprintf(dev->dev.bus_id, BUS_ID_SIZE, "%02x:%02x.%02x",
-		 dev->protocol->number, card->number, dev->number);
+	dev_set_name(&dev->dev, "%02x:%02x.%02x",
+		     dev->protocol->number, card->number, dev->number);
 	spin_lock(&pnp_lock);
 	dev->card = card;
 	list_add_tail(&dev->card_list, &card->devices);

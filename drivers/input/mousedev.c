@@ -403,12 +403,9 @@ static void mousedev_event(struct input_handle *handle,
 
 static int mousedev_fasync(int fd, struct file *file, int on)
 {
-	int retval;
 	struct mousedev_client *client = file->private_data;
 
-	retval = fasync_helper(fd, file, on, &client->fasync);
-
-	return retval < 0 ? retval : 0;
+	return fasync_helper(fd, file, on, &client->fasync);
 }
 
 static void mousedev_free(struct device *dev)
@@ -878,8 +875,7 @@ static struct mousedev *mousedev_create(struct input_dev *dev,
 	mousedev->handle.handler = handler;
 	mousedev->handle.private = mousedev;
 
-	strlcpy(mousedev->dev.bus_id, mousedev->name,
-		sizeof(mousedev->dev.bus_id));
+	dev_set_name(&mousedev->dev, mousedev->name);
 	mousedev->dev.class = &input_class;
 	if (dev)
 		mousedev->dev.parent = &dev->dev;

@@ -33,12 +33,12 @@
 #include <linux/time.h>
 #include <linux/mca.h>
 
-#include <asm/arch_hooks.h>
+#include <asm/setup.h>
 #include <asm/hpet.h>
 #include <asm/time.h>
 #include <asm/timer.h>
 
-#include "do_timer.h"
+#include <asm/do_timer.h>
 
 int timer_ack;
 
@@ -75,7 +75,7 @@ EXPORT_SYMBOL(profile_pc);
 irqreturn_t timer_interrupt(int irq, void *dev_id)
 {
 	/* Keep nmi watchdog up to date */
-	per_cpu(irq_stat, smp_processor_id()).irq0_irqs++;
+	inc_irq_stat(irq0_irqs);
 
 #ifdef CONFIG_X86_IO_APIC
 	if (timer_ack) {
@@ -105,8 +105,8 @@ irqreturn_t timer_interrupt(int irq, void *dev_id)
 		high bit of the PPI port B (0x61).  Note that some PS/2s,
 		notably the 55SX, work fine if this is removed.  */
 
-		u8 irq_v = inb_p( 0x61 );	/* read the current state */
-		outb_p( irq_v|0x80, 0x61 );	/* reset the IRQ */
+		u8 irq_v = inb_p(0x61);		/* read the current state */
+		outb_p(irq_v | 0x80, 0x61);	/* reset the IRQ */
 	}
 #endif
 
@@ -118,7 +118,7 @@ void __init hpet_time_init(void)
 {
 	if (!hpet_enable())
 		setup_pit_timer();
-	time_init_hook();
+	x86_quirk_time_init();
 }
 
 /*
@@ -131,7 +131,7 @@ void __init hpet_time_init(void)
  */
 void __init time_init(void)
 {
-	pre_time_init_hook();
+	x86_quirk_pre_time_init();
 	tsc_init();
 	late_time_init = choose_time_init();
 }

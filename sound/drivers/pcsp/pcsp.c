@@ -57,7 +57,7 @@ static int __devinit snd_pcsp_create(struct snd_card *card)
 	else
 		min_div = MAX_DIV;
 #if PCSP_DEBUG
-	printk("PCSP: lpj=%li, min_div=%i, res=%li\n",
+	printk(KERN_DEBUG "PCSP: lpj=%li, min_div=%i, res=%li\n",
 	       loops_per_jiffy, min_div, tp.tv_nsec);
 #endif
 
@@ -96,12 +96,11 @@ static int __devinit snd_card_pcsp_probe(int devnum, struct device *dev)
 		return -EINVAL;
 
 	hrtimer_init(&pcsp_chip.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	pcsp_chip.timer.cb_mode = HRTIMER_CB_SOFTIRQ;
 	pcsp_chip.timer.function = pcsp_do_timer;
 
-	card = snd_card_new(index, id, THIS_MODULE, 0);
-	if (!card)
-		return -ENOMEM;
+	err = snd_card_create(index, id, THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 
 	err = snd_pcsp_create(card);
 	if (err < 0) {
@@ -188,10 +187,8 @@ static int __devexit pcsp_remove(struct platform_device *dev)
 
 static void pcsp_stop_beep(struct snd_pcsp *chip)
 {
-	spin_lock_irq(&chip->substream_lock);
-	if (!chip->playback_substream)
-		pcspkr_stop_sound();
-	spin_unlock_irq(&chip->substream_lock);
+	pcsp_sync_stop(chip);
+	pcspkr_stop_sound();
 }
 
 #ifdef CONFIG_PM

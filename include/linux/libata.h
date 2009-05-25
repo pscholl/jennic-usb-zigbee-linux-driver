@@ -187,6 +187,8 @@ enum {
 	ATA_FLAG_PIO_POLLING	= (1 << 9), /* use polling PIO if LLD
 					     * doesn't handle PIO interrupts */
 	ATA_FLAG_NCQ		= (1 << 10), /* host supports NCQ */
+	ATA_FLAG_NO_POWEROFF_SPINDOWN = (1 << 11), /* don't spindown before poweroff */
+	ATA_FLAG_NO_HIBERNATE_SPINDOWN = (1 << 12), /* don't spindown before hibernation */
 	ATA_FLAG_DEBUGMSG	= (1 << 13),
 	ATA_FLAG_IGN_SIMPLEX	= (1 << 15), /* ignore SIMPLEX */
 	ATA_FLAG_NO_IORDY	= (1 << 16), /* controller lacks iordy */
@@ -207,20 +209,25 @@ enum {
 
 	/* bits 24:31 of ap->flags are reserved for LLD specific flags */
 
+
 	/* struct ata_port pflags */
 	ATA_PFLAG_EH_PENDING	= (1 << 0), /* EH pending */
 	ATA_PFLAG_EH_IN_PROGRESS = (1 << 1), /* EH in progress */
 	ATA_PFLAG_FROZEN	= (1 << 2), /* port is frozen */
 	ATA_PFLAG_RECOVERED	= (1 << 3), /* recovery action performed */
 	ATA_PFLAG_LOADING	= (1 << 4), /* boot/loading probe */
-	ATA_PFLAG_UNLOADING	= (1 << 5), /* module is unloading */
 	ATA_PFLAG_SCSI_HOTPLUG	= (1 << 6), /* SCSI hotplug scheduled */
 	ATA_PFLAG_INITIALIZING	= (1 << 7), /* being initialized, don't touch */
 	ATA_PFLAG_RESETTING	= (1 << 8), /* reset in progress */
+	ATA_PFLAG_UNLOADING	= (1 << 9), /* driver is being unloaded */
+	ATA_PFLAG_UNLOADED	= (1 << 10), /* driver is unloaded */
 
 	ATA_PFLAG_SUSPENDED	= (1 << 17), /* port is suspended (power) */
 	ATA_PFLAG_PM_PENDING	= (1 << 18), /* PM operation pending */
 	ATA_PFLAG_INIT_GTM_VALID = (1 << 19), /* initial gtm data valid */
+
+	ATA_PFLAG_PIO32		= (1 << 20),  /* 32bit PIO */
+	ATA_PFLAG_PIO32CHANGE	= (1 << 21),  /* 32bit PIO can be turned on/off */
 
 	/* struct ata_queued_cmd flags */
 	ATA_QCFLAG_ACTIVE	= (1 << 0), /* cmd not yet ack'd to scsi lyer */
@@ -238,6 +245,7 @@ enum {
 	/* host set flags */
 	ATA_HOST_SIMPLEX	= (1 << 0),	/* Host is simplex, one DMA channel per host only */
 	ATA_HOST_STARTED	= (1 << 1),	/* Host started */
+	ATA_HOST_PARALLEL_SCAN	= (1 << 2),	/* Ports on this host can be scanned in parallel */
 
 	/* bits 24:31 of host->flags are reserved for LLD specific flags */
 
@@ -271,7 +279,7 @@ enum {
 	 * advised to wait only for the following duration before
 	 * doing SRST.
 	 */
-	ATA_TMOUT_PMP_SRST_WAIT	= 1000,
+	ATA_TMOUT_PMP_SRST_WAIT	= 5000,
 
 	/* ATA bus states */
 	BUS_UNKNOWN		= 0,
@@ -375,7 +383,8 @@ enum {
 	ATA_HORKAGE_BRIDGE_OK	= (1 << 10),	/* no bridge limits */
 	ATA_HORKAGE_ATAPI_MOD16_DMA = (1 << 11), /* use ATAPI DMA for commands
 						    not multiple of 16 bytes */
-	ATA_HORKAGE_FIRMWARE_WARN = (1 << 12),	/* firwmare update warning */
+	ATA_HORKAGE_FIRMWARE_WARN = (1 << 12),	/* firmware update warning */
+	ATA_HORKAGE_1_5_GBPS	= (1 << 13),	/* force 1.5 Gbps */
 
 	 /* DMA mask for user DMA control: User visible values; DO NOT
 	    renumber */
@@ -399,12 +408,14 @@ enum {
 				  ATA_TIMING_CYC8B,
 	ATA_TIMING_ACTIVE	= (1 << 4),
 	ATA_TIMING_RECOVER	= (1 << 5),
-	ATA_TIMING_CYCLE	= (1 << 6),
-	ATA_TIMING_UDMA		= (1 << 7),
+	ATA_TIMING_DMACK_HOLD	= (1 << 6),
+	ATA_TIMING_CYCLE	= (1 << 7),
+	ATA_TIMING_UDMA		= (1 << 8),
 	ATA_TIMING_ALL		= ATA_TIMING_SETUP | ATA_TIMING_ACT8B |
 				  ATA_TIMING_REC8B | ATA_TIMING_CYC8B |
 				  ATA_TIMING_ACTIVE | ATA_TIMING_RECOVER |
-				  ATA_TIMING_CYCLE | ATA_TIMING_UDMA,
+				  ATA_TIMING_DMACK_HOLD | ATA_TIMING_CYCLE |
+				  ATA_TIMING_UDMA,
 };
 
 enum ata_xfer_mask {
@@ -523,6 +534,7 @@ struct ata_queued_cmd {
 	unsigned long		flags;		/* ATA_QCFLAG_xxx */
 	unsigned int		tag;
 	unsigned int		n_elem;
+	unsigned int		orig_n_elem;
 
 	int			dma_dir;
 
@@ -574,7 +586,7 @@ struct ata_device {
 	acpi_handle		acpi_handle;
 	union acpi_object	*gtf_cache;
 #endif
-	/* n_sector is used as CLEAR_OFFSET, read comment above CLEAR_OFFSET */
+	/* n_sector is CLEAR_BEGIN, read comment above CLEAR_BEGIN */
 	u64			n_sectors;	/* size of device, if ATA */
 	unsigned int		class;		/* ATA_DEV_xxx */
 	unsigned long		unpark_deadline;
@@ -599,20 +611,22 @@ struct ata_device {
 	u16			heads;		/* Number of heads */
 	u16			sectors;	/* Number of sectors per track */
 
-	/* error history */
-	int			spdn_cnt;
-	struct ata_ering	ering;
-
 	union {
 		u16		id[ATA_ID_WORDS]; /* IDENTIFY xxx DEVICE data */
 		u32		gscr[SATA_PMP_GSCR_DWORDS]; /* PMP GSCR block */
 	};
+
+	/* error history */
+	int			spdn_cnt;
+	/* ering is CLEAR_END, read comment above CLEAR_END */
+	struct ata_ering	ering;
 };
 
-/* Offset into struct ata_device.  Fields above it are maintained
- * acress device init.  Fields below are zeroed.
+/* Fields between ATA_DEVICE_CLEAR_BEGIN and ATA_DEVICE_CLEAR_END are
+ * cleared to zero on ata_dev_init().
  */
-#define ATA_DEVICE_CLEAR_OFFSET		offsetof(struct ata_device, n_sectors)
+#define ATA_DEVICE_CLEAR_BEGIN		offsetof(struct ata_device, n_sectors)
+#define ATA_DEVICE_CLEAR_END		offsetof(struct ata_device, ering)
 
 struct ata_eh_info {
 	struct ata_device	*dev;		/* offending device */
@@ -679,7 +693,10 @@ struct ata_port {
 	struct Scsi_Host	*scsi_host; /* our co-allocated scsi host */
 	struct ata_port_operations *ops;
 	spinlock_t		*lock;
+	/* Flags owned by the EH context. Only EH should touch these once the
+	   port is active */
 	unsigned long		flags;	/* ATA_FLAG_xxx */
+	/* Flags that change dynamically, protected by ap->lock */
 	unsigned int		pflags; /* ATA_PFLAG_xxx */
 	unsigned int		print_id; /* user visible unique port ID */
 	unsigned int		port_no; /* 0 based port no. inside the host */
@@ -741,7 +758,8 @@ struct ata_port {
 	acpi_handle		acpi_handle;
 	struct ata_acpi_gtm	__acpi_init_gtm; /* use ata_acpi_init_gtm() */
 #endif
-	u8			sector_buf[ATA_SECT_SIZE]; /* owned by EH */
+	/* owned by EH */
+	u8			sector_buf[ATA_SECT_SIZE] ____cacheline_aligned;
 };
 
 /* The following initializer overrides a method to NULL whether one of
@@ -784,6 +802,7 @@ struct ata_port_operations {
 	ata_reset_fn_t		pmp_hardreset;
 	ata_postreset_fn_t	pmp_postreset;
 	void (*error_handler)(struct ata_port *ap);
+	void (*lost_interrupt)(struct ata_port *ap);
 	void (*post_internal_cmd)(struct ata_queued_cmd *qc);
 
 	/*
@@ -825,6 +844,8 @@ struct ata_port_operations {
 	void (*bmdma_start)(struct ata_queued_cmd *qc);
 	void (*bmdma_stop)(struct ata_queued_cmd *qc);
 	u8   (*bmdma_status)(struct ata_port *ap);
+
+	void (*drain_fifo)(struct ata_queued_cmd *qc);
 #endif /* CONFIG_ATA_SFF */
 
 	ssize_t (*em_show)(struct ata_port *ap, char *buf);
@@ -864,6 +885,7 @@ struct ata_timing {
 	unsigned short cyc8b;		/* t0 for 8-bit I/O */
 	unsigned short active;		/* t2 or tD */
 	unsigned short recover;		/* t2i or tK */
+	unsigned short dmack_hold;	/* tj */
 	unsigned short cycle;		/* t0 */
 	unsigned short udma;		/* t2CYCTYP/2 */
 };
@@ -925,6 +947,8 @@ extern void ata_host_init(struct ata_host *, struct device *,
 extern int ata_scsi_detect(struct scsi_host_template *sht);
 extern int ata_scsi_ioctl(struct scsi_device *dev, int cmd, void __user *arg);
 extern int ata_scsi_queuecmd(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmnd *));
+extern int ata_sas_scsi_ioctl(struct ata_port *ap, struct scsi_device *dev,
+			    int cmd, void __user *arg);
 extern void ata_sas_port_destroy(struct ata_port *);
 extern struct ata_port *ata_sas_port_alloc(struct ata_host *,
 					   struct ata_port_info *, struct Scsi_Host *);
@@ -993,6 +1017,9 @@ extern int ata_cable_80wire(struct ata_port *ap);
 extern int ata_cable_sata(struct ata_port *ap);
 extern int ata_cable_ignore(struct ata_port *ap);
 extern int ata_cable_unknown(struct ata_port *ap);
+
+extern void ata_pio_queue_task(struct ata_port *ap, void *data,
+			       unsigned long delay);
 
 /* Timing helpers */
 extern unsigned int ata_pio_need_iordy(const struct ata_device *);
@@ -1285,26 +1312,62 @@ static inline int ata_link_active(struct ata_link *link)
 	return ata_tag_valid(link->active_tag) || link->sactive;
 }
 
-extern struct ata_link *__ata_port_next_link(struct ata_port *ap,
-					     struct ata_link *link,
-					     bool dev_only);
+/*
+ * Iterators
+ *
+ * ATA_LITER_* constants are used to select link iteration mode and
+ * ATA_DITER_* device iteration mode.
+ *
+ * For a custom iteration directly using ata_{link|dev}_next(), if
+ * @link or @dev, respectively, is NULL, the first element is
+ * returned.  @dev and @link can be any valid device or link and the
+ * next element according to the iteration mode will be returned.
+ * After the last element, NULL is returned.
+ */
+enum ata_link_iter_mode {
+	ATA_LITER_EDGE,		/* if present, PMP links only; otherwise,
+				 * host link.  no slave link */
+	ATA_LITER_HOST_FIRST,	/* host link followed by PMP or slave links */
+	ATA_LITER_PMP_FIRST,	/* PMP links followed by host link,
+				 * slave link still comes after host link */
+};
 
-#define __ata_port_for_each_link(link, ap) \
-	for ((link) = __ata_port_next_link((ap), NULL, false); (link); \
-	     (link) = __ata_port_next_link((ap), (link), false))
+enum ata_dev_iter_mode {
+	ATA_DITER_ENABLED,
+	ATA_DITER_ENABLED_REVERSE,
+	ATA_DITER_ALL,
+	ATA_DITER_ALL_REVERSE,
+};
 
-#define ata_port_for_each_link(link, ap) \
-	for ((link) = __ata_port_next_link((ap), NULL, true); (link); \
-	     (link) = __ata_port_next_link((ap), (link), true))
+extern struct ata_link *ata_link_next(struct ata_link *link,
+				      struct ata_port *ap,
+				      enum ata_link_iter_mode mode);
 
-#define ata_link_for_each_dev(dev, link) \
-	for ((dev) = (link)->device; \
-	     (dev) < (link)->device + ata_link_max_devices(link) || ((dev) = NULL); \
-	     (dev)++)
+extern struct ata_device *ata_dev_next(struct ata_device *dev,
+				       struct ata_link *link,
+				       enum ata_dev_iter_mode mode);
 
-#define ata_link_for_each_dev_reverse(dev, link) \
-	for ((dev) = (link)->device + ata_link_max_devices(link) - 1; \
-	     (dev) >= (link)->device || ((dev) = NULL); (dev)--)
+/*
+ * Shortcut notation for iterations
+ *
+ * ata_for_each_link() iterates over each link of @ap according to
+ * @mode.  @link points to the current link in the loop.  @link is
+ * NULL after loop termination.  ata_for_each_dev() works the same way
+ * except that it iterates over each device of @link.
+ *
+ * Note that the mode prefixes ATA_{L|D}ITER_ shouldn't need to be
+ * specified when using the following shorthand notations.  Only the
+ * mode itself (EDGE, HOST_FIRST, ENABLED, etc...) should be
+ * specified.  This not only increases brevity but also makes it
+ * impossible to use ATA_LITER_* for device iteration or vice-versa.
+ */
+#define ata_for_each_link(link, ap, mode) \
+	for ((link) = ata_link_next(NULL, (ap), ATA_LITER_##mode); (link); \
+	     (link) = ata_link_next((link), (ap), ATA_LITER_##mode))
+
+#define ata_for_each_dev(dev, link, mode) \
+	for ((dev) = ata_dev_next(NULL, (link), ATA_DITER_##mode); (dev); \
+	     (dev) = ata_dev_next((dev), (link), ATA_DITER_##mode))
 
 /**
  *	ata_ncq_enabled - Test whether NCQ is enabled
@@ -1481,6 +1544,7 @@ extern void sata_pmp_error_handler(struct ata_port *ap);
 
 extern const struct ata_port_operations ata_sff_port_ops;
 extern const struct ata_port_operations ata_bmdma_port_ops;
+extern const struct ata_port_operations ata_bmdma32_port_ops;
 
 /* PIO only, sg_tablesize and dma_boundary limits can be removed */
 #define ATA_PIO_SHT(drv_name)					\
@@ -1508,6 +1572,8 @@ extern void ata_sff_exec_command(struct ata_port *ap,
 				 const struct ata_taskfile *tf);
 extern unsigned int ata_sff_data_xfer(struct ata_device *dev,
 			unsigned char *buf, unsigned int buflen, int rw);
+extern unsigned int ata_sff_data_xfer32(struct ata_device *dev,
+			unsigned char *buf, unsigned int buflen, int rw);
 extern unsigned int ata_sff_data_xfer_noirq(struct ata_device *dev,
 			unsigned char *buf, unsigned int buflen, int rw);
 extern u8 ata_sff_irq_on(struct ata_port *ap);
@@ -1519,6 +1585,7 @@ extern bool ata_sff_qc_fill_rtf(struct ata_queued_cmd *qc);
 extern unsigned int ata_sff_host_intr(struct ata_port *ap,
 				      struct ata_queued_cmd *qc);
 extern irqreturn_t ata_sff_interrupt(int irq, void *dev_instance);
+extern void ata_sff_lost_interrupt(struct ata_port *ap);
 extern void ata_sff_freeze(struct ata_port *ap);
 extern void ata_sff_thaw(struct ata_port *ap);
 extern int ata_sff_prereset(struct ata_link *link, unsigned long deadline);
@@ -1531,9 +1598,11 @@ extern int ata_sff_softreset(struct ata_link *link, unsigned int *classes,
 extern int sata_sff_hardreset(struct ata_link *link, unsigned int *class,
 			       unsigned long deadline);
 extern void ata_sff_postreset(struct ata_link *link, unsigned int *classes);
+extern void ata_sff_drain_fifo(struct ata_queued_cmd *qc);
 extern void ata_sff_error_handler(struct ata_port *ap);
 extern void ata_sff_post_internal_cmd(struct ata_queued_cmd *qc);
 extern int ata_sff_port_start(struct ata_port *ap);
+extern int ata_sff_port_start32(struct ata_port *ap);
 extern void ata_sff_std_ports(struct ata_ioports *ioaddr);
 extern unsigned long ata_bmdma_mode_filter(struct ata_device *dev,
 					   unsigned long xfer_mask);

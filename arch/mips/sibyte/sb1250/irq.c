@@ -50,7 +50,7 @@ static void enable_sb1250_irq(unsigned int irq);
 static void disable_sb1250_irq(unsigned int irq);
 static void ack_sb1250_irq(unsigned int irq);
 #ifdef CONFIG_SMP
-static void sb1250_set_affinity(unsigned int irq, cpumask_t mask);
+static void sb1250_set_affinity(unsigned int irq, const struct cpumask *mask);
 #endif
 
 #ifdef CONFIG_SIBYTE_HAS_LDT
@@ -103,16 +103,15 @@ void sb1250_unmask_irq(int cpu, int irq)
 }
 
 #ifdef CONFIG_SMP
-static void sb1250_set_affinity(unsigned int irq, cpumask_t mask)
+static void sb1250_set_affinity(unsigned int irq, const struct cpumask *mask)
 {
 	int i = 0, old_cpu, cpu, int_on;
 	u64 cur_ints;
-	struct irq_desc *desc = irq_desc + irq;
 	unsigned long flags;
 
-	i = first_cpu(mask);
+	i = cpumask_first(mask);
 
-	if (cpus_weight(mask) > 1) {
+	if (cpumask_weight(mask) > 1) {
 		printk("attempted to set irq affinity for irq %d to multiple CPUs\n", irq);
 		return;
 	}
@@ -121,8 +120,7 @@ static void sb1250_set_affinity(unsigned int irq, cpumask_t mask)
 	cpu = cpu_logical_map(i);
 
 	/* Protect against other affinity changers and IMR manipulation */
-	spin_lock_irqsave(&desc->lock, flags);
-	spin_lock(&sb1250_imr_lock);
+	spin_lock_irqsave(&sb1250_imr_lock, flags);
 
 	/* Swizzle each CPU's IMR (but leave the IP selection alone) */
 	old_cpu = sb1250_irq_owner[irq];
@@ -144,8 +142,7 @@ static void sb1250_set_affinity(unsigned int irq, cpumask_t mask)
 		____raw_writeq(cur_ints, IOADDR(A_IMR_MAPPER(cpu) +
 					R_IMR_INTERRUPT_MASK));
 	}
-	spin_unlock(&sb1250_imr_lock);
-	spin_unlock_irqrestore(&desc->lock, flags);
+	spin_unlock_irqrestore(&sb1250_imr_lock, flags);
 }
 #endif
 
@@ -220,7 +217,7 @@ void __init init_sb1250_irqs(void)
 	int i;
 
 	for (i = 0; i < SB1250_NR_IRQS; i++) {
-		set_irq_chip(i, &sb1250_irq_type);
+		set_irq_chip_and_handler(i, &sb1250_irq_type, handle_level_irq);
 		sb1250_irq_owner[i] = 0;
 	}
 }

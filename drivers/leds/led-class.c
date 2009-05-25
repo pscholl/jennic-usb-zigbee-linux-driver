@@ -64,7 +64,16 @@ static ssize_t led_brightness_store(struct device *dev,
 	return ret;
 }
 
+static ssize_t led_max_brightness_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%u\n", led_cdev->max_brightness);
+}
+
 static DEVICE_ATTR(brightness, 0644, led_brightness_show, led_brightness_store);
+static DEVICE_ATTR(max_brightness, 0444, led_max_brightness_show, NULL);
 #ifdef CONFIG_LEDS_TRIGGERS
 static DEVICE_ATTR(trigger, 0644, led_trigger_show, led_trigger_store);
 #endif
@@ -91,9 +100,29 @@ void led_classdev_resume(struct led_classdev *led_cdev)
 }
 EXPORT_SYMBOL_GPL(led_classdev_resume);
 
+static int led_suspend(struct device *dev, pm_message_t state)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	if (led_cdev->flags & LED_CORE_SUSPENDRESUME)
+		led_classdev_suspend(led_cdev);
+
+	return 0;
+}
+
+static int led_resume(struct device *dev)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	if (led_cdev->flags & LED_CORE_SUSPENDRESUME)
+		led_classdev_resume(led_cdev);
+
+	return 0;
+}
+
 /**
  * led_classdev_register - register a new object of led_classdev class.
- * @dev: The device to register.
+ * @parent: The device to register.
  * @led_cdev: the led_classdev structure for this device.
  */
 int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
@@ -118,6 +147,13 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 	list_add_tail(&led_cdev->node, &leds_list);
 	up_write(&leds_list_lock);
 
+	if (!led_cdev->max_brightness)
+		led_cdev->max_brightness = LED_FULL;
+
+	rc = device_create_file(led_cdev->dev, &dev_attr_max_brightness);
+	if (rc)
+		goto err_out_attr_max;
+
 	led_update_brightness(led_cdev);
 
 #ifdef CONFIG_LEDS_TRIGGERS
@@ -135,9 +171,11 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 
 #ifdef CONFIG_LEDS_TRIGGERS
 err_out_led_list:
+	device_remove_file(led_cdev->dev, &dev_attr_max_brightness);
+#endif
+err_out_attr_max:
 	device_remove_file(led_cdev->dev, &dev_attr_brightness);
 	list_del(&led_cdev->node);
-#endif
 err_out:
 	device_unregister(led_cdev->dev);
 	return rc;
@@ -152,6 +190,7 @@ EXPORT_SYMBOL_GPL(led_classdev_register);
  */
 void led_classdev_unregister(struct led_classdev *led_cdev)
 {
+	device_remove_file(led_cdev->dev, &dev_attr_max_brightness);
 	device_remove_file(led_cdev->dev, &dev_attr_brightness);
 #ifdef CONFIG_LEDS_TRIGGERS
 	device_remove_file(led_cdev->dev, &dev_attr_trigger);
@@ -174,6 +213,8 @@ static int __init leds_init(void)
 	leds_class = class_create(THIS_MODULE, "leds");
 	if (IS_ERR(leds_class))
 		return PTR_ERR(leds_class);
+	leds_class->suspend = led_suspend;
+	leds_class->resume = led_resume;
 	return 0;
 }
 

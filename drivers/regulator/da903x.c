@@ -102,7 +102,7 @@ static int da903x_set_ldo_voltage(struct regulator_dev *rdev,
 	uint8_t val, mask;
 
 	if (check_range(info, min_uV, max_uV)) {
-		pr_err("invalid voltage range (%d, %d) uV", min_uV, max_uV);
+		pr_err("invalid voltage range (%d, %d) uV\n", min_uV, max_uV);
 		return -EINVAL;
 	}
 
@@ -159,7 +159,7 @@ static int da903x_is_enabled(struct regulator_dev *rdev)
 	if (ret)
 		return ret;
 
-	return reg_val & (1 << info->enable_bit);
+	return !!(reg_val & (1 << info->enable_bit));
 }
 
 /* DA9030 specific operations */
@@ -172,7 +172,7 @@ static int da9030_set_ldo1_15_voltage(struct regulator_dev *rdev,
 	int ret;
 
 	if (check_range(info, min_uV, max_uV)) {
-		pr_err("invalid voltage range (%d, %d) uV", min_uV, max_uV);
+		pr_err("invalid voltage range (%d, %d) uV\n", min_uV, max_uV);
 		return -EINVAL;
 	}
 
@@ -199,7 +199,7 @@ static int da9030_set_ldo14_voltage(struct regulator_dev *rdev,
 	int thresh;
 
 	if (check_range(info, min_uV, max_uV)) {
-		pr_err("invalid voltage range (%d, %d) uV", min_uV, max_uV);
+		pr_err("invalid voltage range (%d, %d) uV\n", min_uV, max_uV);
 		return -EINVAL;
 	}
 
@@ -248,7 +248,7 @@ static int da9034_set_dvc_voltage(struct regulator_dev *rdev,
 	int ret;
 
 	if (check_range(info, min_uV, max_uV)) {
-		pr_err("invalid voltage range (%d, %d) uV", min_uV, max_uV);
+		pr_err("invalid voltage range (%d, %d) uV\n", min_uV, max_uV);
 		return -EINVAL;
 	}
 
@@ -273,7 +273,7 @@ static int da9034_set_ldo12_voltage(struct regulator_dev *rdev,
 	uint8_t val, mask;
 
 	if (check_range(info, min_uV, max_uV)) {
-		pr_err("invalid voltage range (%d, %d) uV", min_uV, max_uV);
+		pr_err("invalid voltage range (%d, %d) uV\n", min_uV, max_uV);
 		return -EINVAL;
 	}
 
@@ -471,7 +471,8 @@ static int __devinit da903x_regulator_probe(struct platform_device *pdev)
 	if (ri->desc.id == DA9030_ID_LDO1 || ri->desc.id == DA9030_ID_LDO15)
 		ri->desc.ops = &da9030_regulator_ldo1_15_ops;
 
-	rdev = regulator_register(&ri->desc, &pdev->dev, ri);
+	rdev = regulator_register(&ri->desc, &pdev->dev,
+				  pdev->dev.platform_data, ri);
 	if (IS_ERR(rdev)) {
 		dev_err(&pdev->dev, "failed to register regulator %s\n",
 				ri->desc.name);

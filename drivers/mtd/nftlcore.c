@@ -15,11 +15,11 @@
 #include <asm/errno.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
-#include <linux/miscdevice.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/hdreg.h>
+#include <linux/blkdev.h>
 
 #include <linux/kmod.h>
 #include <linux/mtd/mtd.h>
@@ -39,7 +39,7 @@ static void nftl_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 	struct NFTLrecord *nftl;
 	unsigned long temp;
 
-	if (mtd->type != MTD_NANDFLASH)
+	if (mtd->type != MTD_NANDFLASH || mtd->size > UINT_MAX)
 		return;
 	/* OK, this is moderately ugly.  But probably safe.  Alternatives? */
 	if (memcmp(mtd->name, "DiskOnChip", 10))
@@ -818,3 +818,4 @@ module_exit(cleanup_nftl);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("David Woodhouse <dwmw2@infradead.org>, Fabrice Bellard <fabrice.bellard@netgem.com> et al.");
 MODULE_DESCRIPTION("Support code for NAND Flash Translation Layer, used on M-Systems DiskOnChip 2000 and Millennium");
+MODULE_ALIAS_BLOCKDEV_MAJOR(NFTL_MAJOR);

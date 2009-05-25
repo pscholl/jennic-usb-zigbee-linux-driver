@@ -34,18 +34,24 @@
 #include <linux/irq.h>
 #include <linux/pda_power.h>
 #include <linux/power_supply.h>
-#include <linux/wm97xx.h>
+#include <linux/wm97xx_batt.h>
 #include <linux/mtd/physmap.h>
+#include <linux/usb/gpio_vbus.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-#include <mach/mfp-pxa27x.h>
+
+#include <mach/pxa27x.h>
+#include <mach/regs-rtc.h>
 #include <mach/pxa27x_keypad.h>
 #include <mach/pxafb.h>
-#include <mach/pxa2xx-regs.h>
 #include <mach/mmc.h>
 #include <mach/udc.h>
 #include <mach/pxa27x-udc.h>
+#include <mach/i2c.h>
+#include <mach/camera.h>
+#include <mach/audio.h>
+#include <media/soc_camera.h>
 
 #include <mach/mioa701.h>
 
@@ -54,10 +60,11 @@
 
 static unsigned long mioa701_pin_config[] = {
 	/* Mio global */
-	MIO_CFG_OUT(GPIO9_CHARGE_nEN, AF0, DRIVE_LOW),
+	MIO_CFG_OUT(GPIO9_CHARGE_EN, AF0, DRIVE_LOW),
 	MIO_CFG_OUT(GPIO18_POWEROFF, AF0, DRIVE_LOW),
 	MFP_CFG_OUT(GPIO3, AF0, DRIVE_HIGH),
 	MFP_CFG_OUT(GPIO4, AF0, DRIVE_HIGH),
+	MIO_CFG_IN(GPIO80_MAYBE_CHARGE_VDROP, AF0),
 
 	/* Backlight PWM 0 */
 	GPIO16_PWM0_OUT,
@@ -74,7 +81,7 @@ static unsigned long mioa701_pin_config[] = {
 	MIO_CFG_OUT(GPIO91_SDIO_EN, AF0, DRIVE_LOW),
 
 	/* USB */
-	MIO_CFG_IN(GPIO13_USB_DETECT, AF0),
+	MIO_CFG_IN(GPIO13_nUSB_DETECT, AF0),
 	MIO_CFG_OUT(GPIO22_USB_ENABLE, AF0, DRIVE_LOW),
 
 	/* LCD */
@@ -98,12 +105,29 @@ static unsigned long mioa701_pin_config[] = {
 	GPIO75_LCD_LCLK,
 	GPIO76_LCD_PCLK,
 
+	/* QCI */
+	GPIO12_CIF_DD_7,
+	GPIO17_CIF_DD_6,
+	GPIO50_CIF_DD_3,
+	GPIO51_CIF_DD_2,
+	GPIO52_CIF_DD_4,
+	GPIO53_CIF_MCLK,
+	GPIO54_CIF_PCLK,
+	GPIO55_CIF_DD_1,
+	GPIO81_CIF_DD_0,
+	GPIO82_CIF_DD_5,
+	GPIO84_CIF_FV,
+	GPIO85_CIF_LV,
+
 	/* Bluetooth */
+	MIO_CFG_IN(GPIO14_BT_nACTIVITY, AF0),
 	GPIO44_BTUART_CTS,
 	GPIO42_BTUART_RXD,
 	GPIO45_BTUART_RTS,
 	GPIO43_BTUART_TXD,
 	MIO_CFG_OUT(GPIO83_BT_ON, AF0, DRIVE_LOW),
+	MIO_CFG_OUT(GPIO77_BT_UNKNOWN1, AF0, DRIVE_HIGH),
+	MIO_CFG_OUT(GPIO86_BT_MAYBE_nRESET, AF0, DRIVE_HIGH),
 
 	/* GPS */
 	MIO_CFG_OUT(GPIO23_GPS_UNKNOWN1, AF0, DRIVE_LOW),
@@ -151,16 +175,16 @@ static unsigned long mioa701_pin_config[] = {
 	GPIO104_KP_MKOUT_1,
 	GPIO105_KP_MKOUT_2,
 
+	/* I2C */
+	GPIO117_I2C_SCL,
+	GPIO118_I2C_SDA,
+
 	/* Unknown */
-	MFP_CFG_IN(GPIO14, AF0),
 	MFP_CFG_IN(GPIO20, AF0),
 	MFP_CFG_IN(GPIO21, AF0),
 	MFP_CFG_IN(GPIO33, AF0),
 	MFP_CFG_OUT(GPIO49, AF0, DRIVE_HIGH),
 	MFP_CFG_OUT(GPIO57, AF0, DRIVE_HIGH),
-	MFP_CFG_OUT(GPIO77, AF0, DRIVE_HIGH),
-	MFP_CFG_IN(GPIO80, AF0),
-	MFP_CFG_OUT(GPIO86, AF0, DRIVE_HIGH),
 	MFP_CFG_IN(GPIO96, AF0),
 	MFP_CFG_OUT(GPIO116, AF0, DRIVE_HIGH),
 };
@@ -390,45 +414,21 @@ static void gsm_exit(void)
 /*
  * USB UDC
  */
-static void udc_power_command(int cmd)
-{
-	switch (cmd) {
-	case PXA2XX_UDC_CMD_DISCONNECT:
-		gpio_set_value(GPIO22_USB_ENABLE, 0);
-		break;
-	case PXA2XX_UDC_CMD_CONNECT:
-		gpio_set_value(GPIO22_USB_ENABLE, 1);
-		break;
-	default:
-		printk(KERN_INFO "udc_control: unknown command (0x%x)!\n", cmd);
-		break;
-	}
-}
-
 static int is_usb_connected(void)
 {
-	return !!gpio_get_value(GPIO13_USB_DETECT);
+	return !gpio_get_value(GPIO13_nUSB_DETECT);
 }
 
 static struct pxa2xx_udc_mach_info mioa701_udc_info = {
 	.udc_is_connected = is_usb_connected,
-	.udc_command	  = udc_power_command,
+	.gpio_pullup	  = GPIO22_USB_ENABLE,
 };
 
-struct gpio_ress udc_gpios[] = {
-	MIO_GPIO_OUT(GPIO22_USB_ENABLE, 0, "USB Vbus enable")
+struct gpio_vbus_mach_info gpio_vbus_data = {
+	.gpio_vbus = GPIO13_nUSB_DETECT,
+	.gpio_vbus_inverted = 1,
+	.gpio_pullup = -1,
 };
-
-static int __init udc_init(void)
-{
-	pxa_set_udc_info(&mioa701_udc_info);
-	return mio_gpio_request(ARRAY_AND_SIZE(udc_gpios));
-}
-
-static void udc_exit(void)
-{
-	mio_gpio_free(ARRAY_AND_SIZE(udc_gpios));
-}
 
 /*
  * SDIO/MMC Card controller
@@ -659,13 +659,19 @@ static char *supplicants[] = {
 	"mioa701_battery"
 };
 
+static int is_ac_connected(void)
+{
+	return gpio_get_value(GPIO96_AC_DETECT);
+}
+
 static void mioa701_set_charge(int flags)
 {
-	gpio_set_value(GPIO9_CHARGE_nEN, !flags);
+	gpio_set_value(GPIO9_CHARGE_EN, (flags == PDA_POWER_CHARGE_USB));
 }
 
 static struct pda_power_pdata power_pdata = {
-	.is_ac_online	= is_usb_connected,
+	.is_ac_online	= is_ac_connected,
+	.is_usb_online	= is_usb_connected,
 	.set_charge = mioa701_set_charge,
 	.supplied_to = supplicants,
 	.num_supplicants = ARRAY_SIZE(supplicants),
@@ -674,8 +680,15 @@ static struct pda_power_pdata power_pdata = {
 static struct resource power_resources[] = {
 	[0] = {
 		.name	= "ac",
-		.start	= gpio_to_irq(GPIO13_USB_DETECT),
-		.end	= gpio_to_irq(GPIO13_USB_DETECT),
+		.start	= gpio_to_irq(GPIO96_AC_DETECT),
+		.end	= gpio_to_irq(GPIO96_AC_DETECT),
+		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE |
+		IORESOURCE_IRQ_LOWEDGE,
+	},
+	[1] = {
+		.name	= "usb",
+		.start	= gpio_to_irq(GPIO13_nUSB_DETECT),
+		.end	= gpio_to_irq(GPIO13_nUSB_DETECT),
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE |
 		IORESOURCE_IRQ_LOWEDGE,
 	},
@@ -691,120 +704,47 @@ static struct platform_device power_dev = {
 	},
 };
 
-#if defined(CONFIG_PDA_POWER) && defined(CONFIG_TOUCHSCREEN_WM97XX)
-static struct wm97xx *battery_wm;
-
-static enum power_supply_property battery_props[] = {
-	POWER_SUPPLY_PROP_STATUS,
-	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
-	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
-	POWER_SUPPLY_PROP_VOLTAGE_NOW,
-	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,	/* Necessary for apm */
+static struct wm97xx_batt_info mioa701_battery_data = {
+	.batt_aux	= WM97XX_AUX_ID1,
+	.temp_aux	= -1,
+	.charge_gpio	= -1,
+	.min_voltage	= 0xc00,
+	.max_voltage	= 0xfc0,
+	.batt_tech	= POWER_SUPPLY_TECHNOLOGY_LION,
+	.batt_div	= 1,
+	.batt_mult	= 1,
+	.batt_name	= "mioa701_battery",
 };
 
-static int get_battery_voltage(void)
-{
-	int adc = -1;
-
-	if (battery_wm)
-		adc = wm97xx_read_aux_adc(battery_wm, WM97XX_AUX_ID1);
-	return adc;
-}
-
-static int get_battery_status(struct power_supply *b)
-{
-	int status;
-
-	if (is_usb_connected())
-		status = POWER_SUPPLY_STATUS_CHARGING;
-	else
-		status = POWER_SUPPLY_STATUS_DISCHARGING;
-
-	return status;
-}
-
-static int get_property(struct power_supply *b,
-			enum power_supply_property psp,
-			union power_supply_propval *val)
-{
-	int rc = 0;
-
-	switch (psp) {
-	case POWER_SUPPLY_PROP_STATUS:
-		val->intval = get_battery_status(b);
-		break;
-	case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
-		val->intval = 0xfd0;
-		break;
-	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
-		val->intval = 0xc00;
-		break;
-	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		val->intval = get_battery_voltage();
-		break;
-	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		val->intval = 100;
-		break;
-	default:
-		val->intval = -1;
-		rc = -1;
-	}
-
-	return rc;
+/*
+ * Camera interface
+ */
+struct pxacamera_platform_data mioa701_pxacamera_platform_data = {
+	.flags  = PXA_CAMERA_MASTER | PXA_CAMERA_DATAWIDTH_8 |
+		PXA_CAMERA_PCLK_EN | PXA_CAMERA_MCLK_EN,
+	.mclk_10khz = 5000,
 };
 
-static struct power_supply battery_ps = {
-	.name = "mioa701_battery",
-	.type = POWER_SUPPLY_TYPE_BATTERY,
-	.get_property = get_property,
-	.properties = battery_props,
-	.num_properties = ARRAY_SIZE(battery_props),
+static struct soc_camera_link iclink = {
+	.bus_id	= 0, /* Must match id in pxa27x_device_camera in device.c */
 };
 
-static int battery_probe(struct platform_device *pdev)
-{
-	struct wm97xx *wm = platform_get_drvdata(pdev);
-	int rc;
-
-	battery_wm = wm;
-
-	rc = power_supply_register(NULL, &battery_ps);
-	if (rc)
-		dev_err(&pdev->dev,
-		"Could not register mioa701 battery -> %d\n", rc);
-	return rc;
-}
-
-static int battery_remove(struct platform_device *pdev)
-{
-	battery_wm = NULL;
-	return 0;
-}
-
-static struct platform_driver mioa701_battery_driver = {
-	.driver = {
-		.name = "wm97xx-battery",
+/* Board I2C devices. */
+static struct i2c_board_info __initdata mioa701_i2c_devices[] = {
+	{
+		/* Must initialize before the camera(s) */
+		I2C_BOARD_INFO("mt9m111", 0x5d),
+		.platform_data = &iclink,
 	},
-	.probe = battery_probe,
-	.remove = battery_remove
 };
 
-static int __init mioa701_battery_init(void)
-{
-	int rc;
+struct i2c_pxa_platform_data i2c_pdata = {
+	.fast_mode = 1,
+};
 
-	rc = platform_driver_register(&mioa701_battery_driver);
-	if (rc)
-		printk(KERN_ERR "Could not register mioa701 battery driver\n");
-	return rc;
-}
-
-#else
-static int __init mioa701_battery_init(void)
-{
-	return 0;
-}
-#endif
+static pxa2xx_audio_ops_t mioa701_ac97_info = {
+	.reset_gpio = 95,
+};
 
 /*
  * Mio global
@@ -828,22 +768,20 @@ MIO_PARENT_DEV(mioa701_backlight, "pwm-backlight",  &pxa27x_device_pwm0.dev,
 		&mioa701_backlight_data);
 MIO_SIMPLE_DEV(mioa701_led,	  "leds-gpio",	    &gpio_led_info)
 MIO_SIMPLE_DEV(pxa2xx_pcm,	  "pxa2xx-pcm",	    NULL)
-MIO_SIMPLE_DEV(pxa2xx_ac97,	  "pxa2xx-ac97",    NULL)
-MIO_PARENT_DEV(mio_wm9713_codec,  "wm9713-codec",   &pxa2xx_ac97.dev, NULL)
 MIO_SIMPLE_DEV(mioa701_sound,	  "mioa701-wm9713", NULL)
 MIO_SIMPLE_DEV(mioa701_board,	  "mioa701-board",  NULL)
+MIO_SIMPLE_DEV(gpio_vbus,	  "gpio-vbus",      &gpio_vbus_data);
 
 static struct platform_device *devices[] __initdata = {
 	&mioa701_gpio_keys,
 	&mioa701_backlight,
 	&mioa701_led,
 	&pxa2xx_pcm,
-	&pxa2xx_ac97,
-	&mio_wm9713_codec,
 	&mioa701_sound,
 	&power_dev,
 	&strataflash,
-	&mioa701_board
+	&gpio_vbus,
+	&mioa701_board,
 };
 
 static void mioa701_machine_exit(void);
@@ -851,17 +789,17 @@ static void mioa701_machine_exit(void);
 static void mioa701_poweroff(void)
 {
 	mioa701_machine_exit();
-	gpio_set_value(GPIO18_POWEROFF, 1);
+	arm_machine_restart('s', NULL);
 }
 
-static void mioa701_restart(char c)
+static void mioa701_restart(char c, const char *cmd)
 {
 	mioa701_machine_exit();
-	arm_machine_restart(c);
+	arm_machine_restart('s', cmd);
 }
 
 struct gpio_ress global_gpios[] = {
-	MIO_GPIO_OUT(GPIO9_CHARGE_nEN, 1, "Charger enable"),
+	MIO_GPIO_OUT(GPIO9_CHARGE_EN, 1, "Charger enable"),
 	MIO_GPIO_OUT(GPIO18_POWEROFF, 0, "Power Off"),
 	MIO_GPIO_OUT(GPIO87_LCD_POWER, 0, "LCD Power")
 };
@@ -879,17 +817,21 @@ static void __init mioa701_machine_init(void)
 	set_pxa_fb_info(&mioa701_pxafb_info);
 	pxa_set_mci_info(&mioa701_mci_info);
 	pxa_set_keypad_info(&mioa701_keypad_info);
-	udc_init();
+	wm97xx_bat_set_pdata(&mioa701_battery_data);
+	pxa_set_udc_info(&mioa701_udc_info);
+	pxa_set_ac97_info(&mioa701_ac97_info);
 	pm_power_off = mioa701_poweroff;
 	arm_pm_restart = mioa701_restart;
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 	gsm_init();
-	mioa701_battery_init();
+
+	pxa_set_i2c_info(&i2c_pdata);
+	pxa_set_camera_info(&mioa701_pxacamera_platform_data);
+	i2c_register_board_info(0, ARRAY_AND_SIZE(mioa701_i2c_devices));
 }
 
 static void mioa701_machine_exit(void)
 {
-	udc_exit();
 	bootstrap_exit();
 	gsm_exit();
 }

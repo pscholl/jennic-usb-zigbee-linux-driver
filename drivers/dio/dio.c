@@ -173,6 +173,7 @@ static int __init dio_init(void)
 	mm_segment_t fs;
 	int i;
 	struct dio_dev *dev;
+	int error;
 
 	if (!MACH_IS_HP300)
 		return 0;
@@ -181,8 +182,12 @@ static int __init dio_init(void)
 
 	/* Initialize the DIO bus */ 
 	INIT_LIST_HEAD(&dio_bus.devices);
-	strcpy(dio_bus.dev.bus_id, "dio");
-	device_register(&dio_bus.dev);
+	dev_set_name(&dio_bus.dev, "dio");
+	error = device_register(&dio_bus.dev);
+	if (error) {
+		pr_err("DIO: Error registering dio_bus\n");
+		return error;
+	}
 
 	/* Request all resources */
 	dio_bus.num_resources = (hp300_model == HP_320 ? 1 : 2);
@@ -232,7 +237,7 @@ static int __init dio_init(void)
 		dev->scode = scode;
 		dev->resource.start = pa;
 		dev->resource.end = pa + DIO_SIZE(scode, va);
-		sprintf(dev->dev.bus_id,"%02x", scode);
+		dev_set_name(&dev->dev, "%02x", scode);
 
                 /* read the ID byte(s) and encode if necessary. */
 		prid = DIO_ID(va);
@@ -252,8 +257,15 @@ static int __init dio_init(void)
 
 		if (scode >= DIOII_SCBASE)
 			iounmap(va);
-		device_register(&dev->dev);
-		dio_create_sysfs_dev_files(dev);
+		error = device_register(&dev->dev);
+		if (error) {
+			pr_err("DIO: Error registering device %s\n",
+			       dev->name);
+			continue;
+		}
+		error = dio_create_sysfs_dev_files(dev);
+		if (error)
+			dev_err(&dev->dev, "Error creating sysfs files\n");
         }
 	return 0;
 }

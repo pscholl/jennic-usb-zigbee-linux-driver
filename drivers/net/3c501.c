@@ -197,6 +197,17 @@ out:
 	return ERR_PTR(err);
 }
 
+static const struct net_device_ops el_netdev_ops = {
+	.ndo_open		= el_open,
+	.ndo_stop		= el1_close,
+	.ndo_start_xmit 	= el_start_xmit,
+	.ndo_tx_timeout		= el_timeout,
+	.ndo_set_multicast_list = set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /**
  *	el1_probe1:
  *	@dev: The device structure to use
@@ -297,20 +308,16 @@ static int __init el1_probe1(struct net_device *dev, int ioaddr)
 	if (el_debug)
 		printk(KERN_DEBUG "%s", version);
 
-	memset(dev->priv, 0, sizeof(struct net_local));
 	lp = netdev_priv(dev);
+	memset(lp, 0, sizeof(struct net_local));
 	spin_lock_init(&lp->lock);
 
 	/*
 	 *	The EL1-specific entries in the device structure.
 	 */
 
-	dev->open = &el_open;
-	dev->hard_start_xmit = &el_start_xmit;
-	dev->tx_timeout = &el_timeout;
+	dev->netdev_ops = &el_netdev_ops;
 	dev->watchdog_timeo = HZ;
-	dev->stop = &el1_close;
-	dev->set_multicast_list = &set_multicast_list;
 	dev->ethtool_ops = &netdev_ethtool_ops;
 	return 0;
 }
@@ -725,7 +732,6 @@ static void el_receive(struct net_device *dev)
 		insb(DATAPORT, skb_put(skb, pkt_len), pkt_len);
 		skb->protocol = eth_type_trans(skb, dev);
 		netif_rx(skb);
-		dev->last_rx = jiffies;
 		dev->stats.rx_packets++;
 		dev->stats.rx_bytes += pkt_len;
 	}

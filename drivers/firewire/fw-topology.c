@@ -314,9 +314,8 @@ typedef void (*fw_node_callback_t)(struct fw_card * card,
 				   struct fw_node * node,
 				   struct fw_node * parent);
 
-static void
-for_each_fw_node(struct fw_card *card, struct fw_node *root,
-		 fw_node_callback_t callback)
+static void for_each_fw_node(struct fw_card *card, struct fw_node *root,
+			     fw_node_callback_t callback)
 {
 	struct list_head list;
 	struct fw_node *node, *next, *child, *parent;
@@ -349,17 +348,18 @@ for_each_fw_node(struct fw_card *card, struct fw_node *root,
 		fw_node_put(node);
 }
 
-static void
-report_lost_node(struct fw_card *card,
-		 struct fw_node *node, struct fw_node *parent)
+static void report_lost_node(struct fw_card *card,
+			     struct fw_node *node, struct fw_node *parent)
 {
 	fw_node_event(card, node, FW_NODE_DESTROYED);
 	fw_node_put(node);
+
+	/* Topology has changed - reset bus manager retry counter */
+	card->bm_retries = 0;
 }
 
-static void
-report_found_node(struct fw_card *card,
-		  struct fw_node *node, struct fw_node *parent)
+static void report_found_node(struct fw_card *card,
+			      struct fw_node *node, struct fw_node *parent)
 {
 	int b_path = (node->phy_speed == SCODE_BETA);
 
@@ -374,6 +374,9 @@ report_found_node(struct fw_card *card,
 	}
 
 	fw_node_event(card, node, FW_NODE_CREATED);
+
+	/* Topology has changed - reset bus manager retry counter */
+	card->bm_retries = 0;
 }
 
 void fw_destroy_nodes(struct fw_card *card)
@@ -409,8 +412,7 @@ static void move_tree(struct fw_node *node0, struct fw_node *node1, int port)
  * found, lost or updated.  Update the nodes in the card topology tree
  * as we go.
  */
-static void
-update_tree(struct fw_card *card, struct fw_node *root)
+static void update_tree(struct fw_card *card, struct fw_node *root)
 {
 	struct list_head list0, list1;
 	struct fw_node *node0, *node1, *next1;
@@ -491,8 +493,8 @@ update_tree(struct fw_card *card, struct fw_node *root)
 	}
 }
 
-static void
-update_topology_map(struct fw_card *card, u32 *self_ids, int self_id_count)
+static void update_topology_map(struct fw_card *card,
+				u32 *self_ids, int self_id_count)
 {
 	int node_count;
 
@@ -504,24 +506,27 @@ update_topology_map(struct fw_card *card, u32 *self_ids, int self_id_count)
 	fw_compute_block_crc(card->topology_map);
 }
 
-void
-fw_core_handle_bus_reset(struct fw_card *card,
-			 int node_id, int generation,
-			 int self_id_count, u32 * self_ids)
+void fw_core_handle_bus_reset(struct fw_card *card, int node_id, int generation,
+			      int self_id_count, u32 *self_ids)
 {
 	struct fw_node *local_node;
 	unsigned long flags;
 
+	/*
+	 * If the selfID buffer is not the immediate successor of the
+	 * previously processed one, we cannot reliably compare the
+	 * old and new topologies.
+	 */
+	if (!is_next_generation(generation, card->generation) &&
+	    card->local_node != NULL) {
+		fw_notify("skipped bus generations, destroying all nodes\n");
+		fw_destroy_nodes(card);
+		card->bm_retries = 0;
+	}
+
 	spin_lock_irqsave(&card->lock, flags);
 
-	/*
-	 * If the new topology has a different self_id_count the topology
-	 * changed, either nodes were added or removed. In that case we
-	 * reset the IRM reset counter.
-	 */
-	if (card->self_id_count != self_id_count)
-		card->bm_retries = 0;
-
+	card->broadcast_channel_allocated = false;
 	card->node_id = node_id;
 	/*
 	 * Update node_id before generation to prevent anybody from using
@@ -530,7 +535,7 @@ fw_core_handle_bus_reset(struct fw_card *card,
 	smp_wmb();
 	card->generation = generation;
 	card->reset_jiffies = jiffies;
-	schedule_delayed_work(&card->work, 0);
+	fw_schedule_bm_work(card, 0);
 
 	local_node = build_tree(card, self_ids, self_id_count);
 

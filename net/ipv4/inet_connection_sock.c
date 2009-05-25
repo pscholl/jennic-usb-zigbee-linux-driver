@@ -93,24 +93,40 @@ int inet_csk_get_port(struct sock *sk, unsigned short snum)
 	struct inet_bind_hashbucket *head;
 	struct hlist_node *node;
 	struct inet_bind_bucket *tb;
-	int ret;
+	int ret, attempts = 5;
 	struct net *net = sock_net(sk);
+	int smallest_size = -1, smallest_rover;
 
 	local_bh_disable();
 	if (!snum) {
 		int remaining, rover, low, high;
 
+again:
 		inet_get_local_port_range(&low, &high);
 		remaining = (high - low) + 1;
-		rover = net_random() % remaining + low;
+		smallest_rover = rover = net_random() % remaining + low;
 
+		smallest_size = -1;
 		do {
 			head = &hashinfo->bhash[inet_bhashfn(net, rover,
 					hashinfo->bhash_size)];
 			spin_lock(&head->lock);
 			inet_bind_bucket_for_each(tb, node, &head->chain)
-				if (tb->ib_net == net && tb->port == rover)
+				if (ib_net(tb) == net && tb->port == rover) {
+					if (tb->fastreuse > 0 &&
+					    sk->sk_reuse &&
+					    sk->sk_state != TCP_LISTEN &&
+					    (tb->num_owners < smallest_size || smallest_size == -1)) {
+						smallest_size = tb->num_owners;
+						smallest_rover = rover;
+						if (atomic_read(&hashinfo->bsockets) > (high - low) + 1) {
+							spin_unlock(&head->lock);
+							snum = smallest_rover;
+							goto have_snum;
+						}
+					}
 					goto next;
+				}
 			break;
 		next:
 			spin_unlock(&head->lock);
@@ -125,19 +141,24 @@ int inet_csk_get_port(struct sock *sk, unsigned short snum)
 		 * the top level, not from the 'break;' statement.
 		 */
 		ret = 1;
-		if (remaining <= 0)
+		if (remaining <= 0) {
+			if (smallest_size != -1) {
+				snum = smallest_rover;
+				goto have_snum;
+			}
 			goto fail;
-
+		}
 		/* OK, here is the one we will use.  HEAD is
 		 * non-NULL and we hold it's mutex.
 		 */
 		snum = rover;
 	} else {
+have_snum:
 		head = &hashinfo->bhash[inet_bhashfn(net, snum,
 				hashinfo->bhash_size)];
 		spin_lock(&head->lock);
 		inet_bind_bucket_for_each(tb, node, &head->chain)
-			if (tb->ib_net == net && tb->port == snum)
+			if (ib_net(tb) == net && tb->port == snum)
 				goto tb_found;
 	}
 	tb = NULL;
@@ -145,12 +166,19 @@ int inet_csk_get_port(struct sock *sk, unsigned short snum)
 tb_found:
 	if (!hlist_empty(&tb->owners)) {
 		if (tb->fastreuse > 0 &&
-		    sk->sk_reuse && sk->sk_state != TCP_LISTEN) {
+		    sk->sk_reuse && sk->sk_state != TCP_LISTEN &&
+		    smallest_size == -1) {
 			goto success;
 		} else {
 			ret = 1;
-			if (inet_csk(sk)->icsk_af_ops->bind_conflict(sk, tb))
+			if (inet_csk(sk)->icsk_af_ops->bind_conflict(sk, tb)) {
+				if (sk->sk_reuse && sk->sk_state != TCP_LISTEN &&
+				    smallest_size != -1 && --attempts >= 0) {
+					spin_unlock(&head->lock);
+					goto again;
+				}
 				goto fail_unlock;
+			}
 		}
 	}
 tb_not_found:
@@ -323,7 +351,7 @@ void inet_csk_reset_keepalive_timer(struct sock *sk, unsigned long len)
 
 EXPORT_SYMBOL(inet_csk_reset_keepalive_timer);
 
-struct dst_entry* inet_csk_route_req(struct sock *sk,
+struct dst_entry *inet_csk_route_req(struct sock *sk,
 				     const struct request_sock *req)
 {
 	struct rtable *rt;
@@ -344,16 +372,17 @@ struct dst_entry* inet_csk_route_req(struct sock *sk,
 	struct net *net = sock_net(sk);
 
 	security_req_classify_flow(req, &fl);
-	if (ip_route_output_flow(net, &rt, &fl, sk, 0)) {
-		IP_INC_STATS_BH(net, IPSTATS_MIB_OUTNOROUTES);
-		return NULL;
-	}
-	if (opt && opt->is_strictroute && rt->rt_dst != rt->rt_gateway) {
-		ip_rt_put(rt);
-		IP_INC_STATS_BH(net, IPSTATS_MIB_OUTNOROUTES);
-		return NULL;
-	}
+	if (ip_route_output_flow(net, &rt, &fl, sk, 0))
+		goto no_route;
+	if (opt && opt->is_strictroute && rt->rt_dst != rt->rt_gateway)
+		goto route_err;
 	return &rt->u.dst;
+
+route_err:
+	ip_rt_put(rt);
+no_route:
+	IP_INC_STATS_BH(net, IPSTATS_MIB_OUTNOROUTES);
+	return NULL;
 }
 
 EXPORT_SYMBOL_GPL(inet_csk_route_req);
@@ -561,7 +590,7 @@ void inet_csk_destroy_sock(struct sock *sk)
 
 	sk_refcnt_debug_release(sk);
 
-	atomic_dec(sk->sk_prot->orphan_count);
+	percpu_counter_dec(sk->sk_prot->orphan_count);
 	sock_put(sk);
 }
 
@@ -641,7 +670,7 @@ void inet_csk_listen_stop(struct sock *sk)
 
 		sock_orphan(child);
 
-		atomic_inc(sk->sk_prot->orphan_count);
+		percpu_counter_inc(sk->sk_prot->orphan_count);
 
 		inet_csk_destroy_sock(child);
 

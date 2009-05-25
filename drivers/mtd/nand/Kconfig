@@ -163,6 +163,13 @@ config MTD_NAND_S3C2410_HWECC
 	  incorrect ECC generation, and if using these, the default of
 	  software ECC is preferable.
 
+config MTD_NAND_NDFC
+	tristate "NDFC NanD Flash Controller"
+	depends on 4xx
+	select MTD_NAND_ECC_SMC
+	help
+	 NDFC Nand Flash Controllers are integrated in IBM/AMCC's 4xx SoCs
+
 config MTD_NAND_S3C2410_CLKSTOP
 	bool "S3C2410 NAND IDLE clock stop"
 	depends on MTD_NAND_S3C2410
@@ -266,7 +273,7 @@ config MTD_NAND_CAFE
 
 config MTD_NAND_CS553X
 	tristate "NAND support for CS5535/CS5536 (AMD Geode companion chip)"
-	depends on X86_32 && (X86_PC || X86_GENERICARCH)
+	depends on X86_32
 	help
 	  The CS553x companion chips for the AMD Geode processor
 	  include NAND flash controllers with built-in hardware ECC
@@ -327,7 +334,7 @@ config MTD_NAND_ATMEL_ECC_NONE
 endchoice
 
 config MTD_NAND_PXA3xx
-	bool "Support for NAND flash devices on PXA3xx"
+	tristate "Support for NAND flash devices on PXA3xx"
 	depends on MTD_NAND && PXA3xx
 	help
 	  This enables the driver for the NAND flash device found on
@@ -408,7 +415,7 @@ config MTD_NAND_FSL_UPM
 
 config MTD_NAND_MXC
 	tristate "MXC NAND support"
-	depends on ARCH_MX2
+	depends on ARCH_MX2 || ARCH_MX3
 	help
 	  This enables the driver for the NAND flash controller on the
 	  MXC processors.
@@ -419,5 +426,24 @@ config MTD_NAND_SH_FLCTL
 	help
 	  Several Renesas SuperH CPU has FLCTL. This option enables support
 	  for NAND Flash using FLCTL. This driver support SH7723.
+
+config MTD_NAND_DAVINCI
+        tristate "Support NAND on DaVinci SoC"
+        depends on ARCH_DAVINCI
+        help
+	  Enable the driver for NAND flash chips on Texas Instruments
+	  DaVinci processors.
+
+config MTD_NAND_TXX9NDFMC
+	tristate "NAND Flash support for TXx9 SoC"
+	depends on SOC_TX4938 || SOC_TX4939
+	help
+	  This enables the NAND flash controller on the TXx9 SoCs.
+
+config MTD_NAND_SOCRATES
+	tristate "Support for NAND on Socrates board"
+	depends on MTD_NAND && SOCRATES
+	help
+	  Enables support for NAND Flash chips wired onto Socrates board.
 
 endif # MTD_NAND

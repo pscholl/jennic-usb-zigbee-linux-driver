@@ -98,7 +98,7 @@ static int ieee80215_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsign
 	dev_load(sock_net(sk), ifr.ifr_name);
 	dev = dev_get_by_name(sock_net(sk), ifr.ifr_name);
 	if (dev->type == ARPHRD_IEEE80215 || dev->type == ARPHRD_IEEE80215_PHY)
-		ret = dev->do_ioctl(dev, &ifr, cmd);
+		ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, cmd);
 
 	if (!ret && copy_to_user(arg, &ifr, sizeof(struct ifreq)))
 		ret = -EFAULT;
@@ -188,7 +188,7 @@ static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 	struct proto *proto;
 	const struct proto_ops *ops;
 
-	// FIXME: init_net
+	/* FIXME: init_net */
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
 
@@ -215,7 +215,7 @@ static int ieee80215_create(struct net *net, struct socket *sock, int protocol)
 	sock->ops = ops;
 
 	sock_init_data(sock, sk);
-	// FIXME: sk->sk_destruct
+	/* FIXME: sk->sk_destruct */
 	sk->sk_family = PF_IEEE80215;
 
 	/* Checksums on by default */
@@ -246,7 +246,7 @@ static int ieee80215_rcv(struct sk_buff *skb, struct net_device *dev,
 	if (!netif_running(dev))
 		return -ENODEV;
 	pr_debug("got frame, type %d, dev %p\n", dev->type, dev);
-	// FIXME: init_net
+	/* FIXME: init_net */
 	if (!net_eq(dev_net(dev), &init_net))
 		goto drop;
 
@@ -309,4 +309,4 @@ module_init(af_ieee80215_init);
 module_exit(af_ieee80215_remove);
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_NETPROTO(PF_INET6);
+MODULE_ALIAS_NETPROTO(PF_IEEE80215);

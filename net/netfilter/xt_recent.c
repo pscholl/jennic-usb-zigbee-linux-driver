@@ -72,9 +72,6 @@ struct recent_entry {
 struct recent_table {
 	struct list_head	list;
 	char			name[XT_RECENT_NAME_LEN];
-#ifdef CONFIG_PROC_FS
-	struct proc_dir_entry	*proc_old, *proc;
-#endif
 	unsigned int		refcnt;
 	unsigned int		entries;
 	struct list_head	lru_list;
@@ -284,6 +281,9 @@ static bool recent_mt_check(const struct xt_mtchk_param *par)
 {
 	const struct xt_recent_mtinfo *info = par->matchinfo;
 	struct recent_table *t;
+#ifdef CONFIG_PROC_FS
+	struct proc_dir_entry *pde;
+#endif
 	unsigned i;
 	bool ret = false;
 
@@ -318,25 +318,25 @@ static bool recent_mt_check(const struct xt_mtchk_param *par)
 	for (i = 0; i < ip_list_hash_size; i++)
 		INIT_LIST_HEAD(&t->iphash[i]);
 #ifdef CONFIG_PROC_FS
-	t->proc = proc_create_data(t->name, ip_list_perms, recent_proc_dir,
+	pde = proc_create_data(t->name, ip_list_perms, recent_proc_dir,
 		  &recent_mt_fops, t);
-	if (t->proc == NULL) {
+	if (pde == NULL) {
 		kfree(t);
 		goto out;
 	}
+	pde->uid = ip_list_uid;
+	pde->gid = ip_list_gid;
 #ifdef CONFIG_NETFILTER_XT_MATCH_RECENT_PROC_COMPAT
-	t->proc_old = proc_create_data(t->name, ip_list_perms, proc_old_dir,
+	pde = proc_create_data(t->name, ip_list_perms, proc_old_dir,
 		      &recent_old_fops, t);
-	if (t->proc_old == NULL) {
+	if (pde == NULL) {
 		remove_proc_entry(t->name, proc_old_dir);
 		kfree(t);
 		goto out;
 	}
-	t->proc_old->uid   = ip_list_uid;
-	t->proc_old->gid   = ip_list_gid;
+	pde->uid = ip_list_uid;
+	pde->gid = ip_list_gid;
 #endif
-	t->proc->uid       = ip_list_uid;
-	t->proc->gid       = ip_list_gid;
 #endif
 	spin_lock_bh(&recent_lock);
 	list_add_tail(&t->list, &tables);
@@ -422,13 +422,11 @@ static int recent_seq_show(struct seq_file *seq, void *v)
 
 	i = (e->index - 1) % ip_pkt_list_tot;
 	if (e->family == NFPROTO_IPV4)
-		seq_printf(seq, "src=" NIPQUAD_FMT " ttl: %u last_seen: %lu "
-			   "oldest_pkt: %u", NIPQUAD(e->addr.ip), e->ttl,
-			   e->stamps[i], e->index);
+		seq_printf(seq, "src=%pI4 ttl: %u last_seen: %lu oldest_pkt: %u",
+			   &e->addr.ip, e->ttl, e->stamps[i], e->index);
 	else
-		seq_printf(seq, "src=" NIP6_FMT " ttl: %u last_seen: %lu "
-			   "oldest_pkt: %u", NIP6(e->addr.in6), e->ttl,
-			   e->stamps[i], e->index);
+		seq_printf(seq, "src=%pI6 ttl: %u last_seen: %lu oldest_pkt: %u",
+			   &e->addr.in6, e->ttl, e->stamps[i], e->index);
 	for (i = 0; i < e->nstamps; i++)
 		seq_printf(seq, "%s %lu", i ? "," : "", e->stamps[i]);
 	seq_printf(seq, "\n");
@@ -476,7 +474,7 @@ static ssize_t recent_old_proc_write(struct file *file,
 	struct recent_table *t = pde->data;
 	struct recent_entry *e;
 	char buf[sizeof("+255.255.255.255")], *c = buf;
-	__be32 addr;
+	union nf_inet_addr addr = {};
 	int add;
 
 	if (size > sizeof(buf))
@@ -508,14 +506,13 @@ static ssize_t recent_old_proc_write(struct file *file,
 		add = 1;
 		break;
 	}
-	addr = in_aton(c);
+	addr.ip = in_aton(c);
 
 	spin_lock_bh(&recent_lock);
-	e = recent_entry_lookup(t, (const void *)&addr, NFPROTO_IPV4, 0);
+	e = recent_entry_lookup(t, &addr, NFPROTO_IPV4, 0);
 	if (e == NULL) {
 		if (add)
-			recent_entry_init(t, (const void *)&addr,
-					  NFPROTO_IPV4, 0);
+			recent_entry_init(t, &addr, NFPROTO_IPV4, 0);
 	} else {
 		if (add)
 			recent_entry_update(t, e);
@@ -544,7 +541,7 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 	struct recent_entry *e;
 	char buf[sizeof("+b335:1d35:1e55:dead:c0de:1715:5afe:c0de")];
 	const char *c = buf;
-	union nf_inet_addr addr;
+	union nf_inet_addr addr = {};
 	u_int16_t family;
 	bool add, succ;
 

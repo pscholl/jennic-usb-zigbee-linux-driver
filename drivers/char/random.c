@@ -241,6 +241,10 @@
 #include <linux/percpu.h>
 #include <linux/cryptohash.h>
 
+#ifdef CONFIG_GENERIC_HARDIRQS
+# include <linux/irq.h>
+#endif
+
 #include <asm/processor.h>
 #include <asm/uaccess.h>
 #include <asm/irq.h>
@@ -407,7 +411,7 @@ struct entropy_store {
 	/* read-write data: */
 	spinlock_t lock;
 	unsigned add_ptr;
-	int entropy_count;	/* Must at no time exceed ->POOLBITS! */
+	int entropy_count;
 	int input_rotate;
 };
 
@@ -558,23 +562,42 @@ struct timer_rand_state {
 	unsigned dont_count_entropy:1;
 };
 
+#ifndef CONFIG_GENERIC_HARDIRQS
+
 static struct timer_rand_state *irq_timer_state[NR_IRQS];
 
 static struct timer_rand_state *get_timer_rand_state(unsigned int irq)
 {
-	if (irq >= nr_irqs)
-		return NULL;
-
 	return irq_timer_state[irq];
 }
 
-static void set_timer_rand_state(unsigned int irq, struct timer_rand_state *state)
+static void set_timer_rand_state(unsigned int irq,
+				 struct timer_rand_state *state)
 {
-	if (irq >= nr_irqs)
-		return;
-
 	irq_timer_state[irq] = state;
 }
+
+#else
+
+static struct timer_rand_state *get_timer_rand_state(unsigned int irq)
+{
+	struct irq_desc *desc;
+
+	desc = irq_to_desc(irq);
+
+	return desc->timer_rand_state;
+}
+
+static void set_timer_rand_state(unsigned int irq,
+				 struct timer_rand_state *state)
+{
+	struct irq_desc *desc;
+
+	desc = irq_to_desc(irq);
+
+	desc->timer_rand_state = state;
+}
+#endif
 
 static struct timer_rand_state input_timer_state;
 
@@ -748,11 +771,10 @@ static size_t account(struct entropy_store *r, size_t nbytes, int min,
 {
 	unsigned long flags;
 
-	BUG_ON(r->entropy_count > r->poolinfo->POOLBITS);
-
 	/* Hold lock while accounting */
 	spin_lock_irqsave(&r->lock, flags);
 
+	BUG_ON(r->entropy_count > r->poolinfo->POOLBITS);
 	DEBUG_ENT("trying to extract %d bits from %s\n",
 		  nbytes * 8, r->name);
 
@@ -932,9 +954,6 @@ module_init(rand_initialize);
 void rand_initialize_irq(int irq)
 {
 	struct timer_rand_state *state;
-
-	if (irq >= nr_irqs)
-		return;
 
 	state = get_timer_rand_state(irq);
 
@@ -1469,7 +1488,8 @@ static void rekey_seq_generator(struct work_struct *work)
 	keyptr->count = (ip_cnt & COUNT_MASK) << HASH_BITS;
 	smp_wmb();
 	ip_cnt++;
-	schedule_delayed_work(&rekey_work, REKEY_INTERVAL);
+	schedule_delayed_work(&rekey_work,
+			      round_jiffies_relative(REKEY_INTERVAL));
 }
 
 static inline struct keydata *get_keyptr(void)
@@ -1645,15 +1665,20 @@ EXPORT_SYMBOL(secure_dccp_sequence_number);
  * value is not cryptographically secure but for several uses the cost of
  * depleting entropy is too high
  */
+DEFINE_PER_CPU(__u32 [4], get_random_int_hash);
 unsigned int get_random_int(void)
 {
-	/*
-	 * Use IP's RNG. It suits our purpose perfectly: it re-keys itself
-	 * every second, from the entropy pool (and thus creates a limited
-	 * drain on it), and uses halfMD4Transform within the second. We
-	 * also mix it with jiffies and the PID:
-	 */
-	return secure_ip_id((__force __be32)(current->pid + jiffies));
+	struct keydata *keyptr;
+	__u32 *hash = get_cpu_var(get_random_int_hash);
+	int ret;
+
+	keyptr = get_keyptr();
+	hash[0] += current->pid + jiffies + get_cycles() + (int)(long)&ret;
+
+	ret = half_md4_transform(hash, keyptr->secret);
+	put_cpu_var(get_random_int_hash);
+
+	return ret;
 }
 
 /*

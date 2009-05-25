@@ -77,7 +77,6 @@ config MIPS_COBALT
 	select SYS_SUPPORTS_32BIT_KERNEL
 	select SYS_SUPPORTS_64BIT_KERNEL
 	select SYS_SUPPORTS_LITTLE_ENDIAN
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 
 config MACH_DECSTATION
 	bool "DECstations"
@@ -132,11 +131,10 @@ config MACH_JAZZ
 	select SYS_SUPPORTS_32BIT_KERNEL
 	select SYS_SUPPORTS_64BIT_KERNEL if EXPERIMENTAL
 	select SYS_SUPPORTS_100HZ
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 	help
 	 This a family of machines based on the MIPS R4030 chipset which was
 	 used by several vendors to build RISC/os and Windows NT workstations.
-	 Members include the Acer PICA, MIPS Magnum 4000, MIPS Millenium and
+	 Members include the Acer PICA, MIPS Magnum 4000, MIPS Millennium and
 	 Olivetti M700-10 workstations.
 
 config LASAT
@@ -154,7 +152,6 @@ config LASAT
 	select SYS_SUPPORTS_32BIT_KERNEL
 	select SYS_SUPPORTS_64BIT_KERNEL if BROKEN
 	select SYS_SUPPORTS_LITTLE_ENDIAN
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 
 config LEMOTE_FULONG
 	bool "Lemote Fulong mini-PC"
@@ -175,7 +172,6 @@ config LEMOTE_FULONG
 	select SYS_SUPPORTS_LITTLE_ENDIAN
 	select SYS_SUPPORTS_HIGHMEM
 	select SYS_HAS_EARLY_PRINTK
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 	select GENERIC_ISA_DMA_SUPPORT_BROKEN
 	select CPU_HAS_WB
 	help
@@ -238,15 +234,18 @@ config MIPS_SIM
 	  This option enables support for MIPS Technologies MIPSsim software
 	  emulator.
 
-config MACH_EMMA
-	bool "NEC EMMA series based machines"
+config NEC_MARKEINS
+	bool "NEC EMMA2RH Mark-eins board"
+	select SOC_EMMA2RH
+	select HW_HAS_PCI
+	help
+	  This enables support for the NEC Electronics Mark-eins boards.
 
 config MACH_VR41XX
 	bool "NEC VR4100 series based machines"
 	select CEVT_R4K
 	select CSRC_R4K
 	select SYS_HAS_CPU_VR41XX
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 
 config NXP_STB220
 	bool "NXP STB220 board"
@@ -351,7 +350,7 @@ config SGI_IP27
 	select ARC64
 	select BOOT_ELF64
 	select DEFAULT_SGI_PARTITION
-	select DMA_IP27
+	select DMA_COHERENT
 	select SYS_HAS_EARLY_PRINTK
 	select HW_HAS_PCI
 	select NR_CPUS_DEFAULT_64
@@ -360,7 +359,6 @@ config SGI_IP27
 	select SYS_SUPPORTS_BIG_ENDIAN
 	select SYS_SUPPORTS_NUMA
 	select SYS_SUPPORTS_SMP
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 	help
 	  This are the SGI Origin 200, Origin 2000 and Onyx 2 Graphics
 	  workstations.  To compile a Linux kernel that runs on these, say Y
@@ -559,7 +557,6 @@ config MIKROTIK_RB532
 	select CEVT_R4K
 	select CSRC_R4K
 	select DMA_NONCOHERENT
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 	select HW_HAS_PCI
 	select IRQ_CPU
 	select SYS_HAS_CPU_MIPS32_R1
@@ -595,11 +592,48 @@ config WR_PPMC
 	  This enables support for the Wind River MIPS32 4KC PPMC evaluation
 	  board, which is based on GT64120 bridge chip.
 
+config CAVIUM_OCTEON_SIMULATOR
+	bool "Support for the Cavium Networks Octeon Simulator"
+	select CEVT_R4K
+	select 64BIT_PHYS_ADDR
+	select DMA_COHERENT
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select SYS_SUPPORTS_BIG_ENDIAN
+	select SYS_SUPPORTS_HIGHMEM
+	select SYS_HAS_CPU_CAVIUM_OCTEON
+	help
+	  The Octeon simulator is software performance model of the Cavium
+	  Octeon Processor. It supports simulating Octeon processors on x86
+	  hardware.
+
+config CAVIUM_OCTEON_REFERENCE_BOARD
+	bool "Support for the Cavium Networks Octeon reference board"
+	select CEVT_R4K
+	select 64BIT_PHYS_ADDR
+	select DMA_COHERENT
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select SYS_SUPPORTS_BIG_ENDIAN
+	select SYS_SUPPORTS_HIGHMEM
+	select SYS_HAS_EARLY_PRINTK
+	select SYS_HAS_CPU_CAVIUM_OCTEON
+	select SWAP_IO_SPACE
+	help
+	  This option supports all of the Octeon reference boards from Cavium
+	  Networks. It builds a kernel that dynamically determines the Octeon
+	  CPU type and supports all known board reference implementations.
+	  Some of the supported boards are:
+		EBT3000
+		EBH3000
+		EBH3100
+		Thunder
+		Kodama
+		Hikari
+	  Say Y here for most Octeon reference boards.
+
 endchoice
 
 source "arch/mips/alchemy/Kconfig"
 source "arch/mips/basler/excite/Kconfig"
-source "arch/mips/emma/Kconfig"
 source "arch/mips/jazz/Kconfig"
 source "arch/mips/lasat/Kconfig"
 source "arch/mips/pmc-sierra/Kconfig"
@@ -607,6 +641,7 @@ source "arch/mips/sgi-ip27/Kconfig"
 source "arch/mips/sibyte/Kconfig"
 source "arch/mips/txx9/Kconfig"
 source "arch/mips/vr41xx/Kconfig"
+source "arch/mips/cavium-octeon/Kconfig"
 
 endmenu
 
@@ -653,13 +688,12 @@ config GENERIC_CMOS_UPDATE
 	bool
 	default y
 
-config SCHED_NO_NO_OMIT_FRAME_POINTER
+config SCHED_OMIT_FRAME_POINTER
 	bool
 	default y
 
 config GENERIC_HARDIRQS_NO__DO_IRQ
-	bool
-	default n
+	def_bool y
 
 #
 # Select some configuration options automatically based on user selections.
@@ -682,7 +716,11 @@ config CEVT_DS1287
 config CEVT_GT641XX
 	bool
 
+config CEVT_R4K_LIB
+	bool
+
 config CEVT_R4K
+	select CEVT_R4K_LIB
 	bool
 
 config CEVT_SB1250
@@ -697,7 +735,11 @@ config CSRC_BCM1480
 config CSRC_IOASIC
 	bool
 
+config CSRC_R4K_LIB
+	bool
+
 config CSRC_R4K
+	select CSRC_R4K_LIB
 	bool
 
 config CSRC_SB1250
@@ -712,9 +754,6 @@ config CFE
 	bool
 
 config DMA_COHERENT
-	bool
-
-config DMA_IP27
 	bool
 
 config DMA_NONCOHERENT
@@ -835,6 +874,9 @@ config IRQ_GT641XX
 config IRQ_GIC
 	bool
 
+config IRQ_CPU_OCTEON
+	bool
+
 config MIPS_BOARDS_GEN
 	bool
 
@@ -848,6 +890,18 @@ config MIPS_RM9122
 	bool
 	select SERIAL_RM9000
 
+config SOC_EMMA2RH
+	bool
+	select CEVT_R4K
+	select CSRC_R4K
+	select DMA_NONCOHERENT
+	select IRQ_CPU
+	select SWAP_IO_SPACE
+	select SYS_HAS_CPU_R5500
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_64BIT_KERNEL
+	select SYS_SUPPORTS_BIG_ENDIAN
+
 config SOC_PNX833X
 	bool
 	select CEVT_R4K
@@ -858,7 +912,6 @@ config SOC_PNX833X
 	select SYS_SUPPORTS_32BIT_KERNEL
 	select SYS_SUPPORTS_LITTLE_ENDIAN
 	select SYS_SUPPORTS_BIG_ENDIAN
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 	select GENERIC_GPIO
 	select CPU_MIPSR2_IRQ_VI
 
@@ -877,16 +930,10 @@ config SOC_PNX8550
 	select SYS_HAS_CPU_MIPS32_R1
 	select SYS_HAS_EARLY_PRINTK
 	select SYS_SUPPORTS_32BIT_KERNEL
-	select GENERIC_HARDIRQS_NO__DO_IRQ
 	select GENERIC_GPIO
 
 config SWAP_IO_SPACE
 	bool
-
-config EMMA2RH
-	bool
-	depends on MARKEINS
-	default y
 
 config SERIAL_RM9000
 	bool
@@ -924,7 +971,7 @@ config BOOT_ELF32
 config MIPS_L1_CACHE_SHIFT
 	int
 	default "4" if MACH_DECSTATION || MIKROTIK_RB532
-	default "7" if SGI_IP22 || SGI_IP27 || SGI_IP28 || SNI_RM
+	default "7" if SGI_IP22 || SGI_IP27 || SGI_IP28 || SNI_RM || CPU_CAVIUM_OCTEON
 	default "4" if PMC_MSP4200_EVAL
 	default "5"
 
@@ -1185,6 +1232,24 @@ config CPU_SB1
 	select CPU_SUPPORTS_HIGHMEM
 	select WEAK_ORDERING
 
+config CPU_CAVIUM_OCTEON
+	bool "Cavium Octeon processor"
+	depends on SYS_HAS_CPU_CAVIUM_OCTEON
+	select IRQ_CPU
+	select IRQ_CPU_OCTEON
+	select CPU_HAS_PREFETCH
+	select CPU_SUPPORTS_64BIT_KERNEL
+	select SYS_SUPPORTS_SMP
+	select NR_CPUS_DEFAULT_16
+	select WEAK_ORDERING
+	select WEAK_REORDERING_BEYOND_LLSC
+	select CPU_SUPPORTS_HIGHMEM
+	help
+	  The Cavium Octeon processor is a highly integrated chip containing
+	  many ethernet hardware widgets for networking tasks. The processor
+	  can have up to 16 Mips64v2 cores and 8 integrated gigabit ethernets.
+	  Full details can be found at http://www.caviumnetworks.com.
+
 endchoice
 
 config SYS_HAS_CPU_LOONGSON2
@@ -1250,6 +1315,9 @@ config SYS_HAS_CPU_RM9000
 config SYS_HAS_CPU_SB1
 	bool
 
+config SYS_HAS_CPU_CAVIUM_OCTEON
+	bool
+
 #
 # CPU may reorder R->R, R->W, W->R, W->W
 # Reordering beyond LL and SC is handled in WEAK_REORDERING_BEYOND_LLSC
@@ -1285,7 +1353,7 @@ config CPU_MIPSR1
 
 config CPU_MIPSR2
 	bool
-	default y if CPU_MIPS32_R2 || CPU_MIPS64_R2
+	default y if CPU_MIPS32_R2 || CPU_MIPS64_R2 || CPU_CAVIUM_OCTEON
 
 config SYS_SUPPORTS_32BIT_KERNEL
 	bool
@@ -1301,7 +1369,7 @@ config CPU_SUPPORTS_64BIT_KERNEL
 #
 config HARDWARE_WATCHPOINTS
        bool
-       default y if CPU_MIPS32 || CPU_MIPS64
+       default y if CPU_MIPSR1 || CPU_MIPSR2
 
 menu "Kernel type"
 
@@ -1323,6 +1391,7 @@ config 32BIT
 config 64BIT
 	bool "64-bit kernel"
 	depends on CPU_SUPPORTS_64BIT_KERNEL && SYS_SUPPORTS_64BIT_KERNEL
+	select HAVE_SYSCALL_WRAPPERS
 	help
 	  Select this option if you want to build a 64-bit kernel.
 
@@ -1342,13 +1411,12 @@ config PAGE_SIZE_4KB
 
 config PAGE_SIZE_8KB
 	bool "8kB"
-	depends on EXPERIMENTAL && CPU_R8000
+	depends on (EXPERIMENTAL && CPU_R8000) || CPU_CAVIUM_OCTEON
 	help
 	  Using 8kB page size will result in higher performance kernel at
 	  the price of higher memory consumption.  This option is available
-	  only on the R8000 processor.  Not that at the time of this writing
-	  this option is still high experimental; there are also issues with
-	  compatibility of user applications.
+	  only on R8000 and cnMIPS processors.  Note that you will need a
+	  suitable Linux distribution to support this.
 
 config PAGE_SIZE_16KB
 	bool "16kB"
@@ -1358,6 +1426,15 @@ config PAGE_SIZE_16KB
 	  the price of higher memory consumption.  This option is available on
 	  all non-R3000 family processors.  Note that you will need a suitable
 	  Linux distribution to support this.
+
+config PAGE_SIZE_32KB
+	bool "32kB"
+	depends on CPU_CAVIUM_OCTEON
+	help
+	  Using 32kB page size will result in higher performance kernel at
+	  the price of higher memory consumption.  This option is available
+	  only on cnMIPS cores.  Note that you will need a suitable Linux
+	  distribution to support this.
 
 config PAGE_SIZE_64KB
 	bool "64kB"
@@ -1888,10 +1965,6 @@ config SECCOMP
 	  If unsure, say Y. Only embedded should say N here.
 
 endmenu
-
-config RWSEM_GENERIC_SPINLOCK
-	bool
-	default y
 
 config LOCKDEP_SUPPORT
 	bool

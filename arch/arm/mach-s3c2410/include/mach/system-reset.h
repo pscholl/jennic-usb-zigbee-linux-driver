@@ -13,7 +13,7 @@
 #include <mach/hardware.h>
 #include <linux/io.h>
 
-#include <asm/plat-s3c/regs-watchdog.h>
+#include <plat/regs-watchdog.h>
 #include <mach/regs-clock.h>
 
 #include <linux/clk.h>
@@ -22,7 +22,7 @@
 extern void (*s3c24xx_reset_hook)(void);
 
 static void
-arch_reset(char mode)
+arch_reset(char mode, const char *cmd)
 {
 	struct clk *wdtclk;
 

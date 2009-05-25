@@ -85,7 +85,7 @@ static int dn_fib_hash_zombies;
 
 static inline dn_fib_idx_t dn_hash(dn_fib_key_t key, struct dn_zone *dz)
 {
-	u16 h = dn_ntohs(key.datum)>>(16 - dz->dz_order);
+	u16 h = le16_to_cpu(key.datum)>>(16 - dz->dz_order);
 	h ^= (h >> 10);
 	h ^= (h >> 6);
 	h &= DZ_HASHMASK(dz);
@@ -375,7 +375,8 @@ static void dn_rtmsg_fib(int event, struct dn_fib_node *f, int z, u32 tb_id,
 		kfree_skb(skb);
 		goto errout;
 	}
-	err = rtnl_notify(skb, &init_net, pid, RTNLGRP_DECnet_ROUTE, nlh, GFP_KERNEL);
+	rtnl_notify(skb, &init_net, pid, RTNLGRP_DECnet_ROUTE, nlh, GFP_KERNEL);
+	return;
 errout:
 	if (err < 0)
 		rtnl_set_sk_err(&init_net, RTNLGRP_DECnet_ROUTE, err);

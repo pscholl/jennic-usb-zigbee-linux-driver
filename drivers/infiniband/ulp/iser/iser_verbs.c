@@ -401,13 +401,6 @@ static void iser_route_handler(struct rdma_cm_id *cma_id)
 	if (ret)
 		goto failure;
 
-	iser_dbg("path.mtu is %d setting it to %d\n",
-		 cma_id->route.path_rec->mtu, IB_MTU_1024);
-
-	/* we must set the MTU to 1024 as this is what the target is assuming */
-	if (cma_id->route.path_rec->mtu > IB_MTU_1024)
-		cma_id->route.path_rec->mtu = IB_MTU_1024;
-
 	memset(&conn_param, 0, sizeof conn_param);
 	conn_param.responder_resources = 4;
 	conn_param.initiator_depth     = 1;
@@ -498,6 +491,7 @@ void iser_conn_init(struct iser_conn *ib_conn)
 	init_waitqueue_head(&ib_conn->wait);
 	atomic_set(&ib_conn->post_recv_buf_count, 0);
 	atomic_set(&ib_conn->post_send_buf_count, 0);
+	atomic_set(&ib_conn->unexpected_pdu_count, 0);
 	atomic_set(&ib_conn->refcount, 1);
 	INIT_LIST_HEAD(&ib_conn->conn_list);
 	spin_lock_init(&ib_conn->lock);
@@ -515,14 +509,14 @@ int iser_connect(struct iser_conn   *ib_conn,
 	struct sockaddr *src, *dst;
 	int err = 0;
 
-	sprintf(ib_conn->name,"%d.%d.%d.%d:%d",
-		NIPQUAD(dst_addr->sin_addr.s_addr), dst_addr->sin_port);
+	sprintf(ib_conn->name, "%pI4:%d",
+		&dst_addr->sin_addr.s_addr, dst_addr->sin_port);
 
 	/* the device is known only --after-- address resolution */
 	ib_conn->device = NULL;
 
-	iser_err("connecting to: %d.%d.%d.%d, port 0x%x\n",
-		 NIPQUAD(dst_addr->sin_addr), dst_addr->sin_port);
+	iser_err("connecting to: %pI4, port 0x%x\n",
+		 &dst_addr->sin_addr, dst_addr->sin_port);
 
 	ib_conn->state = ISER_CONN_PENDING;
 

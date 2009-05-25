@@ -134,7 +134,7 @@ void __cpuinit hub_rt_clock_event_init(void)
 	cd->min_delta_ns        = clockevent_delta2ns(0x300, cd);
 	cd->rating		= 200;
 	cd->irq			= irq;
-	cd->cpumask		= cpumask_of_cpu(cpu);
+	cd->cpumask		= cpumask_of(cpu);
 	cd->set_next_event	= rt_next_event;
 	cd->set_mode		= rt_set_mode;
 	clockevents_register_device(cd);
@@ -159,7 +159,7 @@ static void __init hub_rt_clock_event_global_init(void)
 	setup_irq(irq, &hub_rt_irqaction);
 }
 
-static cycle_t hub_rt_read(void)
+static cycle_t hub_rt_read(struct clocksource *cs)
 {
 	return REMOTE_HUB_L(cputonasid(0), PI_RT_COUNT);
 }

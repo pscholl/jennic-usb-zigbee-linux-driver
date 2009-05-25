@@ -28,11 +28,15 @@
 #include <linux/clocksource.h>
 #include <linux/clockchips.h>
 #include <linux/io.h>
+#include <linux/smsc911x.h>
+#include <linux/ata_platform.h>
 
+#include <asm/clkdev.h>
 #include <asm/system.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
 #include <asm/leds.h>
+#include <asm/mach-types.h>
 #include <asm/hardware/arm_timer.h>
 #include <asm/hardware/icst307.h>
 
@@ -49,7 +53,7 @@
 
 #define REALVIEW_REFCOUNTER	(__io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_24MHz_OFFSET)
 
-/* used by entry-macro.S */
+/* used by entry-macro.S and platsmp.c */
 void __iomem *gic_cpu_base_addr;
 
 /*
@@ -124,6 +128,68 @@ int realview_flash_register(struct resource *res, u32 num)
 	return platform_device_register(&realview_flash_device);
 }
 
+static struct smsc911x_platform_config smsc911x_config = {
+	.flags		= SMSC911X_USE_32BIT,
+	.irq_polarity	= SMSC911X_IRQ_POLARITY_ACTIVE_HIGH,
+	.irq_type	= SMSC911X_IRQ_TYPE_PUSH_PULL,
+	.phy_interface	= PHY_INTERFACE_MODE_MII,
+};
+
+static struct platform_device realview_eth_device = {
+	.name		= "smsc911x",
+	.id		= 0,
+	.num_resources	= 2,
+};
+
+int realview_eth_register(const char *name, struct resource *res)
+{
+	if (name)
+		realview_eth_device.name = name;
+	realview_eth_device.resource = res;
+	if (strcmp(realview_eth_device.name, "smsc911x") == 0)
+		realview_eth_device.dev.platform_data = &smsc911x_config;
+
+	return platform_device_register(&realview_eth_device);
+}
+
+struct platform_device realview_usb_device = {
+	.name			= "isp1760",
+	.num_resources		= 2,
+};
+
+int realview_usb_register(struct resource *res)
+{
+	realview_usb_device.resource = res;
+	return platform_device_register(&realview_usb_device);
+}
+
+static struct pata_platform_info pata_platform_data = {
+	.ioport_shift		= 1,
+};
+
+static struct resource pata_resources[] = {
+	[0] = {
+		.start		= REALVIEW_CF_BASE,
+		.end		= REALVIEW_CF_BASE + 0xff,
+		.flags		= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start		= REALVIEW_CF_BASE + 0x100,
+		.end		= REALVIEW_CF_BASE + SZ_4K - 1,
+		.flags		= IORESOURCE_MEM,
+	},
+};
+
+struct platform_device realview_cf_device = {
+	.name			= "pata_platform",
+	.id			= -1,
+	.num_resources		= ARRAY_SIZE(pata_resources),
+	.resource		= pata_resources,
+	.dev			= {
+		.platform_data	= &pata_platform_data,
+	},
+};
+
 static struct resource realview_i2c_resource = {
 	.start		= REALVIEW_I2C_BASE,
 	.end		= REALVIEW_I2C_BASE + SZ_4K - 1,
@@ -132,10 +198,24 @@ static struct resource realview_i2c_resource = {
 
 struct platform_device realview_i2c_device = {
 	.name		= "versatile-i2c",
-	.id		= -1,
+	.id		= 0,
 	.num_resources	= 1,
 	.resource	= &realview_i2c_resource,
 };
+
+static struct i2c_board_info realview_i2c_board_info[] = {
+	{
+		I2C_BOARD_INFO("rtc-ds1307", 0xd0 >> 1),
+		.type = "ds1338",
+	},
+};
+
+static int __init realview_i2c_init(void)
+{
+	return i2c_register_board_info(0, realview_i2c_board_info,
+				       ARRAY_SIZE(realview_i2c_board_info));
+}
+arch_initcall(realview_i2c_init);
 
 #define REALVIEW_SYSMCI	(__io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_MCI_OFFSET)
 
@@ -177,8 +257,13 @@ static const struct icst307_params realview_oscvco_params = {
 static void realview_oscvco_set(struct clk *clk, struct icst307_vco vco)
 {
 	void __iomem *sys_lock = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_LOCK_OFFSET;
-	void __iomem *sys_osc = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_OSC4_OFFSET;
+	void __iomem *sys_osc;
 	u32 val;
+
+	if (machine_is_realview_pb1176())
+		sys_osc = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_OSC0_OFFSET;
+	else
+		sys_osc = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_OSC4_OFFSET;
 
 	val = readl(sys_osc) & ~0x7ffff;
 	val |= vco.v | (vco.r << 9) | (vco.s << 16);
@@ -188,11 +273,58 @@ static void realview_oscvco_set(struct clk *clk, struct icst307_vco vco)
 	writel(0, sys_lock);
 }
 
-struct clk realview_clcd_clk = {
-	.name	= "CLCDCLK",
+static struct clk oscvco_clk = {
 	.params	= &realview_oscvco_params,
 	.setvco = realview_oscvco_set,
 };
+
+/*
+ * These are fixed clocks.
+ */
+static struct clk ref24_clk = {
+	.rate	= 24000000,
+};
+
+static struct clk_lookup lookups[] = {
+	{	/* UART0 */
+		.dev_id		= "dev:f1",
+		.clk		= &ref24_clk,
+	}, {	/* UART1 */
+		.dev_id		= "dev:f2",
+		.clk		= &ref24_clk,
+	}, {	/* UART2 */
+		.dev_id		= "dev:f3",
+		.clk		= &ref24_clk,
+	}, {	/* UART3 */
+		.dev_id		= "fpga:09",
+		.clk		= &ref24_clk,
+	}, {	/* KMI0 */
+		.dev_id		= "fpga:06",
+		.clk		= &ref24_clk,
+	}, {	/* KMI1 */
+		.dev_id		= "fpga:07",
+		.clk		= &ref24_clk,
+	}, {	/* MMC0 */
+		.dev_id		= "fpga:05",
+		.clk		= &ref24_clk,
+	}, {	/* EB:CLCD */
+		.dev_id		= "dev:20",
+		.clk		= &oscvco_clk,
+	}, {	/* PB:CLCD */
+		.dev_id		= "issp:20",
+		.clk		= &oscvco_clk,
+	}
+};
+
+static int __init clk_init(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(lookups); i++)
+		clkdev_add(&lookups[i]);
+	return 0;
+}
+arch_initcall(clk_init);
 
 /*
  * CLCD support.
@@ -226,7 +358,30 @@ static struct clcd_panel vga = {
 	.width		= -1,
 	.height		= -1,
 	.tim2		= TIM2_BCD | TIM2_IPC,
-	.cntl		= CNTL_LCDTFT | CNTL_LCDVCOMP(1),
+	.cntl		= CNTL_LCDTFT | CNTL_BGR | CNTL_LCDVCOMP(1),
+	.bpp		= 16,
+};
+
+static struct clcd_panel xvga = {
+	.mode		= {
+		.name		= "XVGA",
+		.refresh	= 60,
+		.xres		= 1024,
+		.yres		= 768,
+		.pixclock	= 15748,
+		.left_margin	= 152,
+		.right_margin	= 48,
+		.upper_margin	= 23,
+		.lower_margin	= 3,
+		.hsync_len	= 104,
+		.vsync_len	= 4,
+		.sync		= 0,
+		.vmode		= FB_VMODE_NONINTERLACED,
+	},
+	.width		= -1,
+	.height		= -1,
+	.tim2		= TIM2_BCD | TIM2_IPC,
+	.cntl		= CNTL_LCDTFT | CNTL_BGR | CNTL_LCDVCOMP(1),
 	.bpp		= 16,
 };
 
@@ -249,7 +404,7 @@ static struct clcd_panel sanyo_3_8_in = {
 	.width		= -1,
 	.height		= -1,
 	.tim2		= TIM2_BCD,
-	.cntl		= CNTL_LCDTFT | CNTL_LCDVCOMP(1),
+	.cntl		= CNTL_LCDTFT | CNTL_BGR | CNTL_LCDVCOMP(1),
 	.bpp		= 16,
 };
 
@@ -272,7 +427,7 @@ static struct clcd_panel sanyo_2_5_in = {
 	.width		= -1,
 	.height		= -1,
 	.tim2		= TIM2_IVS | TIM2_IHS | TIM2_IPC,
-	.cntl		= CNTL_LCDTFT | CNTL_LCDVCOMP(1),
+	.cntl		= CNTL_LCDTFT | CNTL_BGR | CNTL_LCDVCOMP(1),
 	.bpp		= 16,
 };
 
@@ -295,7 +450,7 @@ static struct clcd_panel epson_2_2_in = {
 	.width		= -1,
 	.height		= -1,
 	.tim2		= TIM2_BCD | TIM2_IPC,
-	.cntl		= CNTL_LCDTFT | CNTL_LCDVCOMP(1),
+	.cntl		= CNTL_LCDTFT | CNTL_BGR | CNTL_LCDVCOMP(1),
 	.bpp		= 16,
 };
 
@@ -308,8 +463,14 @@ static struct clcd_panel epson_2_2_in = {
 static struct clcd_panel *realview_clcd_panel(void)
 {
 	void __iomem *sys_clcd = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_CLCD_OFFSET;
-	struct clcd_panel *panel = &vga;
+	struct clcd_panel *vga_panel;
+	struct clcd_panel *panel;
 	u32 val;
+
+	if (machine_is_realview_eb())
+		vga_panel = &vga;
+	else
+		vga_panel = &xvga;
 
 	val = readl(sys_clcd) & SYS_CLCD_ID_MASK;
 	if (val == SYS_CLCD_ID_SANYO_3_8)
@@ -319,11 +480,11 @@ static struct clcd_panel *realview_clcd_panel(void)
 	else if (val == SYS_CLCD_ID_EPSON_2_2)
 		panel = &epson_2_2_in;
 	else if (val == SYS_CLCD_ID_VGA)
-		panel = &vga;
+		panel = vga_panel;
 	else {
 		printk(KERN_ERR "CLCD: unknown LCD panel ID 0x%08x, using VGA\n",
 			val);
-		panel = &vga;
+		panel = vga_panel;
 	}
 
 	return panel;
@@ -358,11 +519,17 @@ static void realview_clcd_enable(struct clcd_fb *fb)
 	writel(val, sys_clcd);
 }
 
-static unsigned long framesize = SZ_1M;
-
 static int realview_clcd_setup(struct clcd_fb *fb)
 {
+	unsigned long framesize;
 	dma_addr_t dma;
+
+	if (machine_is_realview_eb())
+		/* VGA, 16bpp */
+		framesize = 640 * 480 * 2;
+	else
+		/* XVGA, 16bpp */
+		framesize = 1024 * 768 * 2;
 
 	fb->panel		= realview_clcd_panel();
 
@@ -511,7 +678,7 @@ static struct clock_event_device timer0_clockevent =	 {
 	.set_mode	= timer_set_mode,
 	.set_next_event	= timer_set_next_event,
 	.rating		= 300,
-	.cpumask	= CPU_MASK_ALL,
+	.cpumask	= cpu_all_mask,
 };
 
 static void __init realview_clockevents_init(unsigned int timer_irq)
@@ -548,7 +715,7 @@ static struct irqaction realview_timer_irq = {
 	.handler	= realview_timer_interrupt,
 };
 
-static cycle_t realview_get_cycles(void)
+static cycle_t realview_get_cycles(struct clocksource *cs)
 {
 	return ~readl(timer3_va_base + TIMER_VALUE);
 }
@@ -588,7 +755,7 @@ void __init realview_timer_init(unsigned int timer_irq)
 	 * The dummy clock device has to be registered before the main device
 	 * so that the latter will broadcast the clock events
 	 */
-	local_timer_setup(smp_processor_id());
+	local_timer_setup();
 #endif
 
 	/* 

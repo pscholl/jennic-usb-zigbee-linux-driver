@@ -75,6 +75,9 @@ register struct thread_info *__current_thread_info __asm__("$28");
 #ifdef CONFIG_PAGE_SIZE_16KB
 #define THREAD_SIZE_ORDER (0)
 #endif
+#ifdef CONFIG_PAGE_SIZE_32KB
+#define THREAD_SIZE_ORDER (0)
+#endif
 #ifdef CONFIG_PAGE_SIZE_64KB
 #define THREAD_SIZE_ORDER (0)
 #endif
@@ -126,6 +129,12 @@ register struct thread_info *__current_thread_info __asm__("$28");
 #define TIF_FPUBOUND		24	/* thread bound to FPU-full CPU set */
 #define TIF_LOAD_WATCH		25	/* If set, load watch registers */
 #define TIF_SYSCALL_TRACE	31	/* syscall trace active */
+
+#ifdef CONFIG_MIPS32_O32
+#define TIF_32BIT TIF_32BIT_REGS
+#elif defined(CONFIG_MIPS32_N32)
+#define TIF_32BIT _TIF_32BIT_ADDR
+#endif /* CONFIG_MIPS32_O32 */
 
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
 #define _TIF_SIGPENDING		(1<<TIF_SIGPENDING)

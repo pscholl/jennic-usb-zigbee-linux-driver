@@ -10,6 +10,7 @@
 #include <linux/netdevice.h>
 #include <linux/debugfs.h>
 #include <linux/list.h>
+#include <linux/ieee80211.h>
 #include <net/cfg80211.h>
 
 /**
@@ -68,6 +69,9 @@ enum ieee80211_channel_flags {
  * @band: band this channel belongs to.
  * @max_antenna_gain: maximum antenna gain in dBi
  * @max_power: maximum transmission power (in dBm)
+ * @beacon_found: helper to regulatory code to indicate when a beacon
+ *	has been found on this channel. Use regulatory_hint_found_beacon()
+ *	to enable this, this is is useful only on 5 GHz band.
  * @orig_mag: internal use
  * @orig_mpwr: internal use
  */
@@ -79,6 +83,7 @@ struct ieee80211_channel {
 	u32 flags;
 	int max_antenna_gain;
 	int max_power;
+	bool beacon_found;
 	u32 orig_flags;
 	int orig_mag, orig_mpwr;
 };
@@ -133,23 +138,23 @@ struct ieee80211_rate {
 };
 
 /**
- * struct ieee80211_ht_info - describing STA's HT capabilities
+ * struct ieee80211_sta_ht_cap - STA's HT capabilities
  *
  * This structure describes most essential parameters needed
  * to describe 802.11n HT capabilities for an STA.
  *
- * @ht_supported: is HT supported by STA, 0: no, 1: yes
+ * @ht_supported: is HT supported by the STA
  * @cap: HT capabilities map as described in 802.11n spec
  * @ampdu_factor: Maximum A-MPDU length factor
  * @ampdu_density: Minimum A-MPDU spacing
- * @supp_mcs_set: Supported MCS set as described in 802.11n spec
+ * @mcs: Supported MCS rates
  */
-struct ieee80211_ht_info {
+struct ieee80211_sta_ht_cap {
 	u16 cap; /* use IEEE80211_HT_CAP_ */
-	u8 ht_supported;
+	bool ht_supported;
 	u8 ampdu_factor;
 	u8 ampdu_density;
-	u8 supp_mcs_set[16];
+	struct ieee80211_mcs_info mcs;
 };
 
 /**
@@ -173,14 +178,33 @@ struct ieee80211_supported_band {
 	enum ieee80211_band band;
 	int n_channels;
 	int n_bitrates;
-	struct ieee80211_ht_info ht_info;
+	struct ieee80211_sta_ht_cap ht_cap;
 };
 
 /**
  * struct wiphy - wireless hardware description
  * @idx: the wiphy index assigned to this item
  * @class_dev: the class device representing /sys/class/ieee80211/<wiphy-name>
+ * @custom_regulatory: tells us the driver for this device
+ * 	has its own custom regulatory domain and cannot identify the
+ * 	ISO / IEC 3166 alpha2 it belongs to. When this is enabled
+ * 	we will disregard the first regulatory hint (when the
+ * 	initiator is %REGDOM_SET_BY_CORE).
+ * @strict_regulatory: tells us the driver for this device will ignore
+ * 	regulatory domain settings until it gets its own regulatory domain
+ * 	via its regulatory_hint(). After its gets its own regulatory domain
+ * 	it will only allow further regulatory domain settings to further
+ * 	enhance compliance. For example if channel 13 and 14 are disabled
+ * 	by this regulatory domain no user regulatory domain can enable these
+ * 	channels at a later time. This can be used for devices which do not
+ * 	have calibration information gauranteed for frequencies or settings
+ * 	outside of its regulatory domain.
  * @reg_notifier: the driver's regulatory notification callback
+ * @regd: the driver's regulatory domain, if one was requested via
+ * 	the regulatory_hint() API. This can be used by the driver
+ *	on the reg_notifier() if it chooses to ignore future
+ *	regulatory domain changes caused by other drivers.
+ * @signal_type: signal type reported in &struct cfg80211_bss.
  */
 struct wiphy {
 	/* assign these fields before you register the wiphy */
@@ -190,6 +214,14 @@ struct wiphy {
 
 	/* Supported interface modes, OR together BIT(NL80211_IFTYPE_...) */
 	u16 interface_modes;
+
+	bool custom_regulatory;
+	bool strict_regulatory;
+
+	enum cfg80211_signal_type signal_type;
+
+	int bss_priv_size;
+	u8 max_scan_ssids;
 
 	/* If multiple wiphys are registered and you're handed e.g.
 	 * a regular netdev with assigned ieee80211_ptr, you won't
@@ -201,9 +233,12 @@ struct wiphy {
 	struct ieee80211_supported_band *bands[IEEE80211_NUM_BANDS];
 
 	/* Lets us get back the wiphy on the callback */
-	int (*reg_notifier)(struct wiphy *wiphy, enum reg_set_by setby);
+	int (*reg_notifier)(struct wiphy *wiphy,
+			    struct regulatory_request *request);
 
 	/* fields below are read-only, assigned by cfg80211 */
+
+	const struct ieee80211_regdomain *regd;
 
 	/* the item in /sys/class/ieee80211/ points to this,
 	 * you need use set_wiphy_dev() (see below) */
@@ -262,9 +297,9 @@ static inline struct device *wiphy_dev(struct wiphy *wiphy)
 /**
  * wiphy_name - get wiphy name
  */
-static inline char *wiphy_name(struct wiphy *wiphy)
+static inline const char *wiphy_name(struct wiphy *wiphy)
 {
-	return wiphy->dev.bus_id;
+	return dev_name(&wiphy->dev);
 }
 
 /**
@@ -340,55 +375,98 @@ ieee80211_get_channel(struct wiphy *wiphy, int freq)
 }
 
 /**
- * __regulatory_hint - hint to the wireless core a regulatory domain
- * @wiphy: if a driver is providing the hint this is the driver's very
- * 	own &struct wiphy
- * @alpha2: the ISO/IEC 3166 alpha2 being claimed the regulatory domain
- * 	should be in. If @rd is set this should be NULL
- * @rd: a complete regulatory domain, if passed the caller need not worry
- * 	about freeing it
+ * ieee80211_get_response_rate - get basic rate for a given rate
  *
- * The Wireless subsystem can use this function to hint to the wireless core
- * what it believes should be the current regulatory domain by
- * giving it an ISO/IEC 3166 alpha2 country code it knows its regulatory
- * domain should be in or by providing a completely build regulatory domain.
+ * @sband: the band to look for rates in
+ * @basic_rates: bitmap of basic rates
+ * @bitrate: the bitrate for which to find the basic rate
  *
- * Returns -EALREADY if *a regulatory domain* has already been set. Note that
- * this could be by another driver. It is safe for drivers to continue if
- * -EALREADY is returned, if drivers are not capable of world roaming they
- * should not register more channels than they support. Right now we only
- * support listening to the first driver hint. If the driver is capable
- * of world roaming but wants to respect its own EEPROM mappings for
- * specific regulatory domains it should register the @reg_notifier callback
- * on the &struct wiphy. Returns 0 if the hint went through fine or through an
- * intersection operation. Otherwise a standard error code is returned.
- *
+ * This function returns the basic rate corresponding to a given
+ * bitrate, that is the next lower bitrate contained in the basic
+ * rate map, which is, for this function, given as a bitmap of
+ * indices of rates in the band's bitrate table.
  */
-extern int __regulatory_hint(struct wiphy *wiphy, enum reg_set_by set_by,
-		const char *alpha2, struct ieee80211_regdomain *rd);
+struct ieee80211_rate *
+ieee80211_get_response_rate(struct ieee80211_supported_band *sband,
+			    u32 basic_rates, int bitrate);
+
 /**
  * regulatory_hint - driver hint to the wireless core a regulatory domain
- * @wiphy: the driver's very own &struct wiphy
+ * @wiphy: the wireless device giving the hint (used only for reporting
+ *	conflicts)
  * @alpha2: the ISO/IEC 3166 alpha2 the driver claims its regulatory domain
  * 	should be in. If @rd is set this should be NULL. Note that if you
  * 	set this to NULL you should still set rd->alpha2 to some accepted
  * 	alpha2.
- * @rd: a complete regulatory domain provided by the driver. If passed
- * 	the driver does not need to worry about freeing it.
  *
  * Wireless drivers can use this function to hint to the wireless core
  * what it believes should be the current regulatory domain by
  * giving it an ISO/IEC 3166 alpha2 country code it knows its regulatory
  * domain should be in or by providing a completely build regulatory domain.
  * If the driver provides an ISO/IEC 3166 alpha2 userspace will be queried
- * for a regulatory domain structure for the respective country. If
- * a regulatory domain is build and passed you should set the alpha2
- * if possible, otherwise set it to the special value of "99" which tells
- * the wireless core it is unknown. If you pass a built regulatory domain
- * and we return non zero you are in charge of kfree()'ing the structure.
+ * for a regulatory domain structure for the respective country.
  *
- * See __regulatory_hint() documentation for possible return values.
+ * The wiphy must have been registered to cfg80211 prior to this call.
+ * For cfg80211 drivers this means you must first use wiphy_register(),
+ * for mac80211 drivers you must first use ieee80211_register_hw().
+ *
+ * Drivers should check the return value, its possible you can get
+ * an -ENOMEM.
  */
-extern int regulatory_hint(struct wiphy *wiphy,
-		const char *alpha2, struct ieee80211_regdomain *rd);
+extern int regulatory_hint(struct wiphy *wiphy, const char *alpha2);
+
+/**
+ * regulatory_hint_11d - hints a country IE as a regulatory domain
+ * @wiphy: the wireless device giving the hint (used only for reporting
+ *	conflicts)
+ * @country_ie: pointer to the country IE
+ * @country_ie_len: length of the country IE
+ *
+ * We will intersect the rd with the what CRDA tells us should apply
+ * for the alpha2 this country IE belongs to, this prevents APs from
+ * sending us incorrect or outdated information against a country.
+ */
+extern void regulatory_hint_11d(struct wiphy *wiphy,
+				u8 *country_ie,
+				u8 country_ie_len);
+/**
+ * wiphy_apply_custom_regulatory - apply a custom driver regulatory domain
+ * @wiphy: the wireless device we want to process the regulatory domain on
+ * @regd: the custom regulatory domain to use for this wiphy
+ *
+ * Drivers can sometimes have custom regulatory domains which do not apply
+ * to a specific country. Drivers can use this to apply such custom regulatory
+ * domains. This routine must be called prior to wiphy registration. The
+ * custom regulatory domain will be trusted completely and as such previous
+ * default channel settings will be disregarded. If no rule is found for a
+ * channel on the regulatory domain the channel will be disabled.
+ */
+extern void wiphy_apply_custom_regulatory(
+	struct wiphy *wiphy,
+	const struct ieee80211_regdomain *regd);
+
+/**
+ * freq_reg_info - get regulatory information for the given frequency
+ * @wiphy: the wiphy for which we want to process this rule for
+ * @center_freq: Frequency in KHz for which we want regulatory information for
+ * @bandwidth: the bandwidth requirement you have in KHz, if you do not have one
+ * 	you can set this to 0. If this frequency is allowed we then set
+ * 	this value to the maximum allowed bandwidth.
+ * @reg_rule: the regulatory rule which we have for this frequency
+ *
+ * Use this function to get the regulatory rule for a specific frequency on
+ * a given wireless device. If the device has a specific regulatory domain
+ * it wants to follow we respect that unless a country IE has been received
+ * and processed already.
+ *
+ * Returns 0 if it was able to find a valid regulatory rule which does
+ * apply to the given center_freq otherwise it returns non-zero. It will
+ * also return -ERANGE if we determine the given center_freq does not even have
+ * a regulatory rule for a frequency range in the center_freq's band. See
+ * freq_in_rule_band() for our current definition of a band -- this is purely
+ * subjective and right now its 802.11 specific.
+ */
+extern int freq_reg_info(struct wiphy *wiphy, u32 center_freq, u32 *bandwidth,
+			 const struct ieee80211_reg_rule **reg_rule);
+
 #endif /* __NET_WIRELESS_H */

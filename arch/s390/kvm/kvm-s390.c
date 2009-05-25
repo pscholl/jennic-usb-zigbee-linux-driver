@@ -23,7 +23,7 @@
 #include <linux/timer.h>
 #include <asm/lowcore.h>
 #include <asm/pgtable.h>
-
+#include <asm/nmi.h>
 #include "kvm-s390.h"
 #include "gaccess.h"
 
@@ -113,8 +113,6 @@ long kvm_arch_dev_ioctl(struct file *filp,
 int kvm_dev_ioctl_check_extension(long ext)
 {
 	switch (ext) {
-	case KVM_CAP_USER_MEMORY:
-		return 1;
 	default:
 		return 0;
 	}
@@ -185,8 +183,6 @@ struct kvm *kvm_arch_create_vm(void)
 	debug_register_view(kvm->arch.dbf, &debug_sprintf_view);
 	VM_EVENT(kvm, 3, "%s", "vm created");
 
-	try_module_get(THIS_MODULE);
-
 	return kvm;
 out_nodbf:
 	free_page((unsigned long)(kvm->arch.sca));
@@ -196,13 +192,37 @@ out_nokvm:
 	return ERR_PTR(rc);
 }
 
+void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
+{
+	VCPU_EVENT(vcpu, 3, "%s", "free cpu");
+	free_page((unsigned long)(vcpu->arch.sie_block));
+	kvm_vcpu_uninit(vcpu);
+	kfree(vcpu);
+}
+
+static void kvm_free_vcpus(struct kvm *kvm)
+{
+	unsigned int i;
+
+	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
+		if (kvm->vcpus[i]) {
+			kvm_arch_vcpu_destroy(kvm->vcpus[i]);
+			kvm->vcpus[i] = NULL;
+		}
+	}
+}
+
+void kvm_arch_sync_events(struct kvm *kvm)
+{
+}
+
 void kvm_arch_destroy_vm(struct kvm *kvm)
 {
-	debug_unregister(kvm->arch.dbf);
+	kvm_free_vcpus(kvm);
 	kvm_free_physmem(kvm);
 	free_page((unsigned long)(kvm->arch.sca));
+	debug_unregister(kvm->arch.dbf);
 	kfree(kvm);
-	module_put(THIS_MODULE);
 }
 
 /* Section: vcpu related */
@@ -213,8 +233,7 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 
 void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 {
-	/* kvm common code refers to this, but does'nt call it */
-	BUG();
+	/* Nothing todo */
 }
 
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
@@ -267,7 +286,7 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 	setup_timer(&vcpu->arch.ckc_timer, kvm_s390_idle_wakeup,
 		 (unsigned long) vcpu);
 	get_cpu_id(&vcpu->arch.cpu_id);
-	vcpu->arch.cpu_id.version = 0xfe;
+	vcpu->arch.cpu_id.version = 0xff;
 	return 0;
 }
 
@@ -308,21 +327,11 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm,
 	VM_EVENT(kvm, 3, "create cpu %d at %p, sie block at %p", id, vcpu,
 		 vcpu->arch.sie_block);
 
-	try_module_get(THIS_MODULE);
-
 	return vcpu;
 out_free_cpu:
 	kfree(vcpu);
 out_nomem:
 	return ERR_PTR(rc);
-}
-
-void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
-{
-	VCPU_EVENT(vcpu, 3, "%s", "destroy cpu");
-	free_page((unsigned long)(vcpu->arch.sie_block));
-	kfree(vcpu);
-	module_put(THIS_MODULE);
 }
 
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *vcpu)
@@ -413,8 +422,8 @@ int kvm_arch_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
 	return -EINVAL; /* not implemented yet */
 }
 
-int kvm_arch_vcpu_ioctl_debug_guest(struct kvm_vcpu *vcpu,
-				    struct kvm_debug_guest *dbg)
+int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
+					struct kvm_guest_debug *dbg)
 {
 	return -EINVAL; /* not implemented yet */
 }
@@ -430,8 +439,6 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 {
 	return -EINVAL; /* not implemented yet */
 }
-
-extern void s390_handle_mcck(void);
 
 static void __vcpu_run(struct kvm_vcpu *vcpu)
 {

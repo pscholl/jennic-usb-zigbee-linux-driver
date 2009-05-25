@@ -55,9 +55,7 @@
 #include <linux/wireless.h>
 #include <linux/slab.h>
 #include <linux/random.h>
-
-#include "version.h"
-#include "wlan_compat.h"
+#include <linux/kernel.h>
 
 // #define WEP_DEBUG
 
@@ -73,21 +71,12 @@
 /*================================================================*/
 /* Local Constants */
 
-#define SSWAP(a,b) {UINT8 tmp = s[a]; s[a] = s[b]; s[b] = tmp;}
 #define WEP_KEY(x)       (((x) & 0xC0) >> 6)
-
-/*================================================================*/
-/* Local Macros */
-
-
-/*================================================================*/
-/* Local Types */
-
 
 /*================================================================*/
 /* Local Static Definitions */
 
-static const UINT32 wep_crc32_table[256] = {
+static const u32 wep_crc32_table[256] = {
         0x00000000L, 0x77073096L, 0xee0e612cL, 0x990951baL, 0x076dc419L,
         0x706af48fL, 0xe963a535L, 0x9e6495a3L, 0x0edb8832L, 0x79dcb8a4L,
         0xe0d5e91eL, 0x97d2d988L, 0x09b64c2bL, 0x7eb17cbdL, 0xe7b82d07L,
@@ -150,7 +139,7 @@ static const UINT32 wep_crc32_table[256] = {
 
 /* keylen in bytes! */
 
-int wep_change_key(wlandevice_t *wlandev, int keynum, UINT8* key, int keylen)
+int wep_change_key(wlandevice_t *wlandev, int keynum, u8* key, int keylen)
 {
 	if (keylen < 0)  return -1;
 	if (keylen >= MAX_KEYLEN) return -1;
@@ -173,11 +162,11 @@ int wep_change_key(wlandevice_t *wlandev, int keynum, UINT8* key, int keylen)
   4-byte IV at start of buffer, 4-byte ICV at end of buffer.
   if successful, buf start is payload begin, length -= 8;
  */
-int wep_decrypt(wlandevice_t *wlandev, UINT8 *buf, UINT32 len, int key_override, UINT8 *iv, UINT8 *icv)
+int wep_decrypt(wlandevice_t *wlandev, u8 *buf, u32 len, int key_override, u8 *iv, u8 *icv)
 {
-	UINT32 i, j, k, crc, keylen;
-	UINT8 s[256], key[64], c_crc[4];
-	UINT8 keyidx;
+	u32 i, j, k, crc, keylen;
+	u8 s[256], key[64], c_crc[4];
+	u8 keyidx;
 
 	/* Needs to be at least 8 bytes of payload */
 	if (len <= 0) return -1;
@@ -212,7 +201,7 @@ int wep_decrypt(wlandevice_t *wlandev, UINT8 *buf, UINT32 len, int key_override,
 	j = 0;
 	for (i = 0; i < 256; i++) {
 		j = (j + s[i] + key[i % keylen]) & 0xff;
-		SSWAP(i,j);
+		swap(i,j);
 	}
 
 	/* Apply the RC4 to the data, update the CRC32 */
@@ -221,7 +210,7 @@ int wep_decrypt(wlandevice_t *wlandev, UINT8 *buf, UINT32 len, int key_override,
 	for (k = 0; k < len; k++) {
 		i = (i+1) & 0xff;
 		j = (j+s[i]) & 0xff;
-		SSWAP(i,j);
+		swap(i,j);
 		buf[k] ^= s[(s[i] + s[j]) & 0xff];
 		crc = wep_crc32_table[(crc ^ buf[k]) & 0xff] ^ (crc >> 8);
 	}
@@ -236,7 +225,7 @@ int wep_decrypt(wlandevice_t *wlandev, UINT8 *buf, UINT32 len, int key_override,
 	for (k = 0; k < 4; k++) {
 		i = (i + 1) & 0xff;
 		j = (j+s[i]) & 0xff;
-		SSWAP(i,j);
+		swap(i,j);
 		if ((c_crc[k] ^ s[(s[i] + s[j]) & 0xff]) != icv[k])
 			return -(4 | (k << 4)) ; /* ICV mismatch */
 	}
@@ -245,10 +234,10 @@ int wep_decrypt(wlandevice_t *wlandev, UINT8 *buf, UINT32 len, int key_override,
 }
 
 /* encrypts in-place. */
-int wep_encrypt(wlandevice_t *wlandev, UINT8 *buf, UINT8 *dst, UINT32 len, int keynum, UINT8 *iv, UINT8 *icv)
+int wep_encrypt(wlandevice_t *wlandev, u8 *buf, u8 *dst, u32 len, int keynum, u8 *iv, u8 *icv)
 {
-	UINT32 i, j, k, crc, keylen;
-	UINT8 s[256], key[64];
+	u32 i, j, k, crc, keylen;
+	u8 s[256], key[64];
 
 	/* no point in WEPping an empty frame */
 	if (len <= 0) return -1;
@@ -284,7 +273,7 @@ int wep_encrypt(wlandevice_t *wlandev, UINT8 *buf, UINT8 *dst, UINT32 len, int k
 	j = 0;
 	for (i = 0; i < 256; i++) {
 		j = (j + s[i] + key[i % keylen]) & 0xff;
-		SSWAP(i,j);
+		swap(i,j);
 	}
 
 	/* Update CRC32 then apply RC4 to the data */
@@ -294,7 +283,7 @@ int wep_encrypt(wlandevice_t *wlandev, UINT8 *buf, UINT8 *dst, UINT32 len, int k
 		crc = wep_crc32_table[(crc ^ buf[k]) & 0xff] ^ (crc >> 8);
 		i = (i+1) & 0xff;
 		j = (j+s[i]) & 0xff;
-		SSWAP(i,j);
+		swap(i,j);
 		dst[k] = buf[k] ^ s[(s[i] + s[j]) & 0xff];
 	}
 	crc = ~crc;
@@ -308,7 +297,7 @@ int wep_encrypt(wlandevice_t *wlandev, UINT8 *buf, UINT8 *dst, UINT32 len, int k
 	for (k = 0; k < 4; k++) {
 		i = (i + 1) & 0xff;
 		j = (j+s[i]) & 0xff;
-		SSWAP(i,j);
+		swap(i,j);
 		icv[k] ^= s[(s[i] + s[j]) & 0xff];
 	}
 

@@ -63,11 +63,11 @@ struct scan_data {
 };
 
 static int beacon_notifier(struct notifier_block *p,
-                                unsigned long event, void *data)
+		unsigned long event, void *data)
 {
-	struct ieee80215_pandsc * pd = data;
-	struct scan_data * sd = container_of(p, struct scan_data, nb);
-	switch(event) {
+	struct ieee80215_pandsc *pd = data;
+	struct scan_data *sd = container_of(p, struct scan_data, nb);
+	switch (event) {
 	case IEEE80215_NOTIFIER_BEACON:
 		/* TODO: add item to list here */
 		pr_debug("got a beacon frame addr_type %d pan_id %d\n",
@@ -81,15 +81,15 @@ static int beacon_notifier(struct notifier_block *p,
 static int scan_passive(struct scan_work *work, int channel, u8 duration)
 {
 	unsigned long j;
-	struct scan_data * data = kzalloc(sizeof(struct scan_data), GFP_KERNEL);
+	struct scan_data *data = kzalloc(sizeof(struct scan_data), GFP_KERNEL);
 	pr_debug("passive scan channel %d duration %d\n", channel, duration);
 	data->nb.notifier_call = beacon_notifier;
 	ieee80215_slave_register_notifier(work->dev, &data->nb);
 	/* Hope 2 msecs will be enough for scan */
 	j = msecs_to_jiffies(2);
-	while (j > 0) {
+	while (j > 0)
 		j = schedule_timeout(j);
-	}
+
 	ieee80215_slave_unregister_notifier(work->dev, &data->nb);
 	kfree(data);
 	return PHY_SUCCESS;

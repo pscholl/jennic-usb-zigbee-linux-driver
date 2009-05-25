@@ -35,7 +35,7 @@
 #define INTEL_GMCH_MEM_64M	0x1
 #define INTEL_GMCH_MEM_128M	0
 
-#define INTEL_855_GMCH_GMS_MASK		(0x7 << 4)
+#define INTEL_GMCH_GMS_MASK		(0xf << 4)
 #define INTEL_855_GMCH_GMS_DISABLED	(0x0 << 4)
 #define INTEL_855_GMCH_GMS_STOLEN_1M	(0x1 << 4)
 #define INTEL_855_GMCH_GMS_STOLEN_4M	(0x2 << 4)
@@ -45,6 +45,12 @@
 
 #define INTEL_915G_GMCH_GMS_STOLEN_48M	(0x6 << 4)
 #define INTEL_915G_GMCH_GMS_STOLEN_64M	(0x7 << 4)
+#define INTEL_GMCH_GMS_STOLEN_128M	(0x8 << 4)
+#define INTEL_GMCH_GMS_STOLEN_256M	(0x9 << 4)
+#define INTEL_GMCH_GMS_STOLEN_96M	(0xa << 4)
+#define INTEL_GMCH_GMS_STOLEN_160M	(0xb << 4)
+#define INTEL_GMCH_GMS_STOLEN_224M	(0xc << 4)
+#define INTEL_GMCH_GMS_STOLEN_352M	(0xd << 4)
 
 /* PCI config space */
 
@@ -175,9 +181,30 @@
 #define   DISPLAY_PLANE_B           (1<<20)
 
 /*
+ * Fence registers
+ */
+#define FENCE_REG_830_0			0x2000
+#define FENCE_REG_945_8			0x3000
+#define   I830_FENCE_START_MASK		0x07f80000
+#define   I830_FENCE_TILING_Y_SHIFT	12
+#define   I830_FENCE_SIZE_BITS(size)	((ffs((size) >> 19) - 1) << 8)
+#define   I830_FENCE_PITCH_SHIFT	4
+#define   I830_FENCE_REG_VALID		(1<<0)
+#define   I830_FENCE_MAX_PITCH_VAL	0x10
+#define   I830_FENCE_MAX_SIZE_VAL	(1<<8)
+
+#define   I915_FENCE_START_MASK		0x0ff00000
+#define   I915_FENCE_SIZE_BITS(size)	((ffs((size) >> 20) - 1) << 8)
+
+#define FENCE_REG_965_0			0x03000
+#define   I965_FENCE_PITCH_SHIFT	2
+#define   I965_FENCE_TILING_Y_SHIFT	1
+#define   I965_FENCE_REG_VALID		(1<<0)
+#define   I965_FENCE_MAX_PITCH_VAL	0x0400
+
+/*
  * Instruction and interrupt control regs
  */
-
 #define PRB0_TAIL	0x02030
 #define PRB0_HEAD	0x02034
 #define PRB0_START	0x02038
@@ -244,6 +271,7 @@
 #define   CM0_DEPTH_WRITE_DISABLE (1<<1)
 #define   CM0_RC_OP_FLUSH_DISABLE (1<<0)
 #define GFX_FLSH_CNTL	0x02170 /* 915+ only */
+
 
 /*
  * Framebuffer compression (915+ only)
@@ -334,6 +362,7 @@
 #define   DPLLB_LVDS_P2_CLOCK_DIV_7	(1 << 24) /* i915 */
 #define   DPLL_P2_CLOCK_DIV_MASK	0x03000000 /* i915 */
 #define   DPLL_FPA01_P1_POST_DIV_MASK	0x00ff0000 /* i915 */
+#define   DPLL_FPA01_P1_POST_DIV_MASK_IGD	0x00ff8000 /* IGD */
 
 #define I915_FIFO_UNDERRUN_STATUS		(1UL<<31)
 #define I915_CRC_ERROR_ENABLE			(1UL<<29)
@@ -410,6 +439,7 @@
  */
 #define   DPLL_FPA01_P1_POST_DIV_MASK_I830_LVDS	0x003f0000
 #define   DPLL_FPA01_P1_POST_DIV_SHIFT	16
+#define   DPLL_FPA01_P1_POST_DIV_SHIFT_IGD 15
 /* i830, required in DVO non-gang */
 #define   PLL_P2_DIVIDE_BY_4		(1 << 23)
 #define   PLL_P1_DIVIDE_BY_TWO		(1 << 21) /* i830 */
@@ -476,10 +506,12 @@
 #define FPB0	0x06048
 #define FPB1	0x0604c
 #define   FP_N_DIV_MASK		0x003f0000
+#define   FP_N_IGD_DIV_MASK	0x00ff0000
 #define   FP_N_DIV_SHIFT		16
 #define   FP_M1_DIV_MASK	0x00003f00
 #define   FP_M1_DIV_SHIFT		 8
 #define   FP_M2_DIV_MASK	0x0000003f
+#define   FP_M2_IGD_DIV_MASK	0x000000ff
 #define   FP_M2_DIV_SHIFT		 0
 #define DPLL_TEST	0x606c
 #define   DPLLB_TEST_SDVO_DIV_1		(0 << 22)
@@ -494,6 +526,7 @@
 #define   DPLLA_INPUT_BUFFER_ENABLE	(1 << 0)
 #define D_STATE		0x6104
 #define CG_2D_DIS	0x6200
+#define DPCUNIT_CLOCK_GATE_DISABLE	(1 << 24)
 #define CG_3D_DIS	0x6204
 
 /*
@@ -530,6 +563,8 @@
 
 /** GM965 GM45 render standby register */
 #define MCHBAR_RENDER_STANDBY	0x111B8
+
+#define PEG_BAND_GAP_DATA	0x14d68
 
 /*
  * Overlay regs
@@ -594,13 +629,43 @@
 
 /* Hotplug control (945+ only) */
 #define PORT_HOTPLUG_EN		0x61110
+#define   HDMIB_HOTPLUG_INT_EN			(1 << 29)
+#define   HDMIC_HOTPLUG_INT_EN			(1 << 28)
+#define   HDMID_HOTPLUG_INT_EN			(1 << 27)
 #define   SDVOB_HOTPLUG_INT_EN			(1 << 26)
 #define   SDVOC_HOTPLUG_INT_EN			(1 << 25)
 #define   TV_HOTPLUG_INT_EN			(1 << 18)
 #define   CRT_HOTPLUG_INT_EN			(1 << 9)
 #define   CRT_HOTPLUG_FORCE_DETECT		(1 << 3)
+#define CRT_HOTPLUG_ACTIVATION_PERIOD_32	(0 << 8)
+/* must use period 64 on GM45 according to docs */
+#define CRT_HOTPLUG_ACTIVATION_PERIOD_64	(1 << 8)
+#define CRT_HOTPLUG_DAC_ON_TIME_2M		(0 << 7)
+#define CRT_HOTPLUG_DAC_ON_TIME_4M		(1 << 7)
+#define CRT_HOTPLUG_VOLTAGE_COMPARE_40		(0 << 5)
+#define CRT_HOTPLUG_VOLTAGE_COMPARE_50		(1 << 5)
+#define CRT_HOTPLUG_VOLTAGE_COMPARE_60		(2 << 5)
+#define CRT_HOTPLUG_VOLTAGE_COMPARE_70		(3 << 5)
+#define CRT_HOTPLUG_VOLTAGE_COMPARE_MASK	(3 << 5)
+#define CRT_HOTPLUG_DETECT_DELAY_1G		(0 << 4)
+#define CRT_HOTPLUG_DETECT_DELAY_2G		(1 << 4)
+#define CRT_HOTPLUG_DETECT_VOLTAGE_325MV	(0 << 2)
+#define CRT_HOTPLUG_DETECT_VOLTAGE_475MV	(1 << 2)
+#define CRT_HOTPLUG_MASK			(0x3fc) /* Bits 9-2 */
+#define CRT_FORCE_HOTPLUG_MASK			0xfffffe1f
+#define HOTPLUG_EN_MASK (HDMIB_HOTPLUG_INT_EN | \
+			 HDMIC_HOTPLUG_INT_EN |	  \
+			 HDMID_HOTPLUG_INT_EN |	  \
+			 SDVOB_HOTPLUG_INT_EN |	  \
+			 SDVOC_HOTPLUG_INT_EN |	  \
+			 TV_HOTPLUG_INT_EN |	  \
+			 CRT_HOTPLUG_INT_EN)
+
 
 #define PORT_HOTPLUG_STAT	0x61114
+#define   HDMIB_HOTPLUG_INT_STATUS		(1 << 29)
+#define   HDMIC_HOTPLUG_INT_STATUS		(1 << 28)
+#define   HDMID_HOTPLUG_INT_STATUS		(1 << 27)
 #define   CRT_HOTPLUG_INT_STATUS		(1 << 11)
 #define   TV_HOTPLUG_INT_STATUS			(1 << 10)
 #define   CRT_HOTPLUG_MONITOR_MASK		(3 << 8)
@@ -630,7 +695,16 @@
 #define   SDVO_PHASE_SELECT_DEFAULT	(6 << 19)
 #define   SDVO_CLOCK_OUTPUT_INVERT	(1 << 18)
 #define   SDVOC_GANG_MODE		(1 << 16)
+#define   SDVO_ENCODING_SDVO		(0x0 << 10)
+#define   SDVO_ENCODING_HDMI		(0x2 << 10)
+/** Requird for HDMI operation */
+#define   SDVO_NULL_PACKETS_DURING_VSYNC (1 << 9)
 #define   SDVO_BORDER_ENABLE		(1 << 7)
+#define   SDVO_AUDIO_ENABLE		(1 << 6)
+/** New with 965, default is to be set */
+#define   SDVO_VSYNC_ACTIVE_HIGH	(1 << 4)
+/** New with 965, default is to be set */
+#define   SDVO_HSYNC_ACTIVE_HIGH	(1 << 3)
 #define   SDVOB_PCIE_CONCURRENCY	(1 << 3)
 #define   SDVO_DETECTED			(1 << 2)
 /* Bits to be preserved when writing */
@@ -814,7 +888,7 @@
  */
 # define TV_ENC_C0_FIX			(1 << 10)
 /** Bits that must be preserved by software */
-# define TV_CTL_SAVE			((3 << 8) | (3 << 6))
+# define TV_CTL_SAVE			((1 << 11) | (3 << 9) | (7 << 6) | 0xf)
 # define TV_FUSE_STATE_MASK		(3 << 4)
 /** Read-only state that reports all features enabled */
 # define TV_FUSE_STATE_ENABLED		(0 << 4)
@@ -1330,6 +1404,9 @@
 #define   PIPE_FRAME_LOW_SHIFT    24
 #define   PIPE_PIXEL_MASK         0x00ffffff
 #define   PIPE_PIXEL_SHIFT        0
+/* GM45+ just has to be different */
+#define PIPEA_FRMCOUNT_GM45	0x70040
+#define PIPEA_FLIPCOUNT_GM45	0x70044
 
 /* Cursor A & B regs */
 #define CURACNTR		0x70080
@@ -1370,6 +1447,7 @@
 #define   DISPPLANE_NO_LINE_DOUBLE		0
 #define   DISPPLANE_STEREO_POLARITY_FIRST	0
 #define   DISPPLANE_STEREO_POLARITY_SECOND	(1<<18)
+#define   DISPPLANE_TILED			(1<<10)
 #define DSPAADDR		0x70184
 #define DSPASTRIDE		0x70188
 #define DSPAPOS			0x7018C /* reserved */
@@ -1398,6 +1476,9 @@
 #define PIPEBSTAT		0x71024
 #define PIPEBFRAMEHIGH		0x71040
 #define PIPEBFRAMEPIXEL		0x71044
+#define PIPEB_FRMCOUNT_GM45	0x71040
+#define PIPEB_FLIPCOUNT_GM45	0x71044
+
 
 /* Display B control */
 #define DSPBCNTR		0x71180

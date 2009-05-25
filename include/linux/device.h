@@ -28,6 +28,7 @@
 #define BUS_ID_SIZE		20
 
 struct device;
+struct device_private;
 struct device_driver;
 struct driver_private;
 struct class;
@@ -65,7 +66,7 @@ struct bus_type {
 	int (*resume_early)(struct device *dev);
 	int (*resume)(struct device *dev);
 
-	struct pm_ext_ops *pm;
+	struct dev_pm_ops *pm;
 
 	struct bus_type_private *p;
 };
@@ -133,7 +134,7 @@ struct device_driver {
 	int (*resume) (struct device *dev);
 	struct attribute_group **groups;
 
-	struct pm_ops *pm;
+	struct dev_pm_ops *pm;
 
 	struct driver_private *p;
 };
@@ -147,6 +148,8 @@ extern void put_driver(struct device_driver *drv);
 extern struct device_driver *driver_find(const char *name,
 					 struct bus_type *bus);
 extern int driver_probe_done(void);
+extern void wait_for_device_probe(void);
+
 
 /* sysfs interface for exporting driver attributes */
 
@@ -198,7 +201,7 @@ struct class {
 	int (*suspend)(struct device *dev, pm_message_t state);
 	int (*resume)(struct device *dev);
 
-	struct pm_ops *pm;
+	struct dev_pm_ops *pm;
 	struct class_private *p;
 };
 
@@ -291,7 +294,7 @@ struct device_type {
 	int (*suspend)(struct device *dev, pm_message_t state);
 	int (*resume)(struct device *dev);
 
-	struct pm_ops *pm;
+	struct dev_pm_ops *pm;
 };
 
 /* interface for exporting device attributes */
@@ -365,17 +368,13 @@ struct device_dma_parameters {
 };
 
 struct device {
-	struct klist		klist_children;
-	struct klist_node	knode_parent;	/* node in sibling list */
-	struct klist_node	knode_driver;
-	struct klist_node	knode_bus;
 	struct device		*parent;
 
+	struct device_private	*p;
+
 	struct kobject kobj;
-	char	bus_id[BUS_ID_SIZE];	/* position on parent bus */
 	const char		*init_name; /* initial name of the device */
 	struct device_type	*type;
-	unsigned		uevent_suppress:1;
 
 	struct semaphore	sem;	/* semaphore to synchronize calls to
 					 * its driver.
@@ -408,12 +407,13 @@ struct device {
 	/* arch specific additions */
 	struct dev_archdata	archdata;
 
+	dev_t			devt;	/* dev_t, creates the sysfs "dev" */
+
 	spinlock_t		devres_lock;
 	struct list_head	devres_head;
 
 	struct klist_node	knode_class;
 	struct class		*class;
-	dev_t			devt;	/* dev_t, creates the sysfs "dev" */
 	struct attribute_group	**groups;	/* optional groups */
 
 	void	(*release)(struct device *dev);
@@ -424,8 +424,7 @@ struct device {
 
 static inline const char *dev_name(const struct device *dev)
 {
-	/* will be changed into kobject_name(&dev->kobj) in the near future */
-	return dev->bus_id;
+	return kobject_name(&dev->kobj);
 }
 
 extern int dev_set_name(struct device *dev, const char *name, ...)
@@ -460,6 +459,16 @@ static inline void dev_set_drvdata(struct device *dev, void *data)
 	dev->driver_data = data;
 }
 
+static inline unsigned int dev_get_uevent_suppress(const struct device *dev)
+{
+	return dev->kobj.uevent_suppress;
+}
+
+static inline void dev_set_uevent_suppress(struct device *dev, int val)
+{
+	dev->kobj.uevent_suppress = val;
+}
+
 static inline int device_is_registered(struct device *dev)
 {
 	return dev->kobj.state_in_sysfs;
@@ -480,7 +489,19 @@ extern int device_for_each_child(struct device *dev, void *data,
 extern struct device *device_find_child(struct device *dev, void *data,
 				int (*match)(struct device *dev, void *data));
 extern int device_rename(struct device *dev, char *new_name);
-extern int device_move(struct device *dev, struct device *new_parent);
+extern int device_move(struct device *dev, struct device *new_parent,
+		       enum dpm_order dpm_order);
+
+/*
+ * Root device objects for grouping under /sys/devices
+ */
+extern struct device *__root_device_register(const char *name,
+					     struct module *owner);
+static inline struct device *root_device_register(const char *name)
+{
+	return __root_device_register(name, THIS_MODULE);
+}
+extern void root_device_unregister(struct device *root);
 
 /*
  * Manual binding of a device to driver. See drivers/base/bus.c
@@ -525,6 +546,7 @@ extern int (*platform_notify_remove)(struct device *dev);
 extern struct device *get_device(struct device *dev);
 extern void put_device(struct device *dev);
 
+extern void wait_for_device_probe(void);
 
 /* drivers/base/power/shutdown.c */
 extern void device_shutdown(void);
@@ -553,13 +575,13 @@ extern const char *dev_driver_string(const struct device *dev);
 #define dev_info(dev, format, arg...)		\
 	dev_printk(KERN_INFO , dev , format , ## arg)
 
-#if defined(CONFIG_DYNAMIC_PRINTK_DEBUG)
+#if defined(DEBUG)
+#define dev_dbg(dev, format, arg...)		\
+	dev_printk(KERN_DEBUG , dev , format , ## arg)
+#elif defined(CONFIG_DYNAMIC_DEBUG)
 #define dev_dbg(dev, format, ...) do { \
 	dynamic_dev_dbg(dev, format, ##__VA_ARGS__); \
 	} while (0)
-#elif defined(DEBUG)
-#define dev_dbg(dev, format, arg...)		\
-	dev_printk(KERN_DEBUG , dev , format , ## arg)
 #else
 #define dev_dbg(dev, format, arg...)		\
 	({ if (0) dev_printk(KERN_DEBUG, dev, format, ##arg); 0; })

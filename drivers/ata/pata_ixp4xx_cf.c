@@ -30,14 +30,12 @@ static int ixp4xx_set_mode(struct ata_link *link, struct ata_device **error)
 {
 	struct ata_device *dev;
 
-	ata_link_for_each_dev(dev, link) {
-		if (ata_dev_enabled(dev)) {
-			ata_dev_printk(dev, KERN_INFO, "configured for PIO0\n");
-			dev->pio_mode = XFER_PIO_0;
-			dev->xfer_mode = XFER_PIO_0;
-			dev->xfer_shift = ATA_SHIFT_PIO;
-			dev->flags |= ATA_DFLAG_PIO;
-		}
+	ata_for_each_dev(dev, link, ENABLED) {
+		ata_dev_printk(dev, KERN_INFO, "configured for PIO0\n");
+		dev->pio_mode = XFER_PIO_0;
+		dev->xfer_mode = XFER_PIO_0;
+		dev->xfer_shift = ATA_SHIFT_PIO;
+		dev->flags |= ATA_DFLAG_PIO;
 	}
 	return 0;
 }
@@ -159,7 +157,7 @@ static __devinit int ixp4xx_pata_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	/* acquire resources and fill host */
-	pdev->dev.coherent_dma_mask = DMA_32BIT_MASK;
+	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 
 	data->cs0 = devm_ioremap(&pdev->dev, cs0->start, 0x1000);
 	data->cs1 = devm_ioremap(&pdev->dev, cs1->start, 0x1000);
@@ -178,7 +176,7 @@ static __devinit int ixp4xx_pata_probe(struct platform_device *pdev)
 	ap = host->ports[0];
 
 	ap->ops	= &ixp4xx_port_ops;
-	ap->pio_mask = 0x1f; /* PIO4 */
+	ap->pio_mask = ATA_PIO4;
 	ap->flags |= ATA_FLAG_MMIO | ATA_FLAG_NO_LEGACY | ATA_FLAG_NO_ATAPI;
 
 	ixp4xx_setup_port(ap, data, cs0->start, cs1->start);

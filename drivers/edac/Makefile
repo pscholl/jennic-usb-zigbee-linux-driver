@@ -20,6 +20,7 @@ endif
 obj-$(CONFIG_EDAC_AMD76X)		+= amd76x_edac.o
 obj-$(CONFIG_EDAC_I5000)		+= i5000_edac.o
 obj-$(CONFIG_EDAC_I5100)		+= i5100_edac.o
+obj-$(CONFIG_EDAC_I5400)		+= i5400_edac.o
 obj-$(CONFIG_EDAC_E7XXX)		+= e7xxx_edac.o
 obj-$(CONFIG_EDAC_E752X)		+= e752x_edac.o
 obj-$(CONFIG_EDAC_I82443BXGX)		+= i82443bxgx_edac.o
@@ -33,4 +34,4 @@ obj-$(CONFIG_EDAC_PASEMI)		+= pasemi_edac.o
 obj-$(CONFIG_EDAC_MPC85XX)		+= mpc85xx_edac.o
 obj-$(CONFIG_EDAC_MV64X60)		+= mv64x60_edac.o
 obj-$(CONFIG_EDAC_CELL)			+= cell_edac.o
-
+obj-$(CONFIG_EDAC_PPC4XX)		+= ppc4xx_edac.o

@@ -30,9 +30,13 @@ enum led_brightness {
 struct led_classdev {
 	const char		*name;
 	int			 brightness;
+	int			 max_brightness;
 	int			 flags;
 
+	/* Lower 16 bits reflect status */
 #define LED_SUSPENDED		(1 << 0)
+	/* Upper 16 bits reflect control information */
+#define LED_CORE_SUSPENDRESUME	(1 << 16)
 
 	/* Set LED brightness level */
 	/* Must not sleep, use a workqueue if needed */
@@ -62,7 +66,7 @@ struct led_classdev {
 
 extern int led_classdev_register(struct device *parent,
 				 struct led_classdev *led_cdev);
-extern void led_classdev_unregister(struct led_classdev *lcd);
+extern void led_classdev_unregister(struct led_classdev *led_cdev);
 extern void led_classdev_suspend(struct led_classdev *led_cdev);
 extern void led_classdev_resume(struct led_classdev *led_cdev);
 
@@ -137,7 +141,8 @@ struct gpio_led {
 	const char *name;
 	const char *default_trigger;
 	unsigned 	gpio;
-	u8 		active_low;
+	u8 		active_low : 1;
+	u8		retain_state_suspended : 1;
 };
 
 struct gpio_led_platform_data {

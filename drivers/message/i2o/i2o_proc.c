@@ -1300,7 +1300,7 @@ static int i2o_seq_show_dev_name(struct seq_file *seq, void *v)
 {
 	struct i2o_device *d = (struct i2o_device *)seq->private;
 
-	seq_printf(seq, "%s\n", d->device.bus_id);
+	seq_printf(seq, "%s\n", dev_name(&d->device));
 
 	return 0;
 }
@@ -2036,8 +2036,6 @@ static int __init i2o_proc_fs_create(void)
 	i2o_proc_dir_root = proc_mkdir("i2o", NULL);
 	if (!i2o_proc_dir_root)
 		return -1;
-
-	i2o_proc_dir_root->owner = THIS_MODULE;
 
 	list_for_each_entry(c, &i2o_controllers, list)
 	    i2o_proc_iop_add(i2o_proc_dir_root, c);

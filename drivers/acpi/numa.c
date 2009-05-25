@@ -29,7 +29,6 @@
 #include <linux/errno.h>
 #include <linux/acpi.h>
 #include <acpi/acpi_bus.h>
-#include <acpi/acmacros.h>
 
 #define ACPI_NUMA	0x80000000
 #define _COMPONENT	ACPI_NUMA
@@ -132,6 +131,21 @@ acpi_table_print_srat_entry(struct acpi_subtable_header *header)
 #endif				/* ACPI_DEBUG_OUTPUT */
 		break;
 
+	case ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY:
+#ifdef ACPI_DEBUG_OUTPUT
+		{
+			struct acpi_srat_x2apic_cpu_affinity *p =
+			    (struct acpi_srat_x2apic_cpu_affinity *)header;
+			ACPI_DEBUG_PRINT((ACPI_DB_INFO,
+					  "SRAT Processor (x2apicid[0x%08x]) in"
+					  " proximity domain %d %s\n",
+					  p->apic_id,
+					  p->proximity_domain,
+					  (p->flags & ACPI_SRAT_CPU_ENABLED) ?
+					  "enabled" : "disabled"));
+		}
+#endif				/* ACPI_DEBUG_OUTPUT */
+		break;
 	default:
 		printk(KERN_WARNING PREFIX
 		       "Found unsupported SRAT entry (type = 0x%x)\n",
@@ -181,8 +195,35 @@ static int __init acpi_parse_slit(struct acpi_table_header *table)
 	return 0;
 }
 
+void __init __attribute__ ((weak))
+acpi_numa_x2apic_affinity_init(struct acpi_srat_x2apic_cpu_affinity *pa)
+{
+	printk(KERN_WARNING PREFIX
+	       "Found unsupported x2apic [0x%08x] SRAT entry\n", pa->apic_id);
+	return;
+}
+
+
 static int __init
-acpi_parse_processor_affinity(struct acpi_subtable_header * header,
+acpi_parse_x2apic_affinity(struct acpi_subtable_header *header,
+			   const unsigned long end)
+{
+	struct acpi_srat_x2apic_cpu_affinity *processor_affinity;
+
+	processor_affinity = (struct acpi_srat_x2apic_cpu_affinity *)header;
+	if (!processor_affinity)
+		return -EINVAL;
+
+	acpi_table_print_srat_entry(header);
+
+	/* let architecture-dependent part to do it */
+	acpi_numa_x2apic_affinity_init(processor_affinity);
+
+	return 0;
+}
+
+static int __init
+acpi_parse_processor_affinity(struct acpi_subtable_header *header,
 			      const unsigned long end)
 {
 	struct acpi_srat_cpu_affinity *processor_affinity;
@@ -242,6 +283,8 @@ int __init acpi_numa_init(void)
 {
 	/* SRAT: Static Resource Affinity Table */
 	if (!acpi_table_parse(ACPI_SIG_SRAT, acpi_parse_srat)) {
+		acpi_table_parse_srat(ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY,
+				      acpi_parse_x2apic_affinity, NR_CPUS);
 		acpi_table_parse_srat(ACPI_SRAT_TYPE_CPU_AFFINITY,
 				      acpi_parse_processor_affinity, NR_CPUS);
 		acpi_table_parse_srat(ACPI_SRAT_TYPE_MEMORY_AFFINITY,
@@ -278,7 +321,7 @@ int acpi_get_node(acpi_handle *handle)
 	int pxm, node = -1;
 
 	pxm = acpi_get_pxm(handle);
-	if (pxm >= 0)
+	if (pxm >= 0 && pxm < MAX_PXM_DOMAINS)
 		node = acpi_map_pxm_to_node(pxm);
 
 	return node;

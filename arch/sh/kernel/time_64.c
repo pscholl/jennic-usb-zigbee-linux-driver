@@ -240,11 +240,6 @@ static inline void do_timer_interrupt(void)
 
 	do_timer(1);
 
-#ifdef CONFIG_HEARTBEAT
-	if (sh_mv.mv_heartbeat != NULL)
-		sh_mv.mv_heartbeat();
-#endif
-
 	/*
 	 * If we have an externally synchronized Linux clock, then update
 	 * RTC clock accordingly every ~11 minutes. Set_rtc_mmss() has to be
@@ -289,7 +284,6 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 static struct irqaction irq0  = {
 	.handler = timer_interrupt,
 	.flags = IRQF_DISABLED,
-	.mask = CPU_MASK_NONE,
 	.name = "timer",
 };
 

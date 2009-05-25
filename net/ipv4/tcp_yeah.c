@@ -83,7 +83,7 @@ static void tcp_yeah_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 	else if (!yeah->doing_reno_now) {
 		/* Scalable */
 
-		tp->snd_cwnd_cnt+=yeah->pkts_acked;
+		tp->snd_cwnd_cnt += yeah->pkts_acked;
 		if (tp->snd_cwnd_cnt > min(tp->snd_cwnd, TCP_SCALABLE_AI_CNT)){
 			if (tp->snd_cwnd < tp->snd_cwnd_clamp)
 				tp->snd_cwnd++;
@@ -94,14 +94,7 @@ static void tcp_yeah_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 
 	} else {
 		/* Reno */
-
-		if (tp->snd_cwnd_cnt < tp->snd_cwnd)
-			tp->snd_cwnd_cnt++;
-
-		if (tp->snd_cwnd_cnt >= tp->snd_cwnd) {
-			tp->snd_cwnd++;
-			tp->snd_cwnd_cnt = 0;
-		}
+		tcp_cong_avoid_ai(tp, tp->snd_cwnd);
 	}
 
 	/* The key players are v_vegas.beg_snd_una and v_beg_snd_nxt.
@@ -224,7 +217,7 @@ static u32 tcp_yeah_ssthresh(struct sock *sk) {
 
 		reduction = max( reduction, tp->snd_cwnd >> TCP_YEAH_DELTA);
 	} else
-		reduction = max(tp->snd_cwnd>>1,2U);
+		reduction = max(tp->snd_cwnd>>1, 2U);
 
 	yeah->fast_count = 0;
 	yeah->reno_count = max(yeah->reno_count>>1, 2U);

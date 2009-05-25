@@ -401,7 +401,7 @@ void __init ixp4xx_sys_init(void)
 /*
  * clocksource
  */
-cycle_t ixp4xx_get_cycles(void)
+cycle_t ixp4xx_get_cycles(struct clocksource *cs)
 {
 	return *IXP4XX_OSTS;
 }
@@ -487,7 +487,7 @@ static int __init ixp4xx_clockevent_init(void)
 		clockevent_delta2ns(0xfffffffe, &clockevent_ixp4xx);
 	clockevent_ixp4xx.min_delta_ns =
 		clockevent_delta2ns(0xf, &clockevent_ixp4xx);
-	clockevent_ixp4xx.cpumask = cpumask_of_cpu(0);
+	clockevent_ixp4xx.cpumask = cpumask_of(0);
 
 	clockevents_register_device(&clockevent_ixp4xx);
 	return 0;

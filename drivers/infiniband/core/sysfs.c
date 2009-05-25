@@ -66,11 +66,6 @@ struct port_table_attribute {
 	int			index;
 };
 
-static inline int ibdev_is_alive(const struct ib_device *dev)
-{
-	return dev->reg_state == IB_DEV_REGISTERED;
-}
-
 static ssize_t port_attr_show(struct kobject *kobj,
 			      struct attribute *attr, char *buf)
 {
@@ -80,8 +75,6 @@ static ssize_t port_attr_show(struct kobject *kobj,
 
 	if (!port_attr->show)
 		return -EIO;
-	if (!ibdev_is_alive(p->ibdev))
-		return -ENODEV;
 
 	return port_attr->show(p, port_attr, buf);
 }
@@ -262,15 +255,7 @@ static ssize_t show_port_gid(struct ib_port *p, struct port_attribute *attr,
 	if (ret)
 		return ret;
 
-	return sprintf(buf, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
-		       be16_to_cpu(((__be16 *) gid.raw)[0]),
-		       be16_to_cpu(((__be16 *) gid.raw)[1]),
-		       be16_to_cpu(((__be16 *) gid.raw)[2]),
-		       be16_to_cpu(((__be16 *) gid.raw)[3]),
-		       be16_to_cpu(((__be16 *) gid.raw)[4]),
-		       be16_to_cpu(((__be16 *) gid.raw)[5]),
-		       be16_to_cpu(((__be16 *) gid.raw)[6]),
-		       be16_to_cpu(((__be16 *) gid.raw)[7]));
+	return sprintf(buf, "%pI6\n", gid.raw);
 }
 
 static ssize_t show_port_pkey(struct ib_port *p, struct port_attribute *attr,
@@ -570,9 +555,6 @@ static ssize_t show_node_type(struct device *device,
 {
 	struct ib_device *dev = container_of(device, struct ib_device, dev);
 
-	if (!ibdev_is_alive(dev))
-		return -ENODEV;
-
 	switch (dev->node_type) {
 	case RDMA_NODE_IB_CA:	  return sprintf(buf, "%d: CA\n", dev->node_type);
 	case RDMA_NODE_RNIC:	  return sprintf(buf, "%d: RNIC\n", dev->node_type);
@@ -589,9 +571,6 @@ static ssize_t show_sys_image_guid(struct device *device,
 	struct ib_device_attr attr;
 	ssize_t ret;
 
-	if (!ibdev_is_alive(dev))
-		return -ENODEV;
-
 	ret = ib_query_device(dev, &attr);
 	if (ret)
 		return ret;
@@ -607,9 +586,6 @@ static ssize_t show_node_guid(struct device *device,
 			      struct device_attribute *attr, char *buf)
 {
 	struct ib_device *dev = container_of(device, struct ib_device, dev);
-
-	if (!ibdev_is_alive(dev))
-		return -ENODEV;
 
 	return sprintf(buf, "%04x:%04x:%04x:%04x\n",
 		       be16_to_cpu(((__be16 *) &dev->node_guid)[0]),
@@ -786,7 +762,7 @@ int ib_device_register_sysfs(struct ib_device *device)
 	class_dev->class      = &ib_class;
 	class_dev->driver_data = device;
 	class_dev->parent     = device->dma_device;
-	strlcpy(class_dev->bus_id, device->name, BUS_ID_SIZE);
+	dev_set_name(class_dev, device->name);
 
 	INIT_LIST_HEAD(&device->port_list);
 
@@ -855,6 +831,9 @@ void ib_device_unregister_sysfs(struct ib_device *device)
 {
 	struct kobject *p, *t;
 	struct ib_port *port;
+
+	/* Hold kobject until ib_dealloc_device() */
+	kobject_get(&device->dev.kobj);
 
 	list_for_each_entry_safe(p, t, &device->port_list, entry) {
 		list_del(&p->entry);

@@ -25,6 +25,7 @@
 
 #define FWFILE "v4l-cx25840.fw"
 #define FWFILE_CX23885 "v4l-cx23885-avcore-01.fw"
+#define FWFILE_CX231XX "v4l-cx231xx-avcore-01.fw"
 
 /*
  * Mike Isely <isely@pobox.com> - The FWSEND parameter controls the
@@ -91,14 +92,22 @@ static int fw_write(struct i2c_client *client, const u8 *data, int size)
 
 int cx25840_loadfw(struct i2c_client *client)
 {
-	struct cx25840_state *state = i2c_get_clientdata(client);
+	struct cx25840_state *state = to_state(i2c_get_clientdata(client));
 	const struct firmware *fw = NULL;
 	u8 buffer[FWSEND];
 	const u8 *ptr;
 	int size, retval;
+	int MAX_BUF_SIZE = FWSEND;
 
 	if (state->is_cx23885)
 		firmware = FWFILE_CX23885;
+	else if (state->is_cx231xx)
+		firmware = FWFILE_CX231XX;
+
+	if ((state->is_cx231xx) && MAX_BUF_SIZE > 16) {
+		v4l_err(client, " Firmware download size changed to 16 bytes max length\n");
+		MAX_BUF_SIZE = 16;  /* cx231xx cannot accept more than 16 bytes at a time */
+	}
 
 	if (request_firmware(&fw, firmware, FWDEV(client)) != 0) {
 		v4l_err(client, "unable to open firmware %s\n", firmware);
@@ -113,7 +122,7 @@ int cx25840_loadfw(struct i2c_client *client)
 	size = fw->size;
 	ptr = fw->data;
 	while (size > 0) {
-		int len = min(FWSEND - 2, size);
+		int len = min(MAX_BUF_SIZE - 2, size);
 
 		memcpy(buffer + 2, ptr, len);
 

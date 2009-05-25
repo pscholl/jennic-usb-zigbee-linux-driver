@@ -1,7 +1,7 @@
 /*
  *  Driver for the Siano SMS1xxx USB dongle
  *
- *  author: Anatoly Greenblat
+ *  Author: Uri Shkolni
  *
  *  Copyright (c), 2005-2008 Siano Mobile Silicon, Inc.
  *
@@ -27,8 +27,32 @@
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+struct smsdvb_client_t {
+	struct list_head entry;
+
+	struct smscore_device_t *coredev;
+	struct smscore_client_t *smsclient;
+
+	struct dvb_adapter      adapter;
+	struct dvb_demux        demux;
+	struct dmxdev           dmxdev;
+	struct dvb_frontend     frontend;
+
+	fe_status_t             fe_status;
+	int                     fe_ber, fe_snr, fe_unc, fe_signal_strength;
+
+	struct completion       tune_done, stat_done;
+
+	/* todo: save freq/band instead whole struct */
+	struct dvb_frontend_parameters fe_params;
+};
+
 static struct list_head g_smsdvb_clients;
 static struct mutex g_smsdvb_clientslock;
+
+static int sms_dbg;
+module_param_named(debug, sms_dbg, int, 0644);
+MODULE_PARM_DESC(debug, "set debug level (info=1, adv=2 (or-able))");
 
 static int smsdvb_onresponse(void *context, struct smscore_buffer_t *cb)
 {
@@ -60,6 +84,7 @@ static int smsdvb_onresponse(void *context, struct smscore_buffer_t *cb)
 
 			client->fe_snr = p->Stat.SNR;
 			client->fe_ber = p->Stat.BER;
+			client->fe_unc = p->Stat.BERErrorCount;
 
 			if (p->Stat.InBandPwr < -95)
 				client->fe_signal_strength = 0;
@@ -72,6 +97,7 @@ static int smsdvb_onresponse(void *context, struct smscore_buffer_t *cb)
 			client->fe_status = 0;
 			client->fe_snr =
 			client->fe_ber =
+			client->fe_unc =
 			client->fe_signal_strength = 0;
 		}
 
@@ -165,8 +191,18 @@ static int smsdvb_send_statistics_request(struct smsdvb_client_t *client)
 	struct SmsMsgHdr_ST Msg = { MSG_SMS_GET_STATISTICS_REQ,
 			     DVBT_BDA_CONTROL_MSG_ID,
 			     HIF_TASK, sizeof(struct SmsMsgHdr_ST), 0 };
-	return smsdvb_sendrequest_and_wait(client, &Msg, sizeof(Msg),
-					   &client->stat_done);
+	int ret = smsdvb_sendrequest_and_wait(client, &Msg, sizeof(Msg),
+					      &client->stat_done);
+	if (ret < 0)
+		return ret;
+
+	if (client->fe_status & FE_HAS_LOCK)
+		sms_board_led_feedback(client->coredev,
+				       (client->fe_unc == 0) ?
+				       SMS_LED_HI : SMS_LED_LO);
+	else
+		sms_board_led_feedback(client->coredev, SMS_LED_OFF);
+	return ret;
 }
 
 static int smsdvb_read_status(struct dvb_frontend *fe, fe_status_t *stat)
@@ -217,6 +253,18 @@ static int smsdvb_read_snr(struct dvb_frontend *fe, u16 *snr)
 	return rc;
 }
 
+static int smsdvb_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
+{
+	struct smsdvb_client_t *client =
+		container_of(fe, struct smsdvb_client_t, frontend);
+	int rc = smsdvb_send_statistics_request(client);
+
+	if (!rc)
+		*ucblocks = client->fe_unc;
+
+	return rc;
+}
+
 static int smsdvb_get_tune_settings(struct dvb_frontend *fe,
 				    struct dvb_frontend_tune_settings *tune)
 {
@@ -238,6 +286,7 @@ static int smsdvb_set_frontend(struct dvb_frontend *fe,
 		struct SmsMsgHdr_ST	Msg;
 		u32		Data[3];
 	} Msg;
+	int ret;
 
 	Msg.Msg.msgSrcId  = DVBT_BDA_CONTROL_MSG_ID;
 	Msg.Msg.msgDstId  = HIF_TASK;
@@ -258,6 +307,24 @@ static int smsdvb_set_frontend(struct dvb_frontend *fe,
 	default: return -EINVAL;
 	}
 
+	/* Disable LNA, if any. An error is returned if no LNA is present */
+	ret = sms_board_lna_control(client->coredev, 0);
+	if (ret == 0) {
+		fe_status_t status;
+
+		/* tune with LNA off at first */
+		ret = smsdvb_sendrequest_and_wait(client, &Msg, sizeof(Msg),
+						  &client->tune_done);
+
+		smsdvb_read_status(fe, &status);
+
+		if (status & FE_HAS_LOCK)
+			return ret;
+
+		/* previous tune didnt lock - enable LNA and tune again */
+		sms_board_lna_control(client->coredev, 1);
+	}
+
 	return smsdvb_sendrequest_and_wait(client, &Msg, sizeof(Msg),
 					   &client->tune_done);
 }
@@ -273,6 +340,28 @@ static int smsdvb_get_frontend(struct dvb_frontend *fe,
 	/* todo: */
 	memcpy(fep, &client->fe_params,
 	       sizeof(struct dvb_frontend_parameters));
+
+	return 0;
+}
+
+static int smsdvb_init(struct dvb_frontend *fe)
+{
+	struct smsdvb_client_t *client =
+		container_of(fe, struct smsdvb_client_t, frontend);
+
+	sms_board_power(client->coredev, 1);
+
+	return 0;
+}
+
+static int smsdvb_sleep(struct dvb_frontend *fe)
+{
+	struct smsdvb_client_t *client =
+		container_of(fe, struct smsdvb_client_t, frontend);
+
+	sms_board_led_feedback(client->coredev, SMS_LED_OFF);
+	sms_board_power(client->coredev, 0);
+
 	return 0;
 }
 
@@ -283,7 +372,7 @@ static void smsdvb_release(struct dvb_frontend *fe)
 
 static struct dvb_frontend_ops smsdvb_fe_ops = {
 	.info = {
-		.name			= "Siano Mobile Digital SMS1xxx",
+		.name			= "Siano Mobile Digital MDTV Receiver",
 		.type			= FE_OFDM,
 		.frequency_min		= 44250000,
 		.frequency_max		= 867250000,
@@ -308,6 +397,10 @@ static struct dvb_frontend_ops smsdvb_fe_ops = {
 	.read_ber = smsdvb_read_ber,
 	.read_signal_strength = smsdvb_read_signal_strength,
 	.read_snr = smsdvb_read_snr,
+	.read_ucblocks = smsdvb_read_ucblocks,
+
+	.init = smsdvb_init,
+	.sleep = smsdvb_sleep,
 };
 
 static int smsdvb_hotplug(struct smscore_device_t *coredev,
@@ -321,7 +414,7 @@ static int smsdvb_hotplug(struct smscore_device_t *coredev,
 	if (!arrival)
 		return 0;
 
-	if (smscore_get_device_mode(coredev) != 4) {
+	if (smscore_get_device_mode(coredev) != DEVICE_MODE_DVBT_BDA) {
 		sms_err("SMS Device mode is not set for "
 			"DVB operation.");
 		return 0;
@@ -402,6 +495,8 @@ static int smsdvb_hotplug(struct smscore_device_t *coredev,
 
 	sms_info("success");
 
+	sms_board_setup(coredev);
+
 	return 0;
 
 client_error:
@@ -421,7 +516,7 @@ adapter_error:
 	return rc;
 }
 
-int smsdvb_register(void)
+int smsdvb_module_init(void)
 {
 	int rc;
 
@@ -435,7 +530,7 @@ int smsdvb_register(void)
 	return rc;
 }
 
-void smsdvb_unregister(void)
+void smsdvb_module_exit(void)
 {
 	smscore_unregister_hotplug(smsdvb_hotplug);
 
@@ -447,3 +542,10 @@ void smsdvb_unregister(void)
 
 	kmutex_unlock(&g_smsdvb_clientslock);
 }
+
+module_init(smsdvb_module_init);
+module_exit(smsdvb_module_exit);
+
+MODULE_DESCRIPTION("SMS DVB subsystem adaptation module");
+MODULE_AUTHOR("Siano Mobile Silicon, INC. (uris@siano-ms.com)");
+MODULE_LICENSE("GPL");

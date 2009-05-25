@@ -605,7 +605,7 @@ out:
 
 static void __init printEEPROMInfo(struct net_device *dev)
 {
-	struct eepro_local *lp = (struct eepro_local *)dev->priv;
+	struct eepro_local *lp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
 	unsigned short Word;
 	int i,j;
@@ -690,7 +690,6 @@ static void __init eepro_print_info (struct net_device *dev)
 	struct eepro_local *	lp = netdev_priv(dev);
 	int			i;
 	const char *		ifmap[] = {"AUI", "10Base2", "10BaseT"};
-	DECLARE_MAC_BUF(mac);
 
 	i = inb(dev->base_addr + ID_REG);
 	printk(KERN_DEBUG " id: %#x ",i);
@@ -715,7 +714,7 @@ static void __init eepro_print_info (struct net_device *dev)
 			break;
 	}
 
-	printk(" %s", print_mac(mac, dev->dev_addr));
+	printk(" %pM", dev->dev_addr);
 
 	if (net_debug > 3)
 		printk(KERN_DEBUG ", %dK RCV buffer",
@@ -739,6 +738,17 @@ static void __init eepro_print_info (struct net_device *dev)
 }
 
 static const struct ethtool_ops eepro_ethtool_ops;
+
+static const struct net_device_ops eepro_netdev_ops = {
+ 	.ndo_open               = eepro_open,
+ 	.ndo_stop               = eepro_close,
+ 	.ndo_start_xmit    	= eepro_send_packet,
+ 	.ndo_set_multicast_list = set_multicast_list,
+ 	.ndo_tx_timeout		= eepro_tx_timeout,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
 
 /* This is the real probe routine.  Linux has a history of friendly device
    probes on the ISA bus.  A good device probe avoids doing writes, and
@@ -852,11 +862,7 @@ static int __init eepro_probe1(struct net_device *dev, int autoprobe)
  		}
  	}
 
- 	dev->open               = eepro_open;
- 	dev->stop               = eepro_close;
- 	dev->hard_start_xmit    = eepro_send_packet;
- 	dev->set_multicast_list = &set_multicast_list;
- 	dev->tx_timeout		= eepro_tx_timeout;
+	dev->netdev_ops		= &eepro_netdev_ops;
  	dev->watchdog_timeo	= TX_TIMEOUT;
 	dev->ethtool_ops	= &eepro_ethtool_ops;
 
@@ -1396,7 +1402,7 @@ set_multicast_list(struct net_device *dev)
 #define eeprom_delay() { udelay(40); }
 #define EE_READ_CMD (6 << 6)
 
-int
+static int
 read_eeprom(int ioaddr, int location, struct net_device *dev)
 {
 	int i;
@@ -1581,7 +1587,6 @@ eepro_rx(struct net_device *dev)
 
 			skb->protocol = eth_type_trans(skb,dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 		}
 
@@ -1676,7 +1681,7 @@ eepro_transmit_interrupt(struct net_device *dev)
 static int eepro_ethtool_get_settings(struct net_device *dev,
 					struct ethtool_cmd *cmd)
 {
-	struct eepro_local	*lp = (struct eepro_local *)dev->priv;
+	struct eepro_local	*lp = netdev_priv(dev);
 
 	cmd->supported = 	SUPPORTED_10baseT_Half |
 				SUPPORTED_10baseT_Full |

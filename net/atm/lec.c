@@ -62,7 +62,6 @@ static unsigned char bridge_ula_lec[] = { 0x01, 0x80, 0xc2, 0x00, 0x00 };
 static int lec_open(struct net_device *dev);
 static int lec_start_xmit(struct sk_buff *skb, struct net_device *dev);
 static int lec_close(struct net_device *dev);
-static struct net_device_stats *lec_get_stats(struct net_device *dev);
 static void lec_init(struct net_device *dev);
 static struct lec_arp_table *lec_arp_find(struct lec_priv *priv,
 					  const unsigned char *mac_addr);
@@ -152,7 +151,7 @@ static void lec_handle_bridge(struct sk_buff *skb, struct net_device *dev)
 		buff += 4;
 		mesg->content.normal.flag = *buff & 0x01;	/* 0x01 is topology change */
 
-		priv = (struct lec_priv *)dev->priv;
+		priv = netdev_priv(dev);
 		atm_force_charge(priv->lecd, skb2->truesize);
 		sk = sk_atm(priv->lecd);
 		skb_queue_tail(&sk->sk_receive_queue, skb2);
@@ -218,28 +217,28 @@ static unsigned char *get_tr_dst(unsigned char *packet, unsigned char *rdesc)
 
 static int lec_open(struct net_device *dev)
 {
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
-
 	netif_start_queue(dev);
-	memset(&priv->stats, 0, sizeof(struct net_device_stats));
+	memset(&dev->stats, 0, sizeof(struct net_device_stats));
 
 	return 0;
 }
 
-static __inline__ void
-lec_send(struct atm_vcc *vcc, struct sk_buff *skb, struct lec_priv *priv)
+static void
+lec_send(struct atm_vcc *vcc, struct sk_buff *skb)
 {
+	struct net_device *dev = skb->dev;
+
 	ATM_SKB(skb)->vcc = vcc;
 	ATM_SKB(skb)->atm_options = vcc->atm_options;
 
 	atomic_add(skb->truesize, &sk_atm(vcc)->sk_wmem_alloc);
 	if (vcc->send(vcc, skb) < 0) {
-		priv->stats.tx_dropped++;
+		dev->stats.tx_dropped++;
 		return;
 	}
 
-	priv->stats.tx_packets++;
-	priv->stats.tx_bytes += skb->len;
+	dev->stats.tx_packets++;
+	dev->stats.tx_bytes += skb->len;
 }
 
 static void lec_tx_timeout(struct net_device *dev)
@@ -252,7 +251,7 @@ static void lec_tx_timeout(struct net_device *dev)
 static int lec_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct sk_buff *skb2;
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
+	struct lec_priv *priv = netdev_priv(dev);
 	struct lecdatahdr_8023 *lec_h;
 	struct atm_vcc *vcc;
 	struct lec_arp_table *entry;
@@ -270,7 +269,7 @@ static int lec_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	pr_debug("lec_start_xmit called\n");
 	if (!priv->lecd) {
 		printk("%s:No lecd attached\n", dev->name);
-		priv->stats.tx_errors++;
+		dev->stats.tx_errors++;
 		netif_stop_queue(dev);
 		return -EUNATCH;
 	}
@@ -345,7 +344,7 @@ static int lec_start_xmit(struct sk_buff *skb, struct net_device *dev)
 					       GFP_ATOMIC);
 			dev_kfree_skb(skb);
 			if (skb2 == NULL) {
-				priv->stats.tx_dropped++;
+				dev->stats.tx_dropped++;
 				return 0;
 			}
 			skb = skb2;
@@ -373,20 +372,14 @@ static int lec_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		if (entry && (entry->tx_wait.qlen < LEC_UNRES_QUE_LEN)) {
 			pr_debug("%s:lec_start_xmit: queuing packet, ",
 				dev->name);
-			pr_debug("MAC address " MAC_FMT "\n",
-				 lec_h->h_dest[0], lec_h->h_dest[1],
-				 lec_h->h_dest[2], lec_h->h_dest[3],
-				 lec_h->h_dest[4], lec_h->h_dest[5]);
+			pr_debug("MAC address %pM\n", lec_h->h_dest);
 			skb_queue_tail(&entry->tx_wait, skb);
 		} else {
 			pr_debug
 			    ("%s:lec_start_xmit: tx queue full or no arp entry, dropping, ",
 			     dev->name);
-			pr_debug("MAC address " MAC_FMT "\n",
-				 lec_h->h_dest[0], lec_h->h_dest[1],
-				 lec_h->h_dest[2], lec_h->h_dest[3],
-				 lec_h->h_dest[4], lec_h->h_dest[5]);
-			priv->stats.tx_dropped++;
+			pr_debug("MAC address %pM\n", lec_h->h_dest);
+			dev->stats.tx_dropped++;
 			dev_kfree_skb(skb);
 		}
 		goto out;
@@ -397,14 +390,11 @@ static int lec_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	while (entry && (skb2 = skb_dequeue(&entry->tx_wait))) {
 		pr_debug("lec.c: emptying tx queue, ");
-		pr_debug("MAC address " MAC_FMT "\n",
-			 lec_h->h_dest[0], lec_h->h_dest[1],
-			 lec_h->h_dest[2], lec_h->h_dest[3],
-			 lec_h->h_dest[4], lec_h->h_dest[5]);
-		lec_send(vcc, skb2, priv);
+		pr_debug("MAC address %pM\n", lec_h->h_dest);
+		lec_send(vcc, skb2);
 	}
 
-	lec_send(vcc, skb, priv);
+	lec_send(vcc, skb);
 
 	if (!atm_may_send(vcc, 0)) {
 		struct lec_vcc_priv *vpriv = LEC_VCC_PRIV(vcc);
@@ -436,20 +426,11 @@ static int lec_close(struct net_device *dev)
 	return 0;
 }
 
-/*
- * Get the current statistics.
- * This may be called with the card open or closed.
- */
-static struct net_device_stats *lec_get_stats(struct net_device *dev)
-{
-	return &((struct lec_priv *)dev->priv)->stats;
-}
-
 static int lec_atm_send(struct atm_vcc *vcc, struct sk_buff *skb)
 {
 	unsigned long flags;
 	struct net_device *dev = (struct net_device *)vcc->proto_data;
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
+	struct lec_priv *priv = netdev_priv(dev);
 	struct atmlec_msg *mesg;
 	struct lec_arp_table *entry;
 	int i;
@@ -521,7 +502,7 @@ static int lec_atm_send(struct atm_vcc *vcc, struct sk_buff *skb)
 		priv->lane2_ops = NULL;
 		if (priv->lane_version > 1)
 			priv->lane2_ops = &lane2_ops;
-		if (dev->change_mtu(dev, mesg->content.config.mtu))
+		if (dev_set_mtu(dev, mesg->content.config.mtu))
 			printk("%s: change_mtu to %d failed\n", dev->name,
 			       mesg->content.config.mtu);
 		priv->is_proxy = mesg->content.config.is_proxy;
@@ -539,15 +520,8 @@ static int lec_atm_send(struct atm_vcc *vcc, struct sk_buff *skb)
 		{
 			struct net_bridge_fdb_entry *f;
 
-			pr_debug
-			    ("%s: bridge zeppelin asks about " MAC_FMT "\n",
-			     dev->name,
-			     mesg->content.proxy.mac_addr[0],
-			     mesg->content.proxy.mac_addr[1],
-			     mesg->content.proxy.mac_addr[2],
-			     mesg->content.proxy.mac_addr[3],
-			     mesg->content.proxy.mac_addr[4],
-			     mesg->content.proxy.mac_addr[5]);
+			pr_debug("%s: bridge zeppelin asks about %pM\n",
+				 dev->name, mesg->content.proxy.mac_addr);
 
 			if (br_fdb_get_hook == NULL || dev->br_port == NULL)
 				break;
@@ -596,7 +570,7 @@ static void lec_atm_close(struct atm_vcc *vcc)
 {
 	struct sk_buff *skb;
 	struct net_device *dev = (struct net_device *)vcc->proto_data;
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
+	struct lec_priv *priv = netdev_priv(dev);
 
 	priv->lecd = NULL;
 	/* Do something needful? */
@@ -693,17 +667,19 @@ static void lec_set_multicast_list(struct net_device *dev)
 	return;
 }
 
+static const struct net_device_ops lec_netdev_ops = {
+	.ndo_open		= lec_open,
+	.ndo_stop		= lec_close,
+	.ndo_start_xmit		= lec_start_xmit,
+	.ndo_change_mtu		= lec_change_mtu,
+	.ndo_tx_timeout		= lec_tx_timeout,
+	.ndo_set_multicast_list	= lec_set_multicast_list,
+};
+
+
 static void lec_init(struct net_device *dev)
 {
-	dev->change_mtu = lec_change_mtu;
-	dev->open = lec_open;
-	dev->stop = lec_close;
-	dev->hard_start_xmit = lec_start_xmit;
-	dev->tx_timeout = lec_tx_timeout;
-
-	dev->get_stats = lec_get_stats;
-	dev->set_multicast_list = lec_set_multicast_list;
-	dev->do_ioctl = NULL;
+	dev->netdev_ops = &lec_netdev_ops;
 	printk("%s: Initialized!\n", dev->name);
 }
 
@@ -727,7 +703,7 @@ static void lec_push(struct atm_vcc *vcc, struct sk_buff *skb)
 {
 	unsigned long flags;
 	struct net_device *dev = (struct net_device *)vcc->proto_data;
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
+	struct lec_priv *priv = netdev_priv(dev);
 
 #if DUMP_PACKETS >0
 	int i = 0;
@@ -826,8 +802,8 @@ static void lec_push(struct atm_vcc *vcc, struct sk_buff *skb)
 		else
 #endif
 			skb->protocol = eth_type_trans(skb, dev);
-		priv->stats.rx_packets++;
-		priv->stats.rx_bytes += skb->len;
+		dev->stats.rx_packets++;
+		dev->stats.rx_bytes += skb->len;
 		memset(ATM_SKB(skb), 0, sizeof(struct atm_skb_data));
 		netif_rx(skb);
 	}
@@ -874,7 +850,7 @@ static int lec_vcc_attach(struct atm_vcc *vcc, void __user *arg)
 	vpriv->old_pop = vcc->pop;
 	vcc->user_back = vpriv;
 	vcc->pop = lec_pop;
-	lec_vcc_added(dev_lec[ioc_data.dev_num]->priv,
+	lec_vcc_added(netdev_priv(dev_lec[ioc_data.dev_num]),
 		      &ioc_data, vcc, vcc->push);
 	vcc->proto_data = dev_lec[ioc_data.dev_num];
 	vcc->push = lec_push;
@@ -886,7 +862,8 @@ static int lec_mcast_attach(struct atm_vcc *vcc, int arg)
 	if (arg < 0 || arg >= MAX_LEC_ITF || !dev_lec[arg])
 		return -EINVAL;
 	vcc->proto_data = dev_lec[arg];
-	return (lec_mcast_make((struct lec_priv *)dev_lec[arg]->priv, vcc));
+	return lec_mcast_make((struct lec_priv *)netdev_priv(dev_lec[arg]),
+				vcc);
 }
 
 /* Initialize device. */
@@ -928,11 +905,11 @@ static int lecd_attach(struct atm_vcc *vcc, int arg)
 			return -EINVAL;
 		}
 
-		priv = dev_lec[i]->priv;
+		priv = netdev_priv(dev_lec[i]);
 		priv->is_trdev = is_trdev;
 		lec_init(dev_lec[i]);
 	} else {
-		priv = dev_lec[i]->priv;
+		priv = netdev_priv(dev_lec[i]);
 		if (priv->lecd)
 			return -EADDRINUSE;
 	}
@@ -1093,7 +1070,8 @@ static void *lec_itf_walk(struct lec_state *state, loff_t *l)
 	void *v;
 
 	dev = state->dev ? state->dev : dev_lec[state->itf];
-	v = (dev && dev->priv) ? lec_priv_walk(state, l, dev->priv) : NULL;
+	v = (dev && netdev_priv(dev)) ?
+		lec_priv_walk(state, l, netdev_priv(dev)) : NULL;
 	if (!v && dev) {
 		dev_put(dev);
 		/* Partial state reset for the next time we get called */
@@ -1255,7 +1233,7 @@ static void __exit lane_module_cleanup(void)
 
 	for (i = 0; i < MAX_LEC_ITF; i++) {
 		if (dev_lec[i] != NULL) {
-			priv = (struct lec_priv *)dev_lec[i]->priv;
+			priv = netdev_priv(dev_lec[i]);
 			unregister_netdev(dev_lec[i]);
 			free_netdev(dev_lec[i]);
 			dev_lec[i] = NULL;
@@ -1279,7 +1257,7 @@ static int lane2_resolve(struct net_device *dev, const u8 *dst_mac, int force,
 			 u8 **tlvs, u32 *sizeoftlvs)
 {
 	unsigned long flags;
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
+	struct lec_priv *priv = netdev_priv(dev);
 	struct lec_arp_table *table;
 	struct sk_buff *skb;
 	int retval;
@@ -1326,7 +1304,7 @@ static int lane2_associate_req(struct net_device *dev, const u8 *lan_dst,
 {
 	int retval;
 	struct sk_buff *skb;
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
+	struct lec_priv *priv = netdev_priv(dev);
 
 	if (compare_ether_addr(lan_dst, dev->dev_addr))
 		return (0);	/* not our mac address */
@@ -1363,7 +1341,7 @@ static void lane2_associate_ind(struct net_device *dev, const u8 *mac_addr,
 #if 0
 	int i = 0;
 #endif
-	struct lec_priv *priv = (struct lec_priv *)dev->priv;
+	struct lec_priv *priv = netdev_priv(dev);
 #if 0				/*
 				 * Why have the TLVs in LE_ARP entries
 				 * since we do not use them? When you
@@ -1901,7 +1879,7 @@ restart:
 					lec_arp_hold(entry);
 					spin_unlock_irqrestore(&priv->lec_arp_lock, flags);
 					while ((skb = skb_dequeue(&entry->tx_wait)) != NULL)
-						lec_send(vcc, skb, entry->priv);
+						lec_send(vcc, skb);
 					entry->last_used = jiffies;
 					entry->status = ESI_FORWARD_DIRECT;
 					lec_arp_put(entry);
@@ -2319,7 +2297,7 @@ restart:
 				lec_arp_hold(entry);
 				spin_unlock_irqrestore(&priv->lec_arp_lock, flags);
 				while ((skb = skb_dequeue(&entry->tx_wait)) != NULL)
-					lec_send(vcc, skb, entry->priv);
+					lec_send(vcc, skb);
 				entry->last_used = jiffies;
 				entry->status = ESI_FORWARD_DIRECT;
 				lec_arp_put(entry);

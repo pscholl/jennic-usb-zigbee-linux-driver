@@ -428,7 +428,7 @@ static int cpmac_poll(struct napi_struct *napi, int budget)
 			printk(KERN_WARNING "%s: rx: polling, but no queue\n",
 			       priv->dev->name);
 		spin_unlock(&priv->rx_lock);
-		netif_rx_complete(priv->dev, napi);
+		napi_complete(napi);
 		return 0;
 	}
 
@@ -514,7 +514,7 @@ static int cpmac_poll(struct napi_struct *napi, int budget)
 	if (processed == 0) {
 		/* we ran out of packets to read,
 		 * revert to interrupt-driven mode */
-		netif_rx_complete(priv->dev, napi);
+		napi_complete(napi);
 		cpmac_write(priv->regs, CPMAC_RX_INT_ENABLE, 1);
 		return 0;
 	}
@@ -536,7 +536,7 @@ fatal_error:
 	}
 
 	spin_unlock(&priv->rx_lock);
-	netif_rx_complete(priv->dev, napi);
+	napi_complete(napi);
 	netif_tx_stop_all_queues(priv->dev);
 	napi_disable(&priv->napi);
 
@@ -802,9 +802,9 @@ static irqreturn_t cpmac_irq(int irq, void *dev_id)
 
 	if (status & MAC_INT_RX) {
 		queue = (status >> 8) & 7;
-		if (netif_rx_schedule_prep(dev, &priv->napi)) {
+		if (napi_schedule_prep(&priv->napi)) {
 			cpmac_write(priv->regs, CPMAC_RX_INT_CLEAR, 1 << queue);
-			__netif_rx_schedule(dev, &priv->napi);
+			__napi_schedule(&priv->napi);
 		}
 	}
 
@@ -1103,7 +1103,6 @@ static int __devinit cpmac_probe(struct platform_device *pdev)
 	struct cpmac_priv *priv;
 	struct net_device *dev;
 	struct plat_cpmac_data *pdata;
-	DECLARE_MAC_BUF(mac);
 
 	pdata = pdev->dev.platform_data;
 
@@ -1162,7 +1161,7 @@ static int __devinit cpmac_probe(struct platform_device *pdev)
 	priv->msg_enable = netif_msg_init(debug_level, 0xff);
 	memcpy(dev->dev_addr, pdata->dev_addr, sizeof(dev->dev_addr));
 
-	priv->phy = phy_connect(dev, cpmac_mii->phy_map[phy_id]->dev.bus_id,
+	priv->phy = phy_connect(dev, dev_name(&cpmac_mii->phy_map[phy_id]->dev),
 				&cpmac_adjust_link, 0, PHY_INTERFACE_MODE_MII);
 	if (IS_ERR(priv->phy)) {
 		if (netif_msg_drv(priv))
@@ -1180,8 +1179,8 @@ static int __devinit cpmac_probe(struct platform_device *pdev)
 	if (netif_msg_probe(priv)) {
 		printk(KERN_INFO
 		       "cpmac: device %s (regs: %p, irq: %d, phy: %s, "
-		       "mac: %s)\n", dev->name, (void *)mem->start, dev->irq,
-		       priv->phy_name, print_mac(mac, dev->dev_addr));
+		       "mac: %pM)\n", dev->name, (void *)mem->start, dev->irq,
+		       priv->phy_name, dev->dev_addr);
 	}
 	return 0;
 

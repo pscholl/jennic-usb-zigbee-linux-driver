@@ -3,7 +3,7 @@
  *  Support for a cx23416 mpeg encoder via cx2388x host port.
  *  "blackbird" reference design.
  *
- *    (c) 2004 Jelle Foks <jelle@foks.8m.com>
+ *    (c) 2004 Jelle Foks <jelle@foks.us>
  *    (c) 2004 Gerd Knorr <kraxel@bytesex.org>
  *
  *    (c) 2005-2006 Mauro Carvalho Chehab <mchehab@infradead.org>
@@ -39,7 +39,7 @@
 #include "cx88.h"
 
 MODULE_DESCRIPTION("driver for cx2388x/cx23416 based mpeg encoder cards");
-MODULE_AUTHOR("Jelle Foks <jelle@foks.8m.com>, Gerd Knorr <kraxel@bytesex.org> [SuSE Labs]");
+MODULE_AUTHOR("Jelle Foks <jelle@foks.us>, Gerd Knorr <kraxel@bytesex.org> [SuSE Labs]");
 MODULE_LICENSE("GPL");
 
 static unsigned int mpegbufs = 32;
@@ -746,7 +746,6 @@ static int vidioc_enum_fmt_vid_cap (struct file *file, void  *priv,
 		return -EINVAL;
 
 	strlcpy(f->description, "MPEG", sizeof(f->description));
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->pixelformat = V4L2_PIX_FMT_MPEG;
 	return 0;
 }
@@ -757,7 +756,6 @@ static int vidioc_g_fmt_vid_cap (struct file *file, void *priv,
 	struct cx8802_fh  *fh   = priv;
 	struct cx8802_dev *dev  = fh->dev;
 
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
 	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */
@@ -776,7 +774,6 @@ static int vidioc_try_fmt_vid_cap (struct file *file, void *priv,
 	struct cx8802_fh  *fh   = priv;
 	struct cx8802_dev *dev  = fh->dev;
 
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
 	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */;
@@ -793,7 +790,6 @@ static int vidioc_s_fmt_vid_cap (struct file *file, void *priv,
 	struct cx8802_dev *dev  = fh->dev;
 	struct cx88_core  *core = dev->core;
 
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
 	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */;
@@ -919,7 +915,7 @@ static int vidioc_log_status (struct file *file, void *priv)
 	snprintf(name, sizeof(name), "%s/2", core->name);
 	printk("%s/2: ============  START LOG STATUS  ============\n",
 		core->name);
-	cx88_call_i2c_clients(core, VIDIOC_LOG_STATUS, NULL);
+	call_all(core, core, log_status);
 	cx2341x_log_status(&dev->params, name);
 	printk("%s/2: =============  END LOG STATUS  =============\n",
 		core->name);
@@ -974,7 +970,7 @@ static int vidioc_g_frequency (struct file *file, void *priv,
 
 	f->type = V4L2_TUNER_ANALOG_TV;
 	f->frequency = core->freq;
-	cx88_call_i2c_clients(core,VIDIOC_G_FREQUENCY,f);
+	call_all(core, tuner, g_frequency, f);
 
 	return 0;
 }
@@ -1049,16 +1045,16 @@ static int vidioc_s_std (struct file *file, void *priv, v4l2_std_id *id)
 
 /* FIXME: cx88_ioctl_hook not implemented */
 
-static int mpeg_open(struct inode *inode, struct file *file)
+static int mpeg_open(struct file *file)
 {
-	int minor = iminor(inode);
+	int minor = video_devdata(file)->minor;
 	struct cx8802_dev *dev = NULL;
 	struct cx8802_fh *fh;
 	struct cx8802_driver *drv = NULL;
 	int err;
 
 	lock_kernel();
-	dev = cx8802_get_device(inode);
+	dev = cx8802_get_device(minor);
 
 	dprintk( 1, "%s\n", __func__);
 
@@ -1114,7 +1110,7 @@ static int mpeg_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int mpeg_release(struct inode *inode, struct file *file)
+static int mpeg_release(struct file *file)
 {
 	struct cx8802_fh  *fh  = file->private_data;
 	struct cx8802_dev *dev = fh->dev;
@@ -1132,7 +1128,7 @@ static int mpeg_release(struct inode *inode, struct file *file)
 	kfree(fh);
 
 	/* Make sure we release the hardware */
-	dev = cx8802_get_device(inode);
+	dev = cx8802_get_device(video_devdata(file)->minor);
 	if (dev == NULL)
 		return -ENODEV;
 
@@ -1178,7 +1174,7 @@ mpeg_mmap(struct file *file, struct vm_area_struct * vma)
 	return videobuf_mmap_mapper(&fh->mpegq, vma);
 }
 
-static const struct file_operations mpeg_fops =
+static const struct v4l2_file_operations mpeg_fops =
 {
 	.owner	       = THIS_MODULE,
 	.open	       = mpeg_open,
@@ -1187,7 +1183,6 @@ static const struct file_operations mpeg_fops =
 	.poll          = mpeg_poll,
 	.mmap	       = mpeg_mmap,
 	.ioctl	       = video_ioctl2,
-	.llseek        = no_llseek,
 };
 
 static const struct v4l2_ioctl_ops mpeg_ioctl_ops = {
@@ -1244,8 +1239,16 @@ static int cx8802_blackbird_advise_acquire(struct cx8802_driver *drv)
 		 * We're being given access to re-arrange the GPIOs.
 		 * Take the bus off the cx22702 and put the cx23416 on it.
 		 */
-		cx_clear(MO_GP0_IO, 0x00000080); /* cx22702 in reset */
-		cx_set(MO_GP0_IO,   0x00000004); /* Disable the cx22702 */
+		/* Toggle reset on cx22702 leaving i2c active */
+		cx_set(MO_GP0_IO, 0x00000080);
+		udelay(1000);
+		cx_clear(MO_GP0_IO, 0x00000080);
+		udelay(50);
+		cx_set(MO_GP0_IO, 0x00000080);
+		udelay(1000);
+		/* tri-state the cx22702 pins */
+		cx_set(MO_GP0_IO, 0x00000004);
+		udelay(1000);
 		break;
 	default:
 		err = -ENODEV;

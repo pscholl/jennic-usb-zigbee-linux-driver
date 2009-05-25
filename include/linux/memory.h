@@ -79,14 +79,14 @@ static inline int memory_notify(unsigned long val, void *v)
 #else
 extern int register_memory_notifier(struct notifier_block *nb);
 extern void unregister_memory_notifier(struct notifier_block *nb);
-extern int register_new_memory(struct mem_section *);
+extern int register_new_memory(int, struct mem_section *);
 extern int unregister_memory_section(struct mem_section *);
 extern int memory_dev_init(void);
 extern int remove_memory_block(unsigned long, struct mem_section *, int);
 extern int memory_notify(unsigned long val, void *v);
+extern struct memory_block *find_memory_block(struct mem_section *);
 #define CONFIG_MEM_BLOCK_SIZE	(PAGES_PER_SECTION<<PAGE_SHIFT)
-
-
+enum mem_add_context { BOOT, HOTPLUG };
 #endif /* CONFIG_MEMORY_HOTPLUG_SPARSE */
 
 #ifdef CONFIG_MEMORY_HOTPLUG
@@ -98,5 +98,22 @@ extern int memory_notify(unsigned long val, void *v);
 #else
 #define hotplug_memory_notifier(fn, pri) do { } while (0)
 #endif
+
+/*
+ * 'struct memory_accessor' is a generic interface to provide
+ * in-kernel access to persistent memory such as i2c or SPI EEPROMs
+ */
+struct memory_accessor {
+	ssize_t (*read)(struct memory_accessor *, char *buf, off_t offset,
+			size_t count);
+	ssize_t (*write)(struct memory_accessor *, const char *buf,
+			 off_t offset, size_t count);
+};
+
+/*
+ * Kernel text modification mutex, used for code patching. Users of this lock
+ * can sleep.
+ */
+extern struct mutex text_mutex;
 
 #endif /* _LINUX_MEMORY_H_ */

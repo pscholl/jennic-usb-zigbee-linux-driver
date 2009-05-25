@@ -605,7 +605,6 @@ static void irqrx_handler(struct net_device *dev)
 				skb->ip_summed = CHECKSUM_NONE;
 
 				/* bookkeeping */
-				dev->last_rx = jiffies;
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += rda.length;
 
@@ -906,6 +905,17 @@ static char *ibmlana_adapter_names[] __devinitdata = {
 	NULL
 };
 
+
+static const struct net_device_ops ibmlana_netdev_ops = {
+	.ndo_open 		= ibmlana_open,
+	.ndo_stop 		= ibmlana_close,
+	.ndo_start_xmit		= ibmlana_tx,
+	.ndo_set_multicast_list = ibmlana_set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 static int __devinit ibmlana_init_one(struct device *kdev)
 {
 	struct mca_device *mdev = to_mca_device(kdev);
@@ -914,7 +924,6 @@ static int __devinit ibmlana_init_one(struct device *kdev)
 	int base = 0, irq = 0, iobase = 0, memlen = 0;
 	ibmlana_priv *priv;
 	ibmlana_medium medium;
-	DECLARE_MAC_BUF(mac);
 
 	dev = alloc_etherdev(sizeof(ibmlana_priv));
 	if (!dev)
@@ -975,11 +984,7 @@ static int __devinit ibmlana_init_one(struct device *kdev)
 	mca_device_set_claim(mdev, 1);
 
 	/* set methods */
-
-	dev->open = ibmlana_open;
-	dev->stop = ibmlana_close;
-	dev->hard_start_xmit = ibmlana_tx;
-	dev->set_multicast_list = ibmlana_set_multicast_list;
+	dev->netdev_ops = &ibmlana_netdev_ops;
 	dev->flags |= IFF_MULTICAST;
 
 	/* copy out MAC address */
@@ -990,10 +995,10 @@ static int __devinit ibmlana_init_one(struct device *kdev)
 	/* print config */
 
 	printk(KERN_INFO "%s: IRQ %d, I/O %#lx, memory %#lx-%#lx, "
-	       "MAC address %s.\n",
+	       "MAC address %pM.\n",
 	       dev->name, priv->realirq, dev->base_addr,
 	       dev->mem_start, dev->mem_end - 1,
-	       print_mac(mac, dev->dev_addr));
+	       dev->dev_addr);
 	printk(KERN_INFO "%s: %s medium\n", dev->name, MediaNames[priv->medium]);
 
 	/* reset board */

@@ -19,8 +19,6 @@
 #include <net/ipv6.h>
 #include <net/addrconf.h>
 
-static struct xfrm_state_afinfo xfrm6_state_afinfo;
-
 static void
 __xfrm6_init_tempsel(struct xfrm_state *x, struct flowi *fl,
 		     struct xfrm_tmpl *tmpl,
@@ -71,7 +69,7 @@ __xfrm6_sort(void **dst, void **src, int n, int (*cmp)(void *p), int maxclass)
 
 	for (i = 0; i < n; i++) {
 		dst[count[class[i] - 1]++] = src[i];
-		src[i] = 0;
+		src[i] = NULL;
 	}
 
 	return 0;

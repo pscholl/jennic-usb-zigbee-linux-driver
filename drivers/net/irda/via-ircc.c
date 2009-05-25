@@ -101,8 +101,6 @@ static int via_ircc_net_open(struct net_device *dev);
 static int via_ircc_net_close(struct net_device *dev);
 static int via_ircc_net_ioctl(struct net_device *dev, struct ifreq *rq,
 			      int cmd);
-static struct net_device_stats *via_ircc_net_get_stats(struct net_device
-						       *dev);
 static void via_ircc_change_dongle_speed(int iobase, int speed,
 					 int dongle_id);
 static int RxTimerHandler(struct via_ircc_cb *self, int iobase);
@@ -312,6 +310,19 @@ static void __exit via_ircc_cleanup(void)
 	pci_unregister_driver (&via_driver); 
 }
 
+static const struct net_device_ops via_ircc_sir_ops = {
+	.ndo_start_xmit = via_ircc_hard_xmit_sir,
+	.ndo_open = via_ircc_net_open,
+	.ndo_stop = via_ircc_net_close,
+	.ndo_do_ioctl = via_ircc_net_ioctl,
+};
+static const struct net_device_ops via_ircc_fir_ops = {
+	.ndo_start_xmit = via_ircc_hard_xmit_fir,
+	.ndo_open = via_ircc_net_open,
+	.ndo_stop = via_ircc_net_close,
+	.ndo_do_ioctl = via_ircc_net_ioctl,
+};
+
 /*
  * Function via_ircc_open (iobase, irq)
  *
@@ -334,7 +345,7 @@ static __devinit int via_ircc_open(int i, chipio_t * info, unsigned int id)
 	if (dev == NULL) 
 		return -ENOMEM;
 
-	self = dev->priv;
+	self = netdev_priv(dev);
 	self->netdev = dev;
 	spin_lock_init(&self->lock);
 
@@ -430,11 +441,7 @@ static __devinit int via_ircc_open(int i, chipio_t * info, unsigned int id)
 	self->tx_fifo.tail = self->tx_buff.head;
 
 	/* Override the network functions we need to use */
-	dev->hard_start_xmit = via_ircc_hard_xmit_sir;
-	dev->open = via_ircc_net_open;
-	dev->stop = via_ircc_net_close;
-	dev->do_ioctl = via_ircc_net_ioctl;
-	dev->get_stats = via_ircc_net_get_stats;
+	dev->netdev_ops = &via_ircc_sir_ops;
 
 	err = register_netdev(dev);
 	if (err)
@@ -801,11 +808,11 @@ static void via_ircc_change_speed(struct via_ircc_cb *self, __u32 speed)
 
 	if (speed > 115200) {
 		/* Install FIR xmit handler */
-		dev->hard_start_xmit = via_ircc_hard_xmit_fir;
+		dev->netdev_ops = &via_ircc_fir_ops;
 		via_ircc_dma_receive(self);
 	} else {
 		/* Install SIR xmit handler */
-		dev->hard_start_xmit = via_ircc_hard_xmit_sir;
+		dev->netdev_ops = &via_ircc_sir_ops;
 	}
 	netif_wake_queue(dev);
 }
@@ -824,7 +831,7 @@ static int via_ircc_hard_xmit_sir(struct sk_buff *skb,
 	u16 iobase;
 	__u32 speed;
 
-	self = (struct via_ircc_cb *) dev->priv;
+	self = netdev_priv(dev);
 	IRDA_ASSERT(self != NULL, return 0;);
 	iobase = self->io.fir_base;
 
@@ -855,7 +862,7 @@ static int via_ircc_hard_xmit_sir(struct sk_buff *skb,
 	    async_wrap_skb(skb, self->tx_buff.data,
 			   self->tx_buff.truesize);
 
-	self->stats.tx_bytes += self->tx_buff.len;
+	dev->stats.tx_bytes += self->tx_buff.len;
 	/* Send this frame with old speed */
 	SetBaudRate(iobase, self->io.speed);
 	SetPulseWidth(iobase, 12);
@@ -896,7 +903,7 @@ static int via_ircc_hard_xmit_fir(struct sk_buff *skb,
 	__u32 speed;
 	unsigned long flags;
 
-	self = (struct via_ircc_cb *) dev->priv;
+	self = netdev_priv(dev);
 	iobase = self->io.fir_base;
 
 	if (self->st_fifo.len)
@@ -921,7 +928,7 @@ static int via_ircc_hard_xmit_fir(struct sk_buff *skb,
 	self->tx_fifo.queue[self->tx_fifo.free].len = skb->len;
 
 	self->tx_fifo.tail += skb->len;
-	self->stats.tx_bytes += skb->len;
+	dev->stats.tx_bytes += skb->len;
 	skb_copy_from_linear_data(skb,
 		      self->tx_fifo.queue[self->tx_fifo.free].start, skb->len);
 	self->tx_fifo.len++;
@@ -990,12 +997,12 @@ static int via_ircc_dma_xmit_complete(struct via_ircc_cb *self)
 	/* Clear bit, by writing 1 into it */
 	Tx_status = GetTXStatus(iobase);
 	if (Tx_status & 0x08) {
-		self->stats.tx_errors++;
-		self->stats.tx_fifo_errors++;
+		self->netdev->stats.tx_errors++;
+		self->netdev->stats.tx_fifo_errors++;
 		hwreset(self);
 // how to clear underrrun ?
 	} else {
-		self->stats.tx_packets++;
+		self->netdev->stats.tx_packets++;
 		ResetChip(iobase, 3);
 		ResetChip(iobase, 4);
 	}
@@ -1119,8 +1126,8 @@ static int via_ircc_dma_receive_complete(struct via_ircc_cb *self,
 		}
 		// Move to next frame 
 		self->rx_buff.data += len;
-		self->stats.rx_bytes += len;
-		self->stats.rx_packets++;
+		self->netdev->stats.rx_bytes += len;
+		self->netdev->stats.rx_packets++;
 		skb->dev = self->netdev;
 		skb_reset_mac_header(skb);
 		skb->protocol = htons(ETH_P_IRDA);
@@ -1180,7 +1187,7 @@ F01_E */
 		 */
 		if ((skb == NULL) || (skb->data == NULL)
 		    || (self->rx_buff.data == NULL) || (len < 6)) {
-			self->stats.rx_dropped++;
+			self->netdev->stats.rx_dropped++;
 			return TRUE;
 		}
 		skb_reserve(skb, 1);
@@ -1192,8 +1199,8 @@ F01_E */
 
 		// Move to next frame 
 		self->rx_buff.data += len;
-		self->stats.rx_bytes += len;
-		self->stats.rx_packets++;
+		self->netdev->stats.rx_bytes += len;
+		self->netdev->stats.rx_packets++;
 		skb->dev = self->netdev;
 		skb_reset_mac_header(skb);
 		skb->protocol = htons(ETH_P_IRDA);
@@ -1220,13 +1227,13 @@ static int upload_rxdata(struct via_ircc_cb *self, int iobase)
 	IRDA_DEBUG(2, "%s(): len=%x\n", __func__, len);
 
 	if ((len - 4) < 2) {
-		self->stats.rx_dropped++;
+		self->netdev->stats.rx_dropped++;
 		return FALSE;
 	}
 
 	skb = dev_alloc_skb(len + 1);
 	if (skb == NULL) {
-		self->stats.rx_dropped++;
+		self->netdev->stats.rx_dropped++;
 		return FALSE;
 	}
 	skb_reserve(skb, 1);
@@ -1238,8 +1245,8 @@ static int upload_rxdata(struct via_ircc_cb *self, int iobase)
 		st_fifo->tail = 0;
 	// Move to next frame 
 	self->rx_buff.data += len;
-	self->stats.rx_bytes += len;
-	self->stats.rx_packets++;
+	self->netdev->stats.rx_bytes += len;
+	self->netdev->stats.rx_packets++;
 	skb->dev = self->netdev;
 	skb_reset_mac_header(skb);
 	skb->protocol = htons(ETH_P_IRDA);
@@ -1295,7 +1302,7 @@ static int RxTimerHandler(struct via_ircc_cb *self, int iobase)
 			 */
 			if ((skb == NULL) || (skb->data == NULL)
 			    || (self->rx_buff.data == NULL) || (len < 6)) {
-				self->stats.rx_dropped++;
+				self->netdev->stats.rx_dropped++;
 				continue;
 			}
 			skb_reserve(skb, 1);
@@ -1307,8 +1314,8 @@ static int RxTimerHandler(struct via_ircc_cb *self, int iobase)
 
 			// Move to next frame 
 			self->rx_buff.data += len;
-			self->stats.rx_bytes += len;
-			self->stats.rx_packets++;
+			self->netdev->stats.rx_bytes += len;
+			self->netdev->stats.rx_packets++;
 			skb->dev = self->netdev;
 			skb_reset_mac_header(skb);
 			skb->protocol = htons(ETH_P_IRDA);
@@ -1349,7 +1356,7 @@ static int RxTimerHandler(struct via_ircc_cb *self, int iobase)
 static irqreturn_t via_ircc_interrupt(int dummy, void *dev_id)
 {
 	struct net_device *dev = dev_id;
-	struct via_ircc_cb *self = dev->priv;
+	struct via_ircc_cb *self = netdev_priv(dev);
 	int iobase;
 	u8 iHostIntType, iRxIntType, iTxIntType;
 
@@ -1522,8 +1529,8 @@ static int via_ircc_net_open(struct net_device *dev)
 	IRDA_DEBUG(3, "%s()\n", __func__);
 
 	IRDA_ASSERT(dev != NULL, return -1;);
-	self = (struct via_ircc_cb *) dev->priv;
-	self->stats.rx_packets = 0;
+	self = netdev_priv(dev);
+	dev->stats.rx_packets = 0;
 	IRDA_ASSERT(self != NULL, return 0;);
 	iobase = self->io.fir_base;
 	if (request_irq(self->io.irq, via_ircc_interrupt, 0, dev->name, dev)) {
@@ -1589,7 +1596,7 @@ static int via_ircc_net_close(struct net_device *dev)
 	IRDA_DEBUG(3, "%s()\n", __func__);
 
 	IRDA_ASSERT(dev != NULL, return -1;);
-	self = (struct via_ircc_cb *) dev->priv;
+	self = netdev_priv(dev);
 	IRDA_ASSERT(self != NULL, return 0;);
 
 	/* Stop device */
@@ -1628,7 +1635,7 @@ static int via_ircc_net_ioctl(struct net_device *dev, struct ifreq *rq,
 	int ret = 0;
 
 	IRDA_ASSERT(dev != NULL, return -1;);
-	self = dev->priv;
+	self = netdev_priv(dev);
 	IRDA_ASSERT(self != NULL, return -1;);
 	IRDA_DEBUG(1, "%s(), %s, (cmd=0x%X)\n", __func__, dev->name,
 		   cmd);
@@ -1658,14 +1665,6 @@ static int via_ircc_net_ioctl(struct net_device *dev, struct ifreq *rq,
       out:
 	spin_unlock_irqrestore(&self->lock, flags);
 	return ret;
-}
-
-static struct net_device_stats *via_ircc_net_get_stats(struct net_device
-						       *dev)
-{
-	struct via_ircc_cb *self = (struct via_ircc_cb *) dev->priv;
-
-	return &self->stats;
 }
 
 MODULE_AUTHOR("VIA Technologies,inc");

@@ -425,7 +425,7 @@ lynx_swizzle(struct pci_dev *dev, u8 *pinp)
 				slot = PCI_SLOT(dev->devfn) + 11;
 				break;
 			}
-			pin = bridge_swizzle(pin, PCI_SLOT(dev->devfn)) ;
+			pin = pci_swizzle_interrupt_pin(dev, pin);
 
 			/* Move up the chain of bridges.  */
 			dev = dev->bus->self;
@@ -453,7 +453,7 @@ sable_lynx_enable_irq(unsigned int irq)
 	sable_lynx_irq_swizzle->update_irq_hw(bit, mask);
 	spin_unlock(&sable_lynx_irq_lock);
 #if 0
-	printk("%s: mask 0x%lx bit 0x%x irq 0x%x\n",
+	printk("%s: mask 0x%lx bit 0x%lx irq 0x%x\n",
 	       __func__, mask, bit, irq);
 #endif
 }
@@ -469,7 +469,7 @@ sable_lynx_disable_irq(unsigned int irq)
 	sable_lynx_irq_swizzle->update_irq_hw(bit, mask);
 	spin_unlock(&sable_lynx_irq_lock);
 #if 0
-	printk("%s: mask 0x%lx bit 0x%x irq 0x%x\n",
+	printk("%s: mask 0x%lx bit 0x%lx irq 0x%x\n",
 	       __func__, mask, bit, irq);
 #endif
 }

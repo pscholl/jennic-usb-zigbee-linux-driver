@@ -49,6 +49,7 @@ extern void putback_lru_page(struct page *page);
 /*
  * in mm/page_alloc.c
  */
+extern unsigned long highest_memmap_pfn;
 extern void __free_pages_bootmem(struct page *page, unsigned int order);
 
 /*
@@ -62,6 +63,7 @@ static inline unsigned long page_order(struct page *page)
 	return page_private(page);
 }
 
+#ifdef CONFIG_HAVE_MLOCK
 extern long mlock_vma_pages_range(struct vm_area_struct *vma,
 			unsigned long start, unsigned long end);
 extern void munlock_vma_pages_range(struct vm_area_struct *vma,
@@ -70,6 +72,7 @@ static inline void munlock_vma_pages_all(struct vm_area_struct *vma)
 {
 	munlock_vma_pages_range(vma, vma->vm_start, vma->vm_end);
 }
+#endif
 
 #ifdef CONFIG_UNEVICTABLE_LRU
 /*
@@ -89,7 +92,7 @@ static inline void unevictable_migrate_page(struct page *new, struct page *old)
 }
 #endif
 
-#ifdef CONFIG_UNEVICTABLE_LRU
+#ifdef CONFIG_HAVE_MLOCKED_PAGE_BIT
 /*
  * Called only in fault path via page_evictable() for a new page
  * to determine if it's being mapped into a LOCKED vma.
@@ -164,7 +167,7 @@ static inline void free_page_mlock(struct page *page)
 	}
 }
 
-#else /* CONFIG_UNEVICTABLE_LRU */
+#else /* CONFIG_HAVE_MLOCKED_PAGE_BIT */
 static inline int is_mlocked_vma(struct vm_area_struct *v, struct page *p)
 {
 	return 0;
@@ -174,7 +177,7 @@ static inline void mlock_vma_page(struct page *page) { }
 static inline void mlock_migrate_page(struct page *new, struct page *old) { }
 static inline void free_page_mlock(struct page *page) { }
 
-#endif /* CONFIG_UNEVICTABLE_LRU */
+#endif /* CONFIG_HAVE_MLOCKED_PAGE_BIT */
 
 /*
  * Return the mem_map entry representing the 'offset' subpage within
@@ -275,6 +278,7 @@ static inline void mminit_validate_memmodel_limits(unsigned long *start_pfn,
 #define GUP_FLAGS_WRITE                  0x1
 #define GUP_FLAGS_FORCE                  0x2
 #define GUP_FLAGS_IGNORE_VMA_PERMISSIONS 0x4
+#define GUP_FLAGS_IGNORE_SIGKILL         0x8
 
 int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 		     unsigned long start, int len, int flags,

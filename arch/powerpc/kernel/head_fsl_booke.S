@@ -30,6 +30,7 @@
  * option) any later version.
  */
 
+#include <linux/init.h>
 #include <linux/threads.h>
 #include <asm/processor.h>
 #include <asm/page.h>
@@ -53,7 +54,7 @@
  *   r7 - End of kernel command line string
  *
  */
-	.section	.text.head, "ax"
+	__HEAD
 _ENTRY(_stext);
 _ENTRY(_start);
 	/*
@@ -92,6 +93,7 @@ _ENTRY(_start);
  * if needed
  */
 
+_ENTRY(__early_start)
 /* 1. Find the index of the entry we're executing in */
 	bl	invstr				/* Find our address */
 invstr:	mflr	r6				/* Make it accessible */
@@ -102,10 +104,15 @@ invstr:	mflr	r6				/* Make it accessible */
 	or	r7,r7,r4
 	mtspr	SPRN_MAS6,r7
 	tlbsx	0,r6				/* search MSR[IS], SPID=PID0 */
-#ifndef CONFIG_E200
 	mfspr	r7,SPRN_MAS1
 	andis.	r7,r7,MAS1_VALID@h
 	bne	match_TLB
+
+	mfspr	r7,SPRN_MMUCFG
+	rlwinm	r7,r7,21,28,31			/* extract MMUCFG[NPIDS] */
+	cmpwi	r7,3
+	bne	match_TLB			/* skip if NPIDS != 3 */
+
 	mfspr	r7,SPRN_PID1
 	slwi	r7,r7,16
 	or	r7,r7,r4
@@ -119,7 +126,7 @@ invstr:	mflr	r6				/* Make it accessible */
 	or	r7,r7,r4
 	mtspr	SPRN_MAS6,r7
 	tlbsx	0,r6				/* Fall through, we had to match */
-#endif
+
 match_TLB:
 	mfspr	r7,SPRN_MAS0
 	rlwinm	r3,r7,16,20,31			/* Extract MAS0(Entry) */
@@ -167,7 +174,7 @@ skpinv:	addi	r6,r6,1				/* Increment */
 
 	/* grab and fixup the RPN */
 	mfspr	r6,SPRN_MAS1	/* extract MAS1[SIZE] */
-	rlwinm	r6,r6,25,27,30
+	rlwinm	r6,r6,25,27,31
 	li	r8,-1
 	addi	r6,r6,10
 	slw	r6,r8,r6	/* convert to mask */
@@ -193,7 +200,7 @@ skpinv:	addi	r6,r6,1				/* Increment */
 	xori	r6,r4,1		/* Setup TMP mapping in the other Address space */
 	slwi	r6,r6,12
 	oris	r6,r6,(MAS1_VALID|MAS1_IPROT)@h
-	ori	r6,r6,(MAS1_TSIZE(BOOKE_PAGESZ_4K))@l
+	ori	r6,r6,(MAS1_TSIZE(BOOK3E_PAGESZ_4K))@l
 	mtspr	SPRN_MAS1,r6
 	mfspr	r6,SPRN_MAS2
 	li	r7,0		/* temp EPN = 0 */
@@ -214,14 +221,19 @@ skpinv:	addi	r6,r6,1				/* Increment */
 
 /* 4. Clear out PIDs & Search info */
 	li	r6,0
+	mtspr   SPRN_MAS6,r6
 	mtspr	SPRN_PID0,r6
-#ifndef CONFIG_E200
+
+	mfspr	r7,SPRN_MMUCFG
+	rlwinm	r7,r7,21,28,31			/* extract MMUCFG[NPIDS] */
+	cmpwi	r7,3
+	bne	2f				/* skip if NPIDS != 3 */
+
 	mtspr	SPRN_PID1,r6
 	mtspr	SPRN_PID2,r6
-#endif
-	mtspr	SPRN_MAS6,r6
 
 /* 5. Invalidate mapping we started in */
+2:
 	lis	r7,0x1000	/* Set MAS0(TLBSEL) = 1 */
 	rlwimi	r7,r3,16,4,15	/* Setup MAS0 = TLBSEL | ESEL(r3) */
 	mtspr	SPRN_MAS0,r7
@@ -235,36 +247,40 @@ skpinv:	addi	r6,r6,1				/* Increment */
 	tlbivax 0,r9
 	TLBSYNC
 
+/* The mapping only needs to be cache-coherent on SMP */
+#ifdef CONFIG_SMP
+#define M_IF_SMP	MAS2_M
+#else
+#define M_IF_SMP	0
+#endif
+
 /* 6. Setup KERNELBASE mapping in TLB1[0] */
 	lis	r6,0x1000		/* Set MAS0(TLBSEL) = TLB1(1), ESEL = 0 */
 	mtspr	SPRN_MAS0,r6
 	lis	r6,(MAS1_VALID|MAS1_IPROT)@h
-	ori	r6,r6,(MAS1_TSIZE(BOOKE_PAGESZ_64M))@l
+	ori	r6,r6,(MAS1_TSIZE(BOOK3E_PAGESZ_64M))@l
 	mtspr	SPRN_MAS1,r6
-	li	r7,0
-	lis	r6,PAGE_OFFSET@h
-	ori	r6,r6,PAGE_OFFSET@l
-	rlwimi	r6,r7,0,20,31
+	lis	r6,MAS2_VAL(PAGE_OFFSET, BOOK3E_PAGESZ_64M, M_IF_SMP)@h
+	ori	r6,r6,MAS2_VAL(PAGE_OFFSET, BOOK3E_PAGESZ_64M, M_IF_SMP)@l
 	mtspr	SPRN_MAS2,r6
 	mtspr	SPRN_MAS3,r8
 	tlbwe
 
 /* 7. Jump to KERNELBASE mapping */
-	lis	r6,KERNELBASE@h
-	ori	r6,r6,KERNELBASE@l
-	rlwimi	r6,r7,0,20,31
+	lis	r6,(KERNELBASE & ~0xfff)@h
+	ori	r6,r6,(KERNELBASE & ~0xfff)@l
 	lis	r7,MSR_KERNEL@h
 	ori	r7,r7,MSR_KERNEL@l
 	bl	1f			/* Find our address */
 1:	mflr	r9
 	rlwimi	r6,r9,0,20,31
-	addi	r6,r6,24
+	addi	r6,r6,(2f - 1b)
 	mtspr	SPRN_SRR0,r6
 	mtspr	SPRN_SRR1,r7
 	rfi				/* start execution out of TLB1[0] entry */
 
 /* 8. Clear out the temp mapping */
-	lis	r7,0x1000	/* Set MAS0(TLBSEL) = 1 */
+2:	lis	r7,0x1000	/* Set MAS0(TLBSEL) = 1 */
 	rlwimi	r7,r5,16,4,15	/* Setup MAS0 = TLBSEL | ESEL(r5) */
 	mtspr	SPRN_MAS0,r7
 	tlbre
@@ -293,26 +309,14 @@ skpinv:	addi	r6,r6,1				/* Increment */
 	SET_IVOR(12, WatchdogTimer);
 	SET_IVOR(13, DataTLBError);
 	SET_IVOR(14, InstructionTLBError);
-	SET_IVOR(15, DebugDebug);
-#if defined(CONFIG_E500) && !defined(CONFIG_PPC_E500MC)
 	SET_IVOR(15, DebugCrit);
-#endif
-	SET_IVOR(32, SPEUnavailable);
-	SET_IVOR(33, SPEFloatingPointData);
-	SET_IVOR(34, SPEFloatingPointRound);
-#ifndef CONFIG_E200
-	SET_IVOR(35, PerformanceMonitor);
-#endif
-#ifdef CONFIG_PPC_E500MC
-	SET_IVOR(36, Doorbell);
-#endif
 
 	/* Establish the interrupt vector base */
 	lis	r4,interrupt_base@h	/* IVPR only uses the high 16-bits */
 	mtspr	SPRN_IVPR,r4
 
 	/* Setup the defaults for TLB entries */
-	li	r2,(MAS4_TSIZED(BOOKE_PAGESZ_4K))@l
+	li	r2,(MAS4_TSIZED(BOOK3E_PAGESZ_4K))@l
 #ifdef CONFIG_E200
 	oris	r2,r2,MAS4_TLBSELD(1)@h
 #endif
@@ -323,12 +327,6 @@ skpinv:	addi	r6,r6,1				/* Increment */
 	mfspr	r2,SPRN_HID0
 	oris	r2,r2,HID0_DOZE@h
 	mtspr	SPRN_HID0, r2
-#endif
-#ifdef CONFIG_E200
-	/* enable dedicated debug exception handling resources (Debug APU) */
-	mfspr	r2,SPRN_HID0
-	ori	r2,r2,HID0_DAPUEN@l
-	mtspr	SPRN_HID0,r2
 #endif
 
 #if !defined(CONFIG_BDI_SWITCH)
@@ -342,6 +340,15 @@ skpinv:	addi	r6,r6,1				/* Increment */
 	/* clear any residual debug events */
 	li	r2,-1
 	mtspr	SPRN_DBSR,r2
+#endif
+
+#ifdef CONFIG_SMP
+	/* Check to see if we're the second processor, and jump
+	 * to the secondary_start code if so
+	 */
+	mfspr	r24,SPRN_PIR
+	cmpwi	r24,0
+	bne	__secondary_start
 #endif
 
 	/*
@@ -375,10 +382,6 @@ skpinv:	addi	r6,r6,1				/* Increment */
 #endif
 #endif
 
-	mfspr	r3,SPRN_TLB1CFG
-	andi.	r3,r3,0xfff
-	lis	r4,num_tlbcam_entries@ha
-	stw	r3,num_tlbcam_entries@l(r4)
 /*
  * Decide what sort of machine this is and initialize the MMU.
  */
@@ -685,25 +688,24 @@ interrupt_base:
 	/* SPE Floating Point Data */
 #ifdef CONFIG_SPE
 	EXCEPTION(0x2030, SPEFloatingPointData, SPEFloatingPointException, EXC_XFER_EE);
-#else
-	EXCEPTION(0x2040, SPEFloatingPointData, unknown_exception, EXC_XFER_EE)
-#endif /* CONFIG_SPE */
 
 	/* SPE Floating Point Round */
+	EXCEPTION(0x2050, SPEFloatingPointRound, SPEFloatingPointRoundException, EXC_XFER_EE)
+#else
+	EXCEPTION(0x2040, SPEFloatingPointData, unknown_exception, EXC_XFER_EE)
 	EXCEPTION(0x2050, SPEFloatingPointRound, unknown_exception, EXC_XFER_EE)
+#endif /* CONFIG_SPE */
 
 	/* Performance Monitor */
 	EXCEPTION(0x2060, PerformanceMonitor, performance_monitor_exception, EXC_XFER_STD)
 
-#ifdef CONFIG_PPC_E500MC
-	EXCEPTION(0x2070, Doorbell, unknown_exception, EXC_XFER_EE)
-#endif
+	EXCEPTION(0x2070, Doorbell, doorbell_exception, EXC_XFER_STD)
+
+	CRITICAL_EXCEPTION(0x2080, CriticalDoorbell, unknown_exception)
 
 	/* Debug Interrupt */
 	DEBUG_DEBUG_EXCEPTION
-#if defined(CONFIG_E500) && !defined(CONFIG_PPC_E500MC)
 	DEBUG_CRIT_EXCEPTION
-#endif
 
 /*
  * Local functions
@@ -735,6 +737,9 @@ finish_tlb_load:
 #else
 	rlwimi	r12, r11, 26, 27, 31	/* extract WIMGE from pte */
 #endif
+#ifdef CONFIG_SMP
+	ori	r12, r12, MAS2_M
+#endif
 	mtspr	SPRN_MAS2, r12
 
 	li	r10, (_PAGE_HWEXEC | _PAGE_PRESENT)
@@ -746,15 +751,15 @@ finish_tlb_load:
 	iseleq	r12, r12, r10
 	
 #ifdef CONFIG_PTE_64BIT
-2:	rlwimi	r12, r13, 24, 0, 7	/* grab RPN[32:39] */
+	rlwimi	r12, r13, 24, 0, 7	/* grab RPN[32:39] */
 	rlwimi	r12, r11, 24, 8, 19	/* grab RPN[40:51] */
 	mtspr	SPRN_MAS3, r12
-BEGIN_FTR_SECTION
+BEGIN_MMU_FTR_SECTION
 	srwi	r10, r13, 8		/* grab RPN[8:31] */
 	mtspr	SPRN_MAS7, r10
-END_FTR_SECTION_IFSET(CPU_FTR_BIG_PHYS)
+END_MMU_FTR_SECTION_IFSET(MMU_FTR_BIG_PHYS)
 #else
-2:	rlwimi	r11, r12, 0, 20, 31	/* Extract RPN from PTE and merge with perms */
+	rlwimi	r11, r12, 0, 20, 31	/* Extract RPN from PTE and merge with perms */
 	mtspr	SPRN_MAS3, r11
 #endif
 #ifdef CONFIG_E200
@@ -883,6 +888,47 @@ KernelSPE:
  * Global functions
  */
 
+/* Adjust or setup IVORs for e200 */
+_GLOBAL(__setup_e200_ivors)
+	li	r3,DebugDebug@l
+	mtspr	SPRN_IVOR15,r3
+	li	r3,SPEUnavailable@l
+	mtspr	SPRN_IVOR32,r3
+	li	r3,SPEFloatingPointData@l
+	mtspr	SPRN_IVOR33,r3
+	li	r3,SPEFloatingPointRound@l
+	mtspr	SPRN_IVOR34,r3
+	sync
+	blr
+
+/* Adjust or setup IVORs for e500v1/v2 */
+_GLOBAL(__setup_e500_ivors)
+	li	r3,DebugCrit@l
+	mtspr	SPRN_IVOR15,r3
+	li	r3,SPEUnavailable@l
+	mtspr	SPRN_IVOR32,r3
+	li	r3,SPEFloatingPointData@l
+	mtspr	SPRN_IVOR33,r3
+	li	r3,SPEFloatingPointRound@l
+	mtspr	SPRN_IVOR34,r3
+	li	r3,PerformanceMonitor@l
+	mtspr	SPRN_IVOR35,r3
+	sync
+	blr
+
+/* Adjust or setup IVORs for e500mc */
+_GLOBAL(__setup_e500mc_ivors)
+	li	r3,DebugDebug@l
+	mtspr	SPRN_IVOR15,r3
+	li	r3,PerformanceMonitor@l
+	mtspr	SPRN_IVOR35,r3
+	li	r3,Doorbell@l
+	mtspr	SPRN_IVOR36,r3
+	li	r3,CriticalDoorbell@l
+	mtspr	SPRN_IVOR37,r3
+	sync
+	blr
+
 /*
  * extern void loadcam_entry(unsigned int index)
  *
@@ -891,7 +937,7 @@ KernelSPE:
 _GLOBAL(loadcam_entry)
 	lis	r4,TLBCAM@ha
 	addi	r4,r4,TLBCAM@l
-	mulli	r5,r3,20
+	mulli	r5,r3,TLBCAM_SIZE
 	add	r3,r5,r4
 	lwz	r4,0(r3)
 	mtspr	SPRN_MAS0,r4
@@ -1036,6 +1082,63 @@ _GLOBAL(flush_dcache_L1)
 	isync
 
 	blr
+
+#ifdef CONFIG_SMP
+/* When we get here, r24 needs to hold the CPU # */
+	.globl __secondary_start
+__secondary_start:
+	lis	r3,__secondary_hold_acknowledge@h
+	ori	r3,r3,__secondary_hold_acknowledge@l
+	stw	r24,0(r3)
+
+	li	r3,0
+	mr	r4,r24		/* Why? */
+	bl	call_setup_cpu
+
+	lis	r3,tlbcam_index@ha
+	lwz	r3,tlbcam_index@l(r3)
+	mtctr	r3
+	li	r26,0		/* r26 safe? */
+
+	/* Load each CAM entry */
+1:	mr	r3,r26
+	bl	loadcam_entry
+	addi	r26,r26,1
+	bdnz	1b
+
+	/* get current_thread_info and current */
+	lis	r1,secondary_ti@ha
+	lwz	r1,secondary_ti@l(r1)
+	lwz	r2,TI_TASK(r1)
+
+	/* stack */
+	addi	r1,r1,THREAD_SIZE-STACK_FRAME_OVERHEAD
+	li	r0,0
+	stw	r0,0(r1)
+
+	/* ptr to current thread */
+	addi	r4,r2,THREAD	/* address of our thread_struct */
+	mtspr	SPRN_SPRG3,r4
+
+	/* Setup the defaults for TLB entries */
+	li	r4,(MAS4_TSIZED(BOOK3E_PAGESZ_4K))@l
+	mtspr	SPRN_MAS4,r4
+
+	/* Jump to start_secondary */
+	lis	r4,MSR_KERNEL@h
+	ori	r4,r4,MSR_KERNEL@l
+	lis	r3,start_secondary@h
+	ori	r3,r3,start_secondary@l
+	mtspr	SPRN_SRR0,r3
+	mtspr	SPRN_SRR1,r4
+	sync
+	rfi
+	sync
+
+	.globl __secondary_hold_acknowledge
+__secondary_hold_acknowledge:
+	.long	-1
+#endif
 
 /*
  * We put a few things here that have to be page-aligned. This stuff

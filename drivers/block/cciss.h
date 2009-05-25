@@ -89,8 +89,8 @@ struct ctlr_info
 	struct access_method access;
 
 	/* queue and queue Info */ 
-	CommandList_struct *reqQ;
-	CommandList_struct  *cmpQ;
+	struct hlist_head reqQ;
+	struct hlist_head cmpQ;
 	unsigned int Qdepth;
 	unsigned int maxQsinceinit;
 	unsigned int maxSG;
@@ -121,6 +121,8 @@ struct ctlr_info
 	struct sendcmd_reject_list scsi_rejects;
 #endif
 	unsigned char alive;
+	struct completion *rescan_wait;
+	struct task_struct *cciss_scan_thread;
 };
 
 /*  Defining the diffent access_menthods */

@@ -573,9 +573,8 @@ int ipath_make_rc_req(struct ipath_qp *qp)
 		ohdr->u.rc.reth.length = cpu_to_be32(qp->s_len);
 		qp->s_state = OP(RDMA_READ_REQUEST);
 		hwords += sizeof(ohdr->u.rc.reth) / sizeof(u32);
-		bth2 = qp->s_psn++ & IPATH_PSN_MASK;
-		if (ipath_cmp24(qp->s_psn, qp->s_next_psn) > 0)
-			qp->s_next_psn = qp->s_psn;
+		bth2 = qp->s_psn & IPATH_PSN_MASK;
+		qp->s_psn = wqe->lpsn + 1;
 		ss = NULL;
 		len = 0;
 		qp->s_cur++;
@@ -1745,7 +1744,7 @@ void ipath_rc_rcv(struct ipath_ibdev *dev, struct ipath_ib_header *hdr,
 		/* Signal completion event if the solicited bit is set. */
 		ipath_cq_enter(to_icq(qp->ibqp.recv_cq), &wc,
 			       (ohdr->bth[0] &
-				__constant_cpu_to_be32(1 << 23)) != 0);
+				cpu_to_be32(1 << 23)) != 0);
 		break;
 
 	case OP(RDMA_WRITE_FIRST):

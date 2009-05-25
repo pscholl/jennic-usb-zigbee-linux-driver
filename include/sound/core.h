@@ -97,9 +97,9 @@ struct snd_device {
 
 struct snd_monitor_file {
 	struct file *file;
-	struct snd_monitor_file *next;
 	const struct file_operations *disconnected_f_op;
-	struct list_head shutdown_list;
+	struct list_head shutdown_list;	/* still need to shutdown */
+	struct list_head list;	/* link of monitor files */
 };
 
 /* main structure for soundcard */
@@ -134,7 +134,7 @@ struct snd_card {
 	struct snd_info_entry *proc_id;	/* the card id */
 	struct proc_dir_entry *proc_root_link;	/* number link to real id */
 
-	struct snd_monitor_file *files; /* all files associated to this card */
+	struct list_head files_list;	/* all files associated to this card */
 	struct snd_shutdown_f_ops *s_f_ops; /* file operations in the shutdown
 								state */
 	spinlock_t files_lock;		/* lock the files for this card */
@@ -296,8 +296,20 @@ int snd_card_locked(int card);
 extern int (*snd_mixer_oss_notify_callback)(struct snd_card *card, int cmd);
 #endif
 
+int snd_card_create(int idx, const char *id,
+		    struct module *module, int extra_size,
+		    struct snd_card **card_ret);
+
+static inline __deprecated
 struct snd_card *snd_card_new(int idx, const char *id,
-			 struct module *module, int extra_size);
+			      struct module *module, int extra_size)
+{
+	struct snd_card *card;
+	if (snd_card_create(idx, id, module, extra_size, &card) < 0)
+		return NULL;
+	return card;
+}
+
 int snd_card_disconnect(struct snd_card *card);
 int snd_card_free(struct snd_card *card);
 int snd_card_free_when_closed(struct snd_card *card);
@@ -353,7 +365,7 @@ void snd_verbose_printd(const char *file, int line, const char *format, ...)
  * snd_printk - printk wrapper
  * @fmt: format string
  *
- * Works like print() but prints the file and the line of the caller
+ * Works like printk() but prints the file and the line of the caller
  * when configured with CONFIG_SND_VERBOSE_PRINTK.
  */
 #define snd_printk(fmt, args...) \
@@ -380,18 +392,40 @@ void snd_verbose_printd(const char *file, int line, const char *format, ...)
 	printk(fmt ,##args)
 #endif
 
+/**
+ * snd_BUG - give a BUG warning message and stack trace
+ *
+ * Calls WARN() if CONFIG_SND_DEBUG is set.
+ * Ignored when CONFIG_SND_DEBUG is not set.
+ */
 #define snd_BUG()		WARN(1, "BUG?\n")
+
+/**
+ * snd_BUG_ON - debugging check macro
+ * @cond: condition to evaluate
+ *
+ * When CONFIG_SND_DEBUG is set, this macro evaluates the given condition,
+ * and call WARN() and returns the value if it's non-zero.
+ * 
+ * When CONFIG_SND_DEBUG is not set, this just returns zero, and the given
+ * condition is ignored.
+ *
+ * NOTE: the argument won't be evaluated at all when CONFIG_SND_DEBUG=n.
+ * Thus, don't put any statement that influences on the code behavior,
+ * such as pre/post increment, to the argument of this macro.
+ * If you want to evaluate and give a warning, use standard WARN_ON().
+ */
 #define snd_BUG_ON(cond)	WARN((cond), "BUG? (%s)\n", __stringify(cond))
 
 #else /* !CONFIG_SND_DEBUG */
 
 #define snd_printd(fmt, args...)	do { } while (0)
 #define snd_BUG()			do { } while (0)
-static inline int __snd_bug_on(void)
+static inline int __snd_bug_on(int cond)
 {
 	return 0;
 }
-#define snd_BUG_ON(cond)		__snd_bug_on()  /* always false */
+#define snd_BUG_ON(cond)	__snd_bug_on(0 && (cond))  /* always false */
 
 #endif /* CONFIG_SND_DEBUG */
 
@@ -424,21 +458,33 @@ static inline int __snd_bug_on(void)
 struct snd_pci_quirk {
 	unsigned short subvendor;	/* PCI subvendor ID */
 	unsigned short subdevice;	/* PCI subdevice ID */
+	unsigned short subdevice_mask;	/* bitmask to match */
 	int value;			/* value */
 #ifdef CONFIG_SND_DEBUG_VERBOSE
 	const char *name;		/* name of the device (optional) */
 #endif
 };
 
-#define _SND_PCI_QUIRK_ID(vend,dev) \
-	.subvendor = (vend), .subdevice = (dev)
+#define _SND_PCI_QUIRK_ID_MASK(vend, mask, dev)	\
+	.subvendor = (vend), .subdevice = (dev), .subdevice_mask = (mask)
+#define _SND_PCI_QUIRK_ID(vend, dev) \
+	_SND_PCI_QUIRK_ID_MASK(vend, 0xffff, dev)
 #define SND_PCI_QUIRK_ID(vend,dev) {_SND_PCI_QUIRK_ID(vend, dev)}
 #ifdef CONFIG_SND_DEBUG_VERBOSE
 #define SND_PCI_QUIRK(vend,dev,xname,val) \
 	{_SND_PCI_QUIRK_ID(vend, dev), .value = (val), .name = (xname)}
+#define SND_PCI_QUIRK_VENDOR(vend, xname, val)			\
+	{_SND_PCI_QUIRK_ID_MASK(vend, 0, 0), .value = (val), .name = (xname)}
+#define SND_PCI_QUIRK_MASK(vend, mask, dev, xname, val)			\
+	{_SND_PCI_QUIRK_ID_MASK(vend, mask, dev),			\
+			.value = (val), .name = (xname)}
 #else
 #define SND_PCI_QUIRK(vend,dev,xname,val) \
 	{_SND_PCI_QUIRK_ID(vend, dev), .value = (val)}
+#define SND_PCI_QUIRK_MASK(vend, mask, dev, xname, val)			\
+	{_SND_PCI_QUIRK_ID_MASK(vend, mask, dev), .value = (val)}
+#define SND_PCI_QUIRK_VENDOR(vend, xname, val)			\
+	{_SND_PCI_QUIRK_ID_MASK(vend, 0, 0), .value = (val)}
 #endif
 
 const struct snd_pci_quirk *

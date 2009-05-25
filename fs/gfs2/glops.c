@@ -12,7 +12,6 @@
 #include <linux/completion.h>
 #include <linux/buffer_head.h>
 #include <linux/gfs2_ondisk.h>
-#include <linux/lm_interface.h>
 #include <linux/bio.h>
 
 #include "gfs2.h"
@@ -38,19 +37,24 @@
 static void gfs2_ail_empty_gl(struct gfs2_glock *gl)
 {
 	struct gfs2_sbd *sdp = gl->gl_sbd;
-	unsigned int blocks;
 	struct list_head *head = &gl->gl_ail_list;
 	struct gfs2_bufdata *bd;
 	struct buffer_head *bh;
-	int error;
+	struct gfs2_trans tr;
 
-	blocks = atomic_read(&gl->gl_ail_count);
-	if (!blocks)
+	memset(&tr, 0, sizeof(tr));
+	tr.tr_revokes = atomic_read(&gl->gl_ail_count);
+
+	if (!tr.tr_revokes)
 		return;
 
-	error = gfs2_trans_begin(sdp, 0, blocks);
-	if (gfs2_assert_withdraw(sdp, !error))
-		return;
+	/* A shortened, inline version of gfs2_trans_begin() */
+	tr.tr_reserved = 1 + gfs2_struct2blk(sdp, tr.tr_revokes, sizeof(u64));
+	tr.tr_ip = (unsigned long)__builtin_return_address(0);
+	INIT_LIST_HEAD(&tr.tr_list_buf);
+	gfs2_log_reserve(sdp, tr.tr_reserved);
+	BUG_ON(current->journal_info);
+	current->journal_info = &tr;
 
 	gfs2_log_lock(sdp);
 	while (!list_empty(head)) {
@@ -72,29 +76,7 @@ static void gfs2_ail_empty_gl(struct gfs2_glock *gl)
 }
 
 /**
- * gfs2_pte_inval - Sync and invalidate all PTEs associated with a glock
- * @gl: the glock
- *
- */
-
-static void gfs2_pte_inval(struct gfs2_glock *gl)
-{
-	struct gfs2_inode *ip;
-	struct inode *inode;
-
-	ip = gl->gl_object;
-	inode = &ip->i_inode;
-	if (!ip || !S_ISREG(inode->i_mode))
-		return;
-
-	unmap_shared_mapping_range(inode->i_mapping, 0, 0);
-	if (test_bit(GIF_SW_PAGED, &ip->i_flags))
-		set_bit(GLF_DIRTY, &gl->gl_flags);
-
-}
-
-/**
- * meta_go_sync - sync out the metadata for this glock
+ * rgrp_go_sync - sync out the metadata for this glock
  * @gl: the glock
  *
  * Called when demoting or unlocking an EX glock.  We must flush
@@ -102,36 +84,42 @@ static void gfs2_pte_inval(struct gfs2_glock *gl)
  * not return to caller to demote/unlock the glock until I/O is complete.
  */
 
-static void meta_go_sync(struct gfs2_glock *gl)
+static void rgrp_go_sync(struct gfs2_glock *gl)
 {
-	if (gl->gl_state != LM_ST_EXCLUSIVE)
-		return;
+	struct address_space *metamapping = gl->gl_aspace->i_mapping;
+	int error;
 
-	if (test_and_clear_bit(GLF_DIRTY, &gl->gl_flags)) {
-		gfs2_log_flush(gl->gl_sbd, gl);
-		gfs2_meta_sync(gl);
-		gfs2_ail_empty_gl(gl);
-	}
+	if (!test_and_clear_bit(GLF_DIRTY, &gl->gl_flags))
+		return;
+	BUG_ON(gl->gl_state != LM_ST_EXCLUSIVE);
+
+	gfs2_log_flush(gl->gl_sbd, gl);
+	filemap_fdatawrite(metamapping);
+	error = filemap_fdatawait(metamapping);
+        mapping_set_error(metamapping, error);
+	gfs2_ail_empty_gl(gl);
 }
 
 /**
- * meta_go_inval - invalidate the metadata for this glock
+ * rgrp_go_inval - invalidate the metadata for this glock
  * @gl: the glock
  * @flags:
  *
+ * We never used LM_ST_DEFERRED with resource groups, so that we
+ * should always see the metadata flag set here.
+ *
  */
 
-static void meta_go_inval(struct gfs2_glock *gl, int flags)
+static void rgrp_go_inval(struct gfs2_glock *gl, int flags)
 {
-	if (!(flags & DIO_METADATA))
-		return;
+	struct address_space *mapping = gl->gl_aspace->i_mapping;
 
-	gfs2_meta_inval(gl);
-	if (gl->gl_object == GFS2_I(gl->gl_sbd->sd_rindex))
-		gl->gl_sbd->sd_rindex_uptodate = 0;
-	else if (gl->gl_ops == &gfs2_rgrp_glops && gl->gl_object) {
+	BUG_ON(!(flags & DIO_METADATA));
+	gfs2_assert_withdraw(gl->gl_sbd, !atomic_read(&gl->gl_ail_count));
+	truncate_inode_pages(mapping, 0);
+
+	if (gl->gl_object) {
 		struct gfs2_rgrpd *rgd = (struct gfs2_rgrpd *)gl->gl_object;
-
 		rgd->rd_flags &= ~GFS2_RDF_UPTODATE;
 	}
 }
@@ -148,48 +136,60 @@ static void inode_go_sync(struct gfs2_glock *gl)
 	struct address_space *metamapping = gl->gl_aspace->i_mapping;
 	int error;
 
-	if (gl->gl_state != LM_ST_UNLOCKED)
-		gfs2_pte_inval(gl);
-	if (gl->gl_state != LM_ST_EXCLUSIVE)
-		return;
-
 	if (ip && !S_ISREG(ip->i_inode.i_mode))
 		ip = NULL;
+	if (ip && test_and_clear_bit(GIF_SW_PAGED, &ip->i_flags))
+		unmap_shared_mapping_range(ip->i_inode.i_mapping, 0, 0);
+	if (!test_and_clear_bit(GLF_DIRTY, &gl->gl_flags))
+		return;
 
-	if (test_bit(GLF_DIRTY, &gl->gl_flags)) {
-		gfs2_log_flush(gl->gl_sbd, gl);
-		filemap_fdatawrite(metamapping);
-		if (ip) {
-			struct address_space *mapping = ip->i_inode.i_mapping;
-			filemap_fdatawrite(mapping);
-			error = filemap_fdatawait(mapping);
-			mapping_set_error(mapping, error);
-		}
-		error = filemap_fdatawait(metamapping);
-		mapping_set_error(metamapping, error);
-		clear_bit(GLF_DIRTY, &gl->gl_flags);
-		gfs2_ail_empty_gl(gl);
+	BUG_ON(gl->gl_state != LM_ST_EXCLUSIVE);
+
+	gfs2_log_flush(gl->gl_sbd, gl);
+	filemap_fdatawrite(metamapping);
+	if (ip) {
+		struct address_space *mapping = ip->i_inode.i_mapping;
+		filemap_fdatawrite(mapping);
+		error = filemap_fdatawait(mapping);
+		mapping_set_error(mapping, error);
 	}
+	error = filemap_fdatawait(metamapping);
+	mapping_set_error(metamapping, error);
+	gfs2_ail_empty_gl(gl);
+	/*
+	 * Writeback of the data mapping may cause the dirty flag to be set
+	 * so we have to clear it again here.
+	 */
+	smp_mb__before_clear_bit();
+	clear_bit(GLF_DIRTY, &gl->gl_flags);
 }
 
 /**
  * inode_go_inval - prepare a inode glock to be released
  * @gl: the glock
  * @flags:
+ * 
+ * Normally we invlidate everything, but if we are moving into
+ * LM_ST_DEFERRED from LM_ST_SHARED or LM_ST_EXCLUSIVE then we
+ * can keep hold of the metadata, since it won't have changed.
  *
  */
 
 static void inode_go_inval(struct gfs2_glock *gl, int flags)
 {
 	struct gfs2_inode *ip = gl->gl_object;
-	int meta = (flags & DIO_METADATA);
 
-	if (meta) {
-		gfs2_meta_inval(gl);
+	gfs2_assert_withdraw(gl->gl_sbd, !atomic_read(&gl->gl_ail_count));
+
+	if (flags & DIO_METADATA) {
+		struct address_space *mapping = gl->gl_aspace->i_mapping;
+		truncate_inode_pages(mapping, 0);
 		if (ip)
 			set_bit(GIF_INVALID, &ip->i_flags);
 	}
 
+	if (ip == GFS2_I(gl->gl_sbd->sd_rindex))
+		gl->gl_sbd->sd_rindex_uptodate = 0;
 	if (ip && S_ISREG(ip->i_inode.i_mode))
 		truncate_inode_pages(ip->i_inode.i_mapping, 0);
 }
@@ -201,19 +201,12 @@ static void inode_go_inval(struct gfs2_glock *gl, int flags)
  * Returns: 1 if it's ok
  */
 
-static int inode_go_demote_ok(struct gfs2_glock *gl)
+static int inode_go_demote_ok(const struct gfs2_glock *gl)
 {
 	struct gfs2_sbd *sdp = gl->gl_sbd;
-	int demote = 0;
-
-	if (!gl->gl_object && !gl->gl_aspace->i_mapping->nrpages)
-		demote = 1;
-	else if (!sdp->sd_args.ar_localcaching &&
-		 time_after_eq(jiffies, gl->gl_stamp +
-			       gfs2_tune_get(sdp, gt_demote_secs) * HZ))
-		demote = 1;
-
-	return demote;
+	if (sdp->sd_jindex == gl->gl_object || sdp->sd_rindex == gl->gl_object)
+		return 0;
+	return 1;
 }
 
 /**
@@ -227,6 +220,7 @@ static int inode_go_demote_ok(struct gfs2_glock *gl)
 static int inode_go_lock(struct gfs2_holder *gh)
 {
 	struct gfs2_glock *gl = gh->gh_gl;
+	struct gfs2_sbd *sdp = gl->gl_sbd;
 	struct gfs2_inode *ip = gl->gl_object;
 	int error = 0;
 
@@ -239,10 +233,16 @@ static int inode_go_lock(struct gfs2_holder *gh)
 			return error;
 	}
 
-	if ((ip->i_di.di_flags & GFS2_DIF_TRUNC_IN_PROG) &&
+	if ((ip->i_diskflags & GFS2_DIF_TRUNC_IN_PROG) &&
 	    (gl->gl_state == LM_ST_EXCLUSIVE) &&
-	    (gh->gh_state == LM_ST_EXCLUSIVE))
-		error = gfs2_truncatei_resume(ip);
+	    (gh->gh_state == LM_ST_EXCLUSIVE)) {
+		spin_lock(&sdp->sd_trunc_lock);
+		if (list_empty(&ip->i_trunc_list))
+			list_add(&sdp->sd_trunc_list, &ip->i_trunc_list);
+		spin_unlock(&sdp->sd_trunc_lock);
+		wake_up(&sdp->sd_quota_wait);
+		return 1;
+	}
 
 	return error;
 }
@@ -260,10 +260,13 @@ static int inode_go_dump(struct seq_file *seq, const struct gfs2_glock *gl)
 	const struct gfs2_inode *ip = gl->gl_object;
 	if (ip == NULL)
 		return 0;
-	gfs2_print_dbg(seq, " I: n:%llu/%llu t:%u f:0x%08lx\n",
+	gfs2_print_dbg(seq, " I: n:%llu/%llu t:%u f:0x%02lx d:0x%08x s:%llu/%llu\n",
 		  (unsigned long long)ip->i_no_formal_ino,
 		  (unsigned long long)ip->i_no_addr,
-		  IF2DT(ip->i_inode.i_mode), ip->i_flags);
+		  IF2DT(ip->i_inode.i_mode), ip->i_flags,
+		  (unsigned int)ip->i_diskflags,
+		  (unsigned long long)ip->i_inode.i_size,
+		  (unsigned long long)ip->i_disksize);
 	return 0;
 }
 
@@ -274,7 +277,7 @@ static int inode_go_dump(struct seq_file *seq, const struct gfs2_glock *gl)
  * Returns: 1 if it's ok
  */
 
-static int rgrp_go_demote_ok(struct gfs2_glock *gl)
+static int rgrp_go_demote_ok(const struct gfs2_glock *gl)
 {
 	return !gl->gl_aspace->i_mapping->nrpages;
 }
@@ -318,7 +321,9 @@ static int rgrp_go_dump(struct seq_file *seq, const struct gfs2_glock *gl)
 	const struct gfs2_rgrpd *rgd = gl->gl_object;
 	if (rgd == NULL)
 		return 0;
-	gfs2_print_dbg(seq, " R: n:%llu\n", (unsigned long long)rgd->rd_addr);
+	gfs2_print_dbg(seq, " R: n:%llu f:%02x b:%u/%u i:%u\n",
+		       (unsigned long long)rgd->rd_addr, rgd->rd_flags,
+		       rgd->rd_free, rgd->rd_free_clone, rgd->rd_dinodes);
 	return 0;
 }
 
@@ -374,19 +379,18 @@ static int trans_go_xmote_bh(struct gfs2_glock *gl, struct gfs2_holder *gh)
 }
 
 /**
- * quota_go_demote_ok - Check to see if it's ok to unlock a quota glock
+ * trans_go_demote_ok
  * @gl: the glock
  *
- * Returns: 1 if it's ok
+ * Always returns 0
  */
 
-static int quota_go_demote_ok(struct gfs2_glock *gl)
+static int trans_go_demote_ok(const struct gfs2_glock *gl)
 {
-	return !atomic_read(&gl->gl_lvb_count);
+	return 0;
 }
 
 const struct gfs2_glock_operations gfs2_meta_glops = {
-	.go_xmote_th = meta_go_sync,
 	.go_type = LM_TYPE_META,
 };
 
@@ -401,8 +405,8 @@ const struct gfs2_glock_operations gfs2_inode_glops = {
 };
 
 const struct gfs2_glock_operations gfs2_rgrp_glops = {
-	.go_xmote_th = meta_go_sync,
-	.go_inval = meta_go_inval,
+	.go_xmote_th = rgrp_go_sync,
+	.go_inval = rgrp_go_inval,
 	.go_demote_ok = rgrp_go_demote_ok,
 	.go_lock = rgrp_go_lock,
 	.go_unlock = rgrp_go_unlock,
@@ -414,6 +418,7 @@ const struct gfs2_glock_operations gfs2_rgrp_glops = {
 const struct gfs2_glock_operations gfs2_trans_glops = {
 	.go_xmote_th = trans_go_sync,
 	.go_xmote_bh = trans_go_xmote_bh,
+	.go_demote_ok = trans_go_demote_ok,
 	.go_type = LM_TYPE_NONDISK,
 };
 
@@ -430,11 +435,22 @@ const struct gfs2_glock_operations gfs2_nondisk_glops = {
 };
 
 const struct gfs2_glock_operations gfs2_quota_glops = {
-	.go_demote_ok = quota_go_demote_ok,
 	.go_type = LM_TYPE_QUOTA,
 };
 
 const struct gfs2_glock_operations gfs2_journal_glops = {
 	.go_type = LM_TYPE_JOURNAL,
+};
+
+const struct gfs2_glock_operations *gfs2_glops_list[] = {
+	[LM_TYPE_META] = &gfs2_meta_glops,
+	[LM_TYPE_INODE] = &gfs2_inode_glops,
+	[LM_TYPE_RGRP] = &gfs2_rgrp_glops,
+	[LM_TYPE_NONDISK] = &gfs2_trans_glops,
+	[LM_TYPE_IOPEN] = &gfs2_iopen_glops,
+	[LM_TYPE_FLOCK] = &gfs2_flock_glops,
+	[LM_TYPE_NONDISK] = &gfs2_nondisk_glops,
+	[LM_TYPE_QUOTA] = &gfs2_quota_glops,
+	[LM_TYPE_JOURNAL] = &gfs2_journal_glops,
 };
 

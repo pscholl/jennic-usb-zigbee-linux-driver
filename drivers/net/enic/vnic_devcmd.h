@@ -168,7 +168,8 @@ enum vnic_devcmd_cmd {
 	CMD_CLOSE		= _CMDC(_CMD_DIR_NONE, _CMD_VTYPE_ALL, 25),
 
 	/* initialize virtual link: (u32)a0=flags (see CMD_INITF_*) */
-	CMD_INIT		= _CMDCNW(_CMD_DIR_READ, _CMD_VTYPE_ALL, 26),
+/***** Replaced by CMD_INIT *****/
+	CMD_INIT_v1		= _CMDCNW(_CMD_DIR_READ, _CMD_VTYPE_ALL, 26),
 
 	/* variant of CMD_INIT, with provisioning info
 	 *     (u64)a0=paddr of vnic_devcmd_provinfo
@@ -190,7 +191,7 @@ enum vnic_devcmd_cmd {
 	CMD_INIT_STATUS		= _CMDC(_CMD_DIR_READ, _CMD_VTYPE_ALL, 31),
 
 	/* INT13 API: (u64)a0=paddr to vnic_int13_params struct
-	 *            (u8)a1=INT13_CMD_xxx */
+	 *            (u32)a1=INT13_CMD_xxx */
 	CMD_INT13               = _CMDC(_CMD_DIR_WRITE, _CMD_VTYPE_FC, 32),
 
 	/* logical uplink enable/disable: (u64)a0: 0/1=disable/enable */
@@ -198,6 +199,19 @@ enum vnic_devcmd_cmd {
 
 	/* undo initialize of virtual link */
 	CMD_DEINIT		= _CMDCNW(_CMD_DIR_NONE, _CMD_VTYPE_ALL, 34),
+
+	/* initialize virtual link: (u32)a0=flags (see CMD_INITF_*) */
+	CMD_INIT		= _CMDCNW(_CMD_DIR_WRITE, _CMD_VTYPE_ALL, 35),
+
+	/* check fw capability of a cmd:
+	 * in:  (u32)a0=cmd
+	 * out: (u32)a0=errno, 0:valid cmd, a1=supported VNIC_STF_* bits */
+	CMD_CAPABILITY		= _CMDC(_CMD_DIR_RW, _CMD_VTYPE_ALL, 36),
+
+	/* persistent binding info
+	 * in:  (u64)a0=paddr of arg
+	 *      (u32)a1=CMD_PERBI_XXX */
+	CMD_PERBI               = _CMDC(_CMD_DIR_RW, _CMD_VTYPE_FC, 37),
 };
 
 /* flags for CMD_OPEN */
@@ -249,8 +263,17 @@ struct vnic_devcmd_notify {
 	u32 uif;		/* uplink interface */
 	u32 status;		/* status bits (see VNIC_STF_*) */
 	u32 error;		/* error code (see ERR_*) for first ERR */
+	u32 link_down_cnt;	/* running count of link down transitions */
+	u32 perbi_rebuild_cnt;	/* running count of perbi rebuilds */
 };
 #define VNIC_STF_FATAL_ERR	0x0001	/* fatal fw error */
+#define VNIC_STF_STD_PAUSE	0x0002	/* standard link-level pause on */
+#define VNIC_STF_PFC_PAUSE	0x0004	/* priority flow control pause on */
+/* all supported status flags */
+#define VNIC_STF_ALL		(VNIC_STF_FATAL_ERR |\
+				 VNIC_STF_STD_PAUSE |\
+				 VNIC_STF_PFC_PAUSE |\
+				 0)
 
 struct vnic_devcmd_provinfo {
 	u8 oui[3];

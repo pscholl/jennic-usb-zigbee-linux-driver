@@ -25,7 +25,7 @@
 #define TIMER_CLOCKEVENT 1
 static u32 latch;
 
-static cycle_t ns9360_clocksource_read(void)
+static cycle_t ns9360_clocksource_read(struct clocksource *cs)
 {
 	return __raw_readl(SYS_TR(TIMER_CLOCKSOURCE));
 }
@@ -173,7 +173,7 @@ static void __init ns9360_timer_init(void)
 	ns9360_clockevent_device.min_delta_ns =
 		clockevent_delta2ns(1, &ns9360_clockevent_device);
 
-	ns9360_clockevent_device.cpumask = cpumask_of_cpu(0);
+	ns9360_clockevent_device.cpumask = cpumask_of(0);
 	clockevents_register_device(&ns9360_clockevent_device);
 
 	setup_irq(IRQ_NS9360_TIMER0 + TIMER_CLOCKEVENT,

@@ -1383,6 +1383,29 @@ static int pmz_verify_port(struct uart_port *port, struct serial_struct *ser)
 	return -EINVAL;
 }
 
+#ifdef CONFIG_CONSOLE_POLL
+
+static int pmz_poll_get_char(struct uart_port *port)
+{
+	struct uart_pmac_port *uap = (struct uart_pmac_port *)port;
+
+	while ((read_zsreg(uap, R0) & Rx_CH_AV) == 0)
+		udelay(5);
+	return read_zsdata(uap);
+}
+
+static void pmz_poll_put_char(struct uart_port *port, unsigned char c)
+{
+	struct uart_pmac_port *uap = (struct uart_pmac_port *)port;
+
+	/* Wait for the transmit buffer to empty. */
+	while ((read_zsreg(uap, R0) & Tx_BUF_EMP) == 0)
+		udelay(5);
+	write_zsdata(uap, c);
+}
+
+#endif
+
 static struct uart_ops pmz_pops = {
 	.tx_empty	=	pmz_tx_empty,
 	.set_mctrl	=	pmz_set_mctrl,
@@ -1400,6 +1423,10 @@ static struct uart_ops pmz_pops = {
 	.request_port	=	pmz_request_port,
 	.config_port	=	pmz_config_port,
 	.verify_port	=	pmz_verify_port,
+#ifdef CONFIG_CONSOLE_POLL
+	.poll_get_char	=	pmz_poll_get_char,
+	.poll_put_char	=	pmz_poll_put_char,
+#endif
 };
 
 /*
@@ -1510,6 +1537,21 @@ no_dma:
 	uap->port.ops = &pmz_pops;
 	uap->port.type = PORT_PMAC_ZILOG;
 	uap->port.flags = 0;
+
+	/*
+	 * Fixup for the port on Gatwick for which the device-tree has
+	 * missing interrupts. Normally, the macio_dev would contain
+	 * fixed up interrupt info, but we use the device-tree directly
+	 * here due to early probing so we need the fixup too.
+	 */
+	if (uap->port.irq == NO_IRQ &&
+	    np->parent && np->parent->parent &&
+	    of_device_is_compatible(np->parent->parent, "gatwick")) {
+		/* IRQs on gatwick are offset by 64 */
+		uap->port.irq = irq_create_mapping(NULL, 64 + 15);
+		uap->tx_dma_irq = irq_create_mapping(NULL, 64 + 4);
+		uap->rx_dma_irq = irq_create_mapping(NULL, 64 + 5);
+	}
 
 	/* Setup some valid baud rate information in the register
 	 * shadows so we don't write crap there before baud rate is

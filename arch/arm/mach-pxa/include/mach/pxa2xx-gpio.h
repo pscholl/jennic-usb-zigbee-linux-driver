@@ -3,6 +3,8 @@
 
 #warning Please use mfp-pxa2[57]x.h instead of pxa2xx-gpio.h
 
+#include <mach/gpio.h>
+
 /* GPIO alternate function assignments */
 
 #define GPIO1_RST		1	/* reset */
@@ -364,5 +366,10 @@
 #define GPIO113_AC97_RESET_N_MD	(113 | GPIO_ALT_FN_2_OUT)
 #define GPIO117_I2CSCL_MD	(117 | GPIO_ALT_FN_1_IN)
 #define GPIO118_I2CSDA_MD	(118 | GPIO_ALT_FN_1_IN)
+
+/*
+ * Handy routine to set GPIO alternate functions
+ */
+extern int pxa_gpio_mode( int gpio_mode );
 
 #endif /* __ASM_ARCH_PXA2XX_GPIO_H */

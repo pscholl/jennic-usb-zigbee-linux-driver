@@ -177,8 +177,8 @@ static int __init i7300_idle_ioat_selftest(u8 *ctl,
 }
 
 static struct device dummy_dma_dev = {
-	.bus_id = "fallback device",
-	.coherent_dma_mask = DMA_64BIT_MASK,
+	.init_name = "fallback device",
+	.coherent_dma_mask = DMA_BIT_MASK(64),
 	.dma_mask = &dummy_dma_dev.coherent_dma_mask,
 };
 

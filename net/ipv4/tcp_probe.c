@@ -153,12 +153,11 @@ static int tcpprobe_sprint(char *tbuf, int n)
 		= ktime_to_timespec(ktime_sub(p->tstamp, tcp_probe.start));
 
 	return snprintf(tbuf, n,
-			"%lu.%09lu " NIPQUAD_FMT ":%u " NIPQUAD_FMT ":%u"
-			" %d %#x %#x %u %u %u %u\n",
+			"%lu.%09lu %pI4:%u %pI4:%u %d %#x %#x %u %u %u %u\n",
 			(unsigned long) tv.tv_sec,
 			(unsigned long) tv.tv_nsec,
-			NIPQUAD(p->saddr), ntohs(p->sport),
-			NIPQUAD(p->daddr), ntohs(p->dport),
+			&p->saddr, ntohs(p->sport),
+			&p->daddr, ntohs(p->dport),
 			p->length, p->snd_nxt, p->snd_una,
 			p->snd_cwnd, p->ssthresh, p->snd_wnd, p->srtt);
 }
@@ -166,9 +165,10 @@ static int tcpprobe_sprint(char *tbuf, int n)
 static ssize_t tcpprobe_read(struct file *file, char __user *buf,
 			     size_t len, loff_t *ppos)
 {
-	int error = 0, cnt = 0;
+	int error = 0;
+	size_t cnt = 0;
 
-	if (!buf || len < 0)
+	if (!buf)
 		return -EINVAL;
 
 	while (cnt < len) {

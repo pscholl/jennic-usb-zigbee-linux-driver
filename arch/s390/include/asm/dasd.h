@@ -14,6 +14,7 @@
 
 #ifndef DASD_H
 #define DASD_H
+#include <linux/types.h>
 #include <linux/ioctl.h>
 
 #define DASD_IOCTL_LETTER 'D'
@@ -78,6 +79,7 @@ typedef struct dasd_information2_t {
 #define DASD_FEATURE_USEDIAG	     0x02
 #define DASD_FEATURE_INITIAL_ONLINE  0x04
 #define DASD_FEATURE_ERPLOG	     0x08
+#define DASD_FEATURE_FAILFAST	     0x10
 
 #define DASD_PARTN_BITS 2
 
@@ -160,15 +162,15 @@ typedef struct dasd_profile_info_t {
         unsigned int dasd_io_nr_req[32]; /* histogram of # of requests in chanq */
 } dasd_profile_info_t;
 
-/* 
+/*
  * struct format_data_t
  * represents all data necessary to format a dasd
  */
 typedef struct format_data_t {
-	int start_unit; /* from track */
-	int stop_unit;  /* to track */
-	int blksize;    /* sectorsize */
-        int intensity;  
+	unsigned int start_unit; /* from track */
+	unsigned int stop_unit;  /* to track */
+	unsigned int blksize;	 /* sectorsize */
+	unsigned int intensity;
 } format_data_t;
 
 /*

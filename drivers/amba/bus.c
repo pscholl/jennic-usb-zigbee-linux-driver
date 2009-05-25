@@ -12,9 +12,10 @@
 #include <linux/device.h>
 #include <linux/string.h>
 #include <linux/slab.h>
+#include <linux/io.h>
 #include <linux/amba/bus.h>
 
-#include <asm/io.h>
+#include <asm/irq.h>
 #include <asm/sizes.h>
 
 #define to_amba_device(d)	container_of(d, struct amba_device, dev)
@@ -209,7 +210,7 @@ int amba_device_register(struct amba_device *dev, struct resource *parent)
 	dev->dev.release = amba_device_release;
 	dev->dev.bus = &amba_bustype;
 	dev->dev.dma_mask = &dev->dma_mask;
-	dev->res.name = dev->dev.bus_id;
+	dev->res.name = dev_name(&dev->dev);
 
 	if (!dev->dev.coherent_dma_mask && dev->dma_mask)
 		dev_warn(&dev->dev, "coherent dma mask is unset\n");
@@ -293,7 +294,7 @@ static int amba_find_match(struct device *dev, void *data)
 	if (d->parent)
 		r &= d->parent == dev->parent;
 	if (d->busid)
-		r &= strcmp(dev->bus_id, d->busid) == 0;
+		r &= strcmp(dev_name(dev), d->busid) == 0;
 
 	if (r) {
 		get_device(dev);

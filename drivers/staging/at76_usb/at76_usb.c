@@ -36,7 +36,7 @@
 #include <net/ieee80211_radiotap.h>
 #include <linux/firmware.h>
 #include <linux/leds.h>
-#include <net/ieee80211.h>
+#include <linux/ieee80211.h>
 
 #include "at76_usb.h"
 
@@ -231,6 +231,8 @@ static struct usb_device_id dev_table[] = {
 	{USB_DEVICE(0x03eb, 0x7617), USB_DEVICE_DATA(BOARD_505A)},
 	/* Siemens Gigaset USB WLAN Adapter 11 */
 	{USB_DEVICE(0x1690, 0x0701), USB_DEVICE_DATA(BOARD_505A)},
+	/* OQO Model 01+ Internal Wi-Fi */
+	{USB_DEVICE(0x1557, 0x0002), USB_DEVICE_DATA(BOARD_505A)},
 	/*
 	 * at76c505amx-rfmd
 	 */
@@ -641,18 +643,25 @@ static int at76_remap(struct usb_device *udev)
 static int at76_get_op_mode(struct usb_device *udev)
 {
 	int ret;
-	u8 op_mode;
+	u8 saved;
+	u8 *op_mode;
 
+	op_mode = kmalloc(1, GFP_NOIO);
+	if (!op_mode)
+		return -ENOMEM;
 	ret = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0), 0x33,
 			      USB_TYPE_VENDOR | USB_DIR_IN |
-			      USB_RECIP_INTERFACE, 0x01, 0, &op_mode, 1,
+			      USB_RECIP_INTERFACE, 0x01, 0, op_mode, 1,
 			      USB_CTRL_GET_TIMEOUT);
+	saved = *op_mode;
+	kfree(op_mode);
+
 	if (ret < 0)
 		return ret;
 	else if (ret < 1)
 		return -EIO;
 	else
-		return op_mode;
+		return saved;
 }
 
 /* Load a block of the second ("external") part of the firmware */
@@ -765,20 +774,25 @@ static inline int at76_get_mib(struct usb_device *udev, u16 mib, void *buf,
 /* Return positive number for status, negative for an error */
 static inline int at76_get_cmd_status(struct usb_device *udev, u8 cmd)
 {
-	u8 stat_buf[40];
+	u8 *stat_buf;
 	int ret;
+
+	stat_buf = kmalloc(40, GFP_NOIO);
+	if (!stat_buf)
+		return -ENOMEM;
 
 	ret = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0), 0x22,
 			      USB_TYPE_VENDOR | USB_DIR_IN |
 			      USB_RECIP_INTERFACE, cmd, 0, stat_buf,
-			      sizeof(stat_buf), USB_CTRL_GET_TIMEOUT);
-	if (ret < 0)
-		return ret;
+			      40, USB_CTRL_GET_TIMEOUT);
+	if (ret >= 0)
+		ret = stat_buf[5];
+	kfree(stat_buf);
 
-	return stat_buf[5];
+	return ret;
 }
 
-static int at76_set_card_command(struct usb_device *udev, int cmd, void *buf,
+static int at76_set_card_command(struct usb_device *udev, u8 cmd, void *buf,
 				 int buf_size)
 {
 	int ret;
@@ -1713,12 +1727,12 @@ static int at76_assoc_req(struct at76_priv *priv, struct bss_info *bss)
 
 	/* write TLV data elements */
 
-	ie->id = MFIE_TYPE_SSID;
+	ie->id = WLAN_EID_SSID;
 	ie->len = bss->ssid_len;
 	memcpy(ie->data, bss->ssid, bss->ssid_len);
 	next_ie(&ie);
 
-	ie->id = MFIE_TYPE_RATES;
+	ie->id = WLAN_EID_SUPP_RATES;
 	ie->len = sizeof(hw_rates);
 	memcpy(ie->data, hw_rates, sizeof(hw_rates));
 	next_ie(&ie);		/* ie points behind the supp_rates field */
@@ -4383,7 +4397,7 @@ static void at76_rx_mgmt_beacon(struct at76_priv *priv,
 
 		switch (ie->id) {
 
-		case MFIE_TYPE_SSID:
+		case WLAN_EID_SSID:
 			if (have_ssid)
 				break;
 
@@ -4406,7 +4420,7 @@ static void at76_rx_mgmt_beacon(struct at76_priv *priv,
 			have_ssid = 1;
 			break;
 
-		case MFIE_TYPE_RATES:
+		case WLAN_EID_SUPP_RATES:
 			if (have_rates)
 				break;
 
@@ -4419,7 +4433,7 @@ static void at76_rx_mgmt_beacon(struct at76_priv *priv,
 				 hex2str(ie->data, ie->len));
 			break;
 
-		case MFIE_TYPE_DS_SET:
+		case WLAN_EID_DS_PARAMS:
 			if (have_channel)
 				break;
 
@@ -4429,9 +4443,9 @@ static void at76_rx_mgmt_beacon(struct at76_priv *priv,
 				 priv->netdev->name, match->channel);
 			break;
 
-		case MFIE_TYPE_CF_SET:
-		case MFIE_TYPE_TIM:
-		case MFIE_TYPE_IBSS_SET:
+		case WLAN_EID_CF_PARAMS:
+		case WLAN_EID_TIM:
+		case WLAN_EID_IBSS_PARAMS:
 		default:
 			at76_dbg(DBG_RX_BEACON, "%s: beacon IE id %d len %d %s",
 				 priv->netdev->name, ie->id, ie->len,
@@ -5245,6 +5259,18 @@ static int at76_alloc_urbs(struct at76_priv *priv,
 	return 0;
 }
 
+static const struct net_device_ops at76_netdev_ops = {
+	.ndo_open		= at76_open,
+	.ndo_stop		= at76_stop,
+	.ndo_get_stats		= at76_get_stats,
+	.ndo_start_xmit		= at76_tx,
+	.ndo_tx_timeout		= at76_tx_timeout,
+	.ndo_set_multicast_list	= at76_set_multicast,
+	.ndo_set_mac_address	= at76_set_mac_address,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+};
+
 /* Register network device and initialize the hardware */
 static int at76_init_new_device(struct at76_priv *priv,
 				struct usb_interface *interface)
@@ -5289,21 +5315,15 @@ static int at76_init_new_device(struct at76_priv *priv,
 	priv->scan_mode = SCAN_TYPE_ACTIVE;
 
 	netdev->flags &= ~IFF_MULTICAST;	/* not yet or never */
-	netdev->open = at76_open;
-	netdev->stop = at76_stop;
-	netdev->get_stats = at76_get_stats;
+	netdev->netdev_ops = &at76_netdev_ops;
 	netdev->ethtool_ops = &at76_ethtool_ops;
 
 	/* Add pointers to enable iwspy support. */
 	priv->wireless_data.spy_data = &priv->spy_data;
 	netdev->wireless_data = &priv->wireless_data;
 
-	netdev->hard_start_xmit = at76_tx;
-	netdev->tx_timeout = at76_tx_timeout;
 	netdev->watchdog_timeo = 2 * HZ;
 	netdev->wireless_handlers = &at76_handler_def;
-	netdev->set_multicast_list = at76_set_multicast;
-	netdev->set_mac_address = at76_set_mac_address;
 	dev_alloc_name(netdev, "wlan%d");
 
 	ret = register_netdev(priv->netdev);
@@ -5315,7 +5335,7 @@ static int at76_init_new_device(struct at76_priv *priv,
 	priv->netdev_registered = 1;
 
 	printk(KERN_INFO "%s: USB %s, MAC %s, firmware %d.%d.%d-%d\n",
-	       netdev->name, interface->dev.bus_id, mac2str(priv->mac_addr),
+	       netdev->name, dev_name(&interface->dev), mac2str(priv->mac_addr),
 	       priv->fw_version.major, priv->fw_version.minor,
 	       priv->fw_version.patch, priv->fw_version.build);
 	printk(KERN_INFO "%s: regulatory domain 0x%02x: %s\n", netdev->name,
@@ -5356,8 +5376,7 @@ static void at76_delete_device(struct at76_priv *priv)
 
 	at76_dbg(DBG_PROC_ENTRY, "%s: unlinked urbs", __func__);
 
-	if (priv->rx_skb)
-		kfree_skb(priv->rx_skb);
+	kfree_skb(priv->rx_skb);
 
 	at76_free_bss_list(priv);
 	del_timer_sync(&priv->bss_list_timer);

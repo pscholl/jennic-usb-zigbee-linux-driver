@@ -12,6 +12,7 @@
 
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/nf_conntrack_tuple_common.h>
+#include <linux/list_nulls.h>
 
 /* A `tuple' is a structure containing the information to uniquely
   identify a connection.  ie. if two packets have the same tuple, they
@@ -112,20 +113,20 @@ struct nf_conntrack_tuple_mask
 static inline void nf_ct_dump_tuple_ip(const struct nf_conntrack_tuple *t)
 {
 #ifdef DEBUG
-	printk("tuple %p: %u " NIPQUAD_FMT ":%hu -> " NIPQUAD_FMT ":%hu\n",
+	printk("tuple %p: %u %pI4:%hu -> %pI4:%hu\n",
 	       t, t->dst.protonum,
-	       NIPQUAD(t->src.u3.ip), ntohs(t->src.u.all),
-	       NIPQUAD(t->dst.u3.ip), ntohs(t->dst.u.all));
+	       &t->src.u3.ip, ntohs(t->src.u.all),
+	       &t->dst.u3.ip, ntohs(t->dst.u.all));
 #endif
 }
 
 static inline void nf_ct_dump_tuple_ipv6(const struct nf_conntrack_tuple *t)
 {
 #ifdef DEBUG
-	printk("tuple %p: %u " NIP6_FMT " %hu -> " NIP6_FMT " %hu\n",
+	printk("tuple %p: %u %pI6 %hu -> %pI6 %hu\n",
 	       t, t->dst.protonum,
-	       NIP6(*(struct in6_addr *)t->src.u3.all), ntohs(t->src.u.all),
-	       NIP6(*(struct in6_addr *)t->dst.u3.all), ntohs(t->dst.u.all));
+	       t->src.u3.all, ntohs(t->src.u.all),
+	       t->dst.u3.all, ntohs(t->dst.u.all));
 #endif
 }
 
@@ -146,9 +147,8 @@ static inline void nf_ct_dump_tuple(const struct nf_conntrack_tuple *t)
 	((enum ip_conntrack_dir)(h)->tuple.dst.dir)
 
 /* Connections have two entries in the hash table: one for each way */
-struct nf_conntrack_tuple_hash
-{
-	struct hlist_node hnode;
+struct nf_conntrack_tuple_hash {
+	struct hlist_nulls_node hnnode;
 	struct nf_conntrack_tuple tuple;
 };
 

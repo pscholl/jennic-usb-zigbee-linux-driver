@@ -21,6 +21,10 @@ struct s3c24xx_uart_info {
 	unsigned long		tx_fifoshift;
 	unsigned long		tx_fifofull;
 
+	/* uart port features */
+
+	unsigned int		has_divslot:1;
+
 	/* clock source control */
 
 	int (*get_clksrc)(struct uart_port *, struct s3c24xx_uart_clksrc *clk);
@@ -33,12 +37,21 @@ struct s3c24xx_uart_info {
 struct s3c24xx_uart_port {
 	unsigned char			rx_claimed;
 	unsigned char			tx_claimed;
+	unsigned int			pm_level;
+	unsigned long			baudclk_rate;
+
+	unsigned int			rx_irq;
+	unsigned int			tx_irq;
 
 	struct s3c24xx_uart_info	*info;
 	struct s3c24xx_uart_clksrc	*clksrc;
 	struct clk			*clk;
 	struct clk			*baudclk;
 	struct uart_port		port;
+
+#ifdef CONFIG_CPU_FREQ
+	struct notifier_block		freq_transition;
+#endif
 };
 
 /* conversion functions */

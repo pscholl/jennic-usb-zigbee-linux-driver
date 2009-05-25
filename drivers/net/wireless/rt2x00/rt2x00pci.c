@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -32,24 +32,46 @@
 #include "rt2x00pci.h"
 
 /*
+ * Register access.
+ */
+int rt2x00pci_regbusy_read(struct rt2x00_dev *rt2x00dev,
+			   const unsigned int offset,
+			   const struct rt2x00_field32 field,
+			   u32 *reg)
+{
+	unsigned int i;
+
+	for (i = 0; i < REGISTER_BUSY_COUNT; i++) {
+		rt2x00pci_register_read(rt2x00dev, offset, reg);
+		if (!rt2x00_get_field32(*reg, field))
+			return 1;
+		udelay(REGISTER_BUSY_DELAY);
+	}
+
+	ERROR(rt2x00dev, "Indirect register access failed: "
+	      "offset=0x%.08x, value=0x%.08x\n", offset, *reg);
+	*reg = ~0;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(rt2x00pci_regbusy_read);
+
+/*
  * TX data handlers.
  */
 int rt2x00pci_write_tx_data(struct queue_entry *entry)
 {
+	struct rt2x00_dev *rt2x00dev = entry->queue->rt2x00dev;
 	struct queue_entry_priv_pci *entry_priv = entry->priv_data;
 	struct skb_frame_desc *skbdesc;
-	u32 word;
-
-	rt2x00_desc_read(entry_priv->desc, 0, &word);
 
 	/*
 	 * This should not happen, we already checked the entry
 	 * was ours. When the hardware disagrees there has been
 	 * a queue corruption!
 	 */
-	if (unlikely(rt2x00_get_field32(word, TXD_ENTRY_OWNER_NIC) ||
-		     rt2x00_get_field32(word, TXD_ENTRY_VALID))) {
-		ERROR(entry->queue->rt2x00dev,
+	if (unlikely(rt2x00dev->ops->lib->get_entry_state(entry))) {
+		ERROR(rt2x00dev,
 		      "Corrupt queue %d, accessing entry which is not ours.\n"
 		      "Please file bug report to %s.\n",
 		      entry->queue->qid, DRV_PROJECT);
@@ -76,14 +98,12 @@ void rt2x00pci_rxdone(struct rt2x00_dev *rt2x00dev)
 	struct queue_entry *entry;
 	struct queue_entry_priv_pci *entry_priv;
 	struct skb_frame_desc *skbdesc;
-	u32 word;
 
 	while (1) {
 		entry = rt2x00queue_get_entry(queue, Q_INDEX);
 		entry_priv = entry->priv_data;
-		rt2x00_desc_read(entry_priv->desc, 0, &word);
 
-		if (rt2x00_get_field32(word, RXD_ENTRY_OWNER_NIC))
+		if (rt2x00dev->ops->lib->get_entry_state(entry))
 			break;
 
 		/*
@@ -222,8 +242,7 @@ static int rt2x00pci_alloc_reg(struct rt2x00_dev *rt2x00dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(rt2x00dev->dev);
 
-	rt2x00dev->csr.base = ioremap(pci_resource_start(pci_dev, 0),
-				      pci_resource_len(pci_dev, 0));
+	rt2x00dev->csr.base = pci_ioremap_bar(pci_dev, 0);
 	if (!rt2x00dev->csr.base)
 		goto exit;
 
@@ -269,7 +288,7 @@ int rt2x00pci_probe(struct pci_dev *pci_dev, const struct pci_device_id *id)
 	if (pci_set_mwi(pci_dev))
 		ERROR_PROBE("MWI not available.\n");
 
-	if (dma_set_mask(&pci_dev->dev, DMA_32BIT_MASK)) {
+	if (dma_set_mask(&pci_dev->dev, DMA_BIT_MASK(32))) {
 		ERROR_PROBE("PCI DMA not supported.\n");
 		retval = -EIO;
 		goto exit_disable_device;
@@ -350,8 +369,6 @@ int rt2x00pci_suspend(struct pci_dev *pci_dev, pm_message_t state)
 	if (retval)
 		return retval;
 
-	rt2x00pci_free_reg(rt2x00dev);
-
 	pci_save_state(pci_dev);
 	pci_disable_device(pci_dev);
 	return pci_set_power_state(pci_dev, pci_choose_state(pci_dev, state));
@@ -362,7 +379,6 @@ int rt2x00pci_resume(struct pci_dev *pci_dev)
 {
 	struct ieee80211_hw *hw = pci_get_drvdata(pci_dev);
 	struct rt2x00_dev *rt2x00dev = hw->priv;
-	int retval;
 
 	if (pci_set_power_state(pci_dev, PCI_D0) ||
 	    pci_enable_device(pci_dev) ||
@@ -371,20 +387,7 @@ int rt2x00pci_resume(struct pci_dev *pci_dev)
 		return -EIO;
 	}
 
-	retval = rt2x00pci_alloc_reg(rt2x00dev);
-	if (retval)
-		return retval;
-
-	retval = rt2x00lib_resume(rt2x00dev);
-	if (retval)
-		goto exit_free_reg;
-
-	return 0;
-
-exit_free_reg:
-	rt2x00pci_free_reg(rt2x00dev);
-
-	return retval;
+	return rt2x00lib_resume(rt2x00dev);
 }
 EXPORT_SYMBOL_GPL(rt2x00pci_resume);
 #endif /* CONFIG_PM */

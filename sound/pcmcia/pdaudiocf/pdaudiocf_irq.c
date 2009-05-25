@@ -41,7 +41,7 @@ irqreturn_t pdacf_interrupt(int irq, void *dev)
 		if (stat & PDAUDIOCF_IRQOVR)	/* should never happen */
 			snd_printk(KERN_ERR "PDAUDIOCF SRAM buffer overrun detected!\n");
 		if (chip->pcm_substream)
-			tasklet_hi_schedule(&chip->tq);
+			tasklet_schedule(&chip->tq);
 		if (!(stat & PDAUDIOCF_IRQAKM))
 			stat |= PDAUDIOCF_IRQAKM;	/* check rate */
 	}
@@ -269,7 +269,7 @@ void pdacf_tasklet(unsigned long private_data)
 
 	rdp = inw(chip->port + PDAUDIOCF_REG_RDP);
 	wdp = inw(chip->port + PDAUDIOCF_REG_WDP);
-	// printk("TASKLET: rdp = %x, wdp = %x\n", rdp, wdp);
+	/* printk(KERN_DEBUG "TASKLET: rdp = %x, wdp = %x\n", rdp, wdp); */
 	size = wdp - rdp;
 	if (size < 0)
 		size += 0x10000;
@@ -321,5 +321,5 @@ void pdacf_tasklet(unsigned long private_data)
 		spin_lock(&chip->reg_lock);
 	}
 	spin_unlock(&chip->reg_lock);
-	// printk("TASKLET: end\n");
+	/* printk(KERN_DEBUG "TASKLET: end\n"); */
 }

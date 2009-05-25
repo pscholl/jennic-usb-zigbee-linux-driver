@@ -3,7 +3,8 @@
  *
  * Copyright (C) 2008 Nokia Corporation
  *
- * Contact: Jarkko Nikula <jarkko.nikula@nokia.com>
+ * Contact: Jarkko Nikula <jhnikula@gmail.com>
+ *          Peter Ujfalusi <peter.ujfalusi@nokia.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -97,7 +98,7 @@ static int omap_pcm_hw_params(struct snd_pcm_substream *substream,
 	prtd->dma_data = dma_data;
 	err = omap_request_dma(dma_data->dma_req, dma_data->name,
 			       omap_pcm_dma_irq, substream, &prtd->dma_ch);
-	if (!err & !cpu_is_omap1510()) {
+	if (!err && !cpu_is_omap1510()) {
 		/*
 		 * Link channel with itself so DMA doesn't need any
 		 * reprogramming while looping the buffer
@@ -175,9 +176,10 @@ static int omap_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct omap_runtime_data *prtd = runtime->private_data;
+	unsigned long flags;
 	int ret = 0;
 
-	spin_lock_irq(&prtd->lock);
+	spin_lock_irqsave(&prtd->lock, flags);
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
@@ -195,7 +197,7 @@ static int omap_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	default:
 		ret = -EINVAL;
 	}
-	spin_unlock_irq(&prtd->lock);
+	spin_unlock_irqrestore(&prtd->lock, flags);
 
 	return ret;
 }
@@ -264,7 +266,7 @@ static int omap_pcm_mmap(struct snd_pcm_substream *substream,
 				     runtime->dma_bytes);
 }
 
-struct snd_pcm_ops omap_pcm_ops = {
+static struct snd_pcm_ops omap_pcm_ops = {
 	.open		= omap_pcm_open,
 	.close		= omap_pcm_close,
 	.ioctl		= snd_pcm_lib_ioctl,
@@ -326,7 +328,7 @@ int omap_pcm_new(struct snd_card *card, struct snd_soc_dai *dai,
 	if (!card->dev->dma_mask)
 		card->dev->dma_mask = &omap_pcm_dmamask;
 	if (!card->dev->coherent_dma_mask)
-		card->dev->coherent_dma_mask = DMA_32BIT_MASK;
+		card->dev->coherent_dma_mask = DMA_BIT_MASK(32);
 
 	if (dai->playback.channels_min) {
 		ret = omap_pcm_preallocate_dma_buffer(pcm,
@@ -354,6 +356,18 @@ struct snd_soc_platform omap_soc_platform = {
 };
 EXPORT_SYMBOL_GPL(omap_soc_platform);
 
-MODULE_AUTHOR("Jarkko Nikula <jarkko.nikula@nokia.com>");
+static int __init omap_soc_platform_init(void)
+{
+	return snd_soc_register_platform(&omap_soc_platform);
+}
+module_init(omap_soc_platform_init);
+
+static void __exit omap_soc_platform_exit(void)
+{
+	snd_soc_unregister_platform(&omap_soc_platform);
+}
+module_exit(omap_soc_platform_exit);
+
+MODULE_AUTHOR("Jarkko Nikula <jhnikula@gmail.com>");
 MODULE_DESCRIPTION("OMAP PCM DMA module");
 MODULE_LICENSE("GPL");

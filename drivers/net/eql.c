@@ -159,8 +159,15 @@ static void eql_timer(unsigned long param)
 	add_timer(&eql->timer);
 }
 
-static char version[] __initdata =
+static const char version[] __initconst =
 	"Equalizer2002: Simon Janes (simon@ncm.com) and David S. Miller (davem@redhat.com)\n";
+
+static const struct net_device_ops eql_netdev_ops = {
+	.ndo_open	= eql_open,
+	.ndo_stop	= eql_close,
+	.ndo_do_ioctl	= eql_ioctl,
+	.ndo_start_xmit	= eql_slave_xmit,
+};
 
 static void __init eql_setup(struct net_device *dev)
 {
@@ -175,10 +182,7 @@ static void __init eql_setup(struct net_device *dev)
 	INIT_LIST_HEAD(&eql->queue.all_slaves);
 	eql->queue.master_dev	= dev;
 
-	dev->open		= eql_open;
-	dev->stop		= eql_close;
-	dev->do_ioctl		= eql_ioctl;
-	dev->hard_start_xmit	= eql_slave_xmit;
+	dev->netdev_ops		= &eql_netdev_ops;
 
 	/*
 	 *	Now we undo some of the things that eth_setup does
@@ -537,6 +541,8 @@ static int eql_s_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 		}
 	}
 	spin_unlock_bh(&eql->queue.lock);
+
+	dev_put(slave_dev);
 
 	return ret;
 }

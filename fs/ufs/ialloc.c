@@ -95,8 +95,8 @@ void ufs_free_inode (struct inode * inode)
 
 	is_directory = S_ISDIR(inode->i_mode);
 
-	DQUOT_FREE_INODE(inode);
-	DQUOT_DROP(inode);
+	vfs_dq_free_inode(inode);
+	vfs_dq_drop(inode);
 
 	clear_inode (inode);
 
@@ -304,13 +304,13 @@ cg_found:
 
 	inode->i_ino = cg * uspi->s_ipg + bit;
 	inode->i_mode = mode;
-	inode->i_uid = current->fsuid;
+	inode->i_uid = current_fsuid();
 	if (dir->i_mode & S_ISGID) {
 		inode->i_gid = dir->i_gid;
 		if (S_ISDIR(mode))
 			inode->i_mode |= S_ISGID;
 	} else
-		inode->i_gid = current->fsgid;
+		inode->i_gid = current_fsgid();
 
 	inode->i_blocks = 0;
 	inode->i_generation = 0;
@@ -355,8 +355,8 @@ cg_found:
 
 	unlock_super (sb);
 
-	if (DQUOT_ALLOC_INODE(inode)) {
-		DQUOT_DROP(inode);
+	if (vfs_dq_alloc_inode(inode)) {
+		vfs_dq_drop(inode);
 		err = -EDQUOT;
 		goto fail_without_unlock;
 	}

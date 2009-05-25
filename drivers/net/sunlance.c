@@ -343,7 +343,7 @@ static void lance_init_ring_dvma(struct net_device *dev)
 	ib->phys_addr [5] = dev->dev_addr [4];
 
 	/* Setup the Tx ring entries */
-	for (i = 0; i <= TX_RING_SIZE; i++) {
+	for (i = 0; i < TX_RING_SIZE; i++) {
 		leptr = LANCE_ADDR(aib + libbuff_offset(tx_buf, i));
 		ib->btx_ring [i].tmd0      = leptr;
 		ib->btx_ring [i].tmd1_hadr = leptr >> 16;
@@ -399,7 +399,7 @@ static void lance_init_ring_pio(struct net_device *dev)
 	sbus_writeb(dev->dev_addr[4], &ib->phys_addr[5]);
 
 	/* Setup the Tx ring entries */
-	for (i = 0; i <= TX_RING_SIZE; i++) {
+	for (i = 0; i < TX_RING_SIZE; i++) {
 		leptr = libbuff_offset(tx_buf, i);
 		sbus_writew(leptr,	&ib->btx_ring [i].tmd0);
 		sbus_writeb(leptr >> 16,&ib->btx_ring [i].tmd1_hadr);
@@ -555,7 +555,6 @@ static void lance_rx_dvma(struct net_device *dev)
 					 len);
 			skb->protocol = eth_type_trans(skb, dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 		}
 
@@ -726,7 +725,6 @@ static void lance_rx_pio(struct net_device *dev)
 			lance_piocopy_to_skb(skb, &(ib->rx_buf[entry][0]), len);
 			skb->protocol = eth_type_trans(skb, dev);
 			netif_rx(skb);
-			dev->last_rx = jiffies;
 			dev->stats.rx_packets++;
 		}
 
@@ -1313,6 +1311,17 @@ static const struct ethtool_ops sparc_lance_ethtool_ops = {
 	.get_link		= sparc_lance_get_link,
 };
 
+static const struct net_device_ops sparc_lance_ops = {
+	.ndo_open		= lance_open,
+	.ndo_stop		= lance_close,
+	.ndo_start_xmit		= lance_start_xmit,
+	.ndo_set_multicast_list	= lance_set_multicast,
+	.ndo_tx_timeout		= lance_tx_timeout,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 static int __devinit sparc_lance_probe_one(struct of_device *op,
 					   struct of_device *ledma,
 					   struct of_device *lebuffer)
@@ -1321,7 +1330,6 @@ static int __devinit sparc_lance_probe_one(struct of_device *op,
 	static unsigned version_printed;
 	struct lance_private *lp;
 	struct net_device *dev;
-	DECLARE_MAC_BUF(mac);
 	int    i;
 
 	dev = alloc_etherdev(sizeof(struct lance_private) + 8);
@@ -1465,13 +1473,9 @@ no_link_test:
 
 	lp->dev = dev;
 	SET_NETDEV_DEV(dev, &op->dev);
-	dev->open = &lance_open;
-	dev->stop = &lance_close;
-	dev->hard_start_xmit = &lance_start_xmit;
-	dev->tx_timeout = &lance_tx_timeout;
 	dev->watchdog_timeo = 5*HZ;
-	dev->set_multicast_list = &lance_set_multicast;
 	dev->ethtool_ops = &sparc_lance_ethtool_ops;
+	dev->netdev_ops = &sparc_lance_ops;
 
 	dev->irq = op->irqs[0];
 
@@ -1491,8 +1495,8 @@ no_link_test:
 
 	dev_set_drvdata(&op->dev, lp);
 
-	printk(KERN_INFO "%s: LANCE %s\n",
-	       dev->name, print_mac(mac, dev->dev_addr));
+	printk(KERN_INFO "%s: LANCE %pM\n",
+	       dev->name, dev->dev_addr);
 
 	return 0;
 

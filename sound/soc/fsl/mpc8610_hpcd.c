@@ -29,7 +29,7 @@
 struct mpc8610_hpcd_data {
 	struct snd_soc_device sound_devdata;
 	struct snd_soc_dai_link dai;
-	struct snd_soc_machine machine;
+	struct snd_soc_card machine;
 	unsigned int dai_format;
 	unsigned int codec_clk_direction;
 	unsigned int cpu_clk_direction;
@@ -180,16 +180,6 @@ int mpc8610_hpcd_machine_remove(struct platform_device *sound_device)
  */
 static struct snd_soc_ops mpc8610_hpcd_ops = {
 	.startup = mpc8610_hpcd_startup,
-};
-
-/**
- * mpc8610_hpcd_machine: ASoC machine data
- */
-static struct snd_soc_machine mpc8610_hpcd_machine = {
-	.probe = mpc8610_hpcd_machine_probe,
-	.remove = mpc8610_hpcd_machine_remove,
-	.name = "MPC8610 HPCD",
-	.num_links = 1,
 };
 
 /**
@@ -363,6 +353,11 @@ static int mpc8610_hpcd_probe(struct of_device *ofdev,
 	}
 	ssi_info.irq = machine_data->ssi_irq;
 
+	/* Do we want to use asynchronous mode? */
+	ssi_info.asynchronous =
+		of_find_property(np, "fsl,ssi-asynchronous", NULL) ? 1 : 0;
+	if (ssi_info.asynchronous)
+		dev_info(&ofdev->dev, "using asynchronous mode\n");
 
 	/* Map the global utilities registers. */
 	guts_np = of_find_compatible_node(NULL, NULL, "fsl,mpc8610-guts");
@@ -455,7 +450,11 @@ static int mpc8610_hpcd_probe(struct of_device *ofdev,
 	machine_data->dai.codec_dai = &cs4270_dai; /* The codec_dai we want */
 	machine_data->dai.ops = &mpc8610_hpcd_ops;
 
-	mpc8610_hpcd_machine.dai_link = &machine_data->dai;
+	machine_data->machine.probe = mpc8610_hpcd_machine_probe;
+	machine_data->machine.remove = mpc8610_hpcd_machine_remove;
+	machine_data->machine.name = "MPC8610 HPCD";
+	machine_data->machine.num_links = 1;
+	machine_data->machine.dai_link = &machine_data->dai;
 
 	/* Allocate a new audio platform device structure */
 	sound_device = platform_device_alloc("soc-audio", -1);
@@ -465,9 +464,9 @@ static int mpc8610_hpcd_probe(struct of_device *ofdev,
 		goto error;
 	}
 
-	machine_data->sound_devdata.machine = &mpc8610_hpcd_machine;
+	machine_data->sound_devdata.card = &machine_data->machine;
 	machine_data->sound_devdata.codec_dev = &soc_codec_device_cs4270;
-	machine_data->sound_devdata.platform = &fsl_soc_platform;
+	machine_data->machine.platform = &fsl_soc_platform;
 
 	sound_device->dev.platform_data = machine_data;
 

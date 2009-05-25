@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2001 Sistina Software (UK) Limited.
- * Copyright (C) 2004 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2004-2008 Red Hat, Inc. All rights reserved.
  *
  * This file is released under the GPL.
  */
@@ -15,6 +15,7 @@
 #include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
+#include <linux/delay.h>
 #include <asm/atomic.h>
 
 #define DM_MSG_PREFIX "table"
@@ -23,6 +24,19 @@
 #define NODE_SIZE L1_CACHE_BYTES
 #define KEYS_PER_NODE (NODE_SIZE / sizeof(sector_t))
 #define CHILDREN_PER_NODE (KEYS_PER_NODE + 1)
+
+/*
+ * The table has always exactly one reference from either mapped_device->map
+ * or hash_cell->new_map. This reference is not counted in table->holders.
+ * A pair of dm_create_table/dm_destroy_table functions is used for table
+ * creation/destruction.
+ *
+ * Temporary references from the other code increase table->holders. A pair
+ * of dm_table_get/dm_table_put functions is used to manipulate it.
+ *
+ * When the table is about to be destroyed, we wait for table->holders to
+ * drop to zero.
+ */
 
 struct dm_table {
 	struct mapped_device *md;
@@ -226,7 +240,7 @@ int dm_table_create(struct dm_table **result, fmode_t mode,
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&t->devices);
-	atomic_set(&t->holders, 1);
+	atomic_set(&t->holders, 0);
 
 	if (!num_targets)
 		num_targets = KEYS_PER_NODE;
@@ -256,9 +270,13 @@ static void free_devices(struct list_head *devices)
 	}
 }
 
-static void table_destroy(struct dm_table *t)
+void dm_table_destroy(struct dm_table *t)
 {
 	unsigned int i;
+
+	while (atomic_read(&t->holders))
+		msleep(1);
+	smp_mb();
 
 	/* free the indexes (see dm_table_complete) */
 	if (t->depth >= 2)
@@ -297,8 +315,8 @@ void dm_table_put(struct dm_table *t)
 	if (!t)
 		return;
 
-	if (atomic_dec_and_test(&t->holders))
-		table_destroy(t);
+	smp_mb__before_atomic_dec();
+	atomic_dec(&t->holders);
 }
 
 /*
@@ -378,28 +396,30 @@ static int check_device_area(struct dm_dev_internal *dd, sector_t start,
 }
 
 /*
- * This upgrades the mode on an already open dm_dev.  Being
+ * This upgrades the mode on an already open dm_dev, being
  * careful to leave things as they were if we fail to reopen the
- * device.
+ * device and not to touch the existing bdev field in case
+ * it is accessed concurrently inside dm_table_any_congested().
  */
 static int upgrade_mode(struct dm_dev_internal *dd, fmode_t new_mode,
 			struct mapped_device *md)
 {
 	int r;
-	struct dm_dev_internal dd_copy;
-	dev_t dev = dd->dm_dev.bdev->bd_dev;
+	struct dm_dev_internal dd_new, dd_old;
 
-	dd_copy = *dd;
+	dd_new = dd_old = *dd;
+
+	dd_new.dm_dev.mode |= new_mode;
+	dd_new.dm_dev.bdev = NULL;
+
+	r = open_dev(&dd_new, dd->dm_dev.bdev->bd_dev, md);
+	if (r)
+		return r;
 
 	dd->dm_dev.mode |= new_mode;
-	dd->dm_dev.bdev = NULL;
-	r = open_dev(dd, dev, md);
-	if (!r)
-		close_dev(&dd_copy, md);
-	else
-		*dd = dd_copy;
+	close_dev(&dd_old, md);
 
-	return r;
+	return 0;
 }
 
 /*
@@ -846,6 +866,45 @@ struct dm_target *dm_table_find_target(struct dm_table *t, sector_t sector)
 	return &t->targets[(KEYS_PER_NODE * n) + k];
 }
 
+/*
+ * Set the integrity profile for this device if all devices used have
+ * matching profiles.
+ */
+static void dm_table_set_integrity(struct dm_table *t)
+{
+	struct list_head *devices = dm_table_get_devices(t);
+	struct dm_dev_internal *prev = NULL, *dd = NULL;
+
+	if (!blk_get_integrity(dm_disk(t->md)))
+		return;
+
+	list_for_each_entry(dd, devices, list) {
+		if (prev &&
+		    blk_integrity_compare(prev->dm_dev.bdev->bd_disk,
+					  dd->dm_dev.bdev->bd_disk) < 0) {
+			DMWARN("%s: integrity not set: %s and %s mismatch",
+			       dm_device_name(t->md),
+			       prev->dm_dev.bdev->bd_disk->disk_name,
+			       dd->dm_dev.bdev->bd_disk->disk_name);
+			goto no_integrity;
+		}
+		prev = dd;
+	}
+
+	if (!prev || !bdev_get_integrity(prev->dm_dev.bdev))
+		goto no_integrity;
+
+	blk_integrity_register(dm_disk(t->md),
+			       bdev_get_integrity(prev->dm_dev.bdev));
+
+	return;
+
+no_integrity:
+	blk_integrity_register(dm_disk(t->md), NULL);
+
+	return;
+}
+
 void dm_table_set_restrictions(struct dm_table *t, struct request_queue *q)
 {
 	/*
@@ -866,6 +925,7 @@ void dm_table_set_restrictions(struct dm_table *t, struct request_queue *q)
 	else
 		queue_flag_set_unlocked(QUEUE_FLAG_CLUSTER, q);
 
+	dm_table_set_integrity(t);
 }
 
 unsigned int dm_table_get_num_targets(struct dm_table *t)

@@ -41,9 +41,8 @@
 #include <asm/mach/irq.h>
 #include <asm/mach/flash.h>
 
-#include <mach/pxa-regs.h>
-#include <mach/pxa2xx-regs.h>
-#include <mach/mfp-pxa27x.h>
+#include <mach/pxa27x.h>
+#include <mach/gpio.h>
 #include <mach/mainstone.h>
 #include <mach/audio.h>
 #include <mach/pxafb.h>
@@ -127,6 +126,10 @@ static unsigned long mainstone_pin_config[] = {
 	GPIO107_KP_MKOUT_4,
 	GPIO108_KP_MKOUT_5,
 	GPIO96_KP_MKOUT_6,
+
+	/* I2C */
+	GPIO117_I2C_SCL,
+	GPIO118_I2C_SDA,
 
 	/* GPIO */
 	GPIO1_GPIO | WAKEUP_ON_EDGE_BOTH,

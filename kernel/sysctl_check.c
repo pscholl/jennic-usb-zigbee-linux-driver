@@ -219,6 +219,7 @@ static const struct trans_ctl_table trans_net_ipv4_conf_vars_table[] = {
 	{ NET_IPV4_CONF_ARP_IGNORE,		"arp_ignore" },
 	{ NET_IPV4_CONF_PROMOTE_SECONDARIES,	"promote_secondaries" },
 	{ NET_IPV4_CONF_ARP_ACCEPT,		"arp_accept" },
+	{ NET_IPV4_CONF_ARP_NOTIFY,		"arp_notify" },
 	{}
 };
 
@@ -730,7 +731,6 @@ static const struct trans_ctl_table trans_fs_quota_table[] = {
 };
 
 static const struct trans_ctl_table trans_fs_xfs_table[] = {
-	{ XFS_RESTRICT_CHOWN,	"restrict_chown" },
 	{ XFS_SGID_INHERIT,	"irix_sgid_inherit" },
 	{ XFS_SYMLINK_MODE,	"irix_symlink_mode" },
 	{ XFS_PANIC_MASK,	"panic_mask" },

@@ -166,9 +166,9 @@ void spu_update_sched_info(struct spu_context *ctx)
 static int __node_allowed(struct spu_context *ctx, int node)
 {
 	if (nr_cpus_node(node)) {
-		cpumask_t mask = node_to_cpumask(node);
+		const struct cpumask *mask = cpumask_of_node(node);
 
-		if (cpus_intersects(mask, ctx->cpus_allowed))
+		if (cpumask_intersects(mask, &ctx->cpus_allowed))
 			return 1;
 	}
 
@@ -508,7 +508,7 @@ static void __spu_add_to_rq(struct spu_context *ctx)
 		list_add_tail(&ctx->rq, &spu_prio->runq[ctx->prio]);
 		set_bit(ctx->prio, spu_prio->bitmap);
 		if (!spu_prio->nr_waiting++)
-			__mod_timer(&spusched_timer, jiffies + SPUSCHED_TICK);
+			mod_timer(&spusched_timer, jiffies + SPUSCHED_TICK);
 	}
 }
 

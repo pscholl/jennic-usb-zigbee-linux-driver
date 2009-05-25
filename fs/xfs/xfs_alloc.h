@@ -100,6 +100,12 @@ typedef struct xfs_alloc_arg {
 #define XFS_ALLOC_USERDATA		1	/* allocation is for user data*/
 #define XFS_ALLOC_INITIAL_USER_DATA	2	/* special case start of file */
 
+/*
+ * Find the length of the longest extent in an AG.
+ */
+xfs_extlen_t
+xfs_alloc_longest_free_extent(struct xfs_mount *mp,
+		struct xfs_perag *pag);
 
 #ifdef __KERNEL__
 
@@ -120,6 +126,19 @@ extern ktrace_t *xfs_alloc_trace_buf;
 #define	XFS_ALLOC_KTRACE_UNBUSY	5
 #define	XFS_ALLOC_KTRACE_BUSYSEARCH	6
 #endif
+
+void
+xfs_alloc_mark_busy(xfs_trans_t *tp,
+		xfs_agnumber_t agno,
+		xfs_agblock_t bno,
+		xfs_extlen_t len);
+
+void
+xfs_alloc_clear_busy(xfs_trans_t *tp,
+		xfs_agnumber_t ag,
+		int idx);
+
+#endif	/* __KERNEL__ */
 
 /*
  * Compute and fill in value of m_ag_maxlevels.
@@ -195,19 +214,5 @@ xfs_free_extent(
 	struct xfs_trans *tp,	/* transaction pointer */
 	xfs_fsblock_t	bno,	/* starting block number of extent */
 	xfs_extlen_t	len);	/* length of extent */
-
-void
-xfs_alloc_mark_busy(xfs_trans_t *tp,
-		xfs_agnumber_t agno,
-		xfs_agblock_t bno,
-		xfs_extlen_t len);
-
-void
-xfs_alloc_clear_busy(xfs_trans_t *tp,
-		xfs_agnumber_t ag,
-		int idx);
-
-
-#endif	/* __KERNEL__ */
 
 #endif	/* __XFS_ALLOC_H__ */

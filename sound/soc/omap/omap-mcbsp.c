@@ -3,7 +3,8 @@
  *
  * Copyright (C) 2008 Nokia Corporation
  *
- * Contact: Jarkko Nikula <jarkko.nikula@nokia.com>
+ * Contact: Jarkko Nikula <jhnikula@gmail.com>
+ *          Peter Ujfalusi <peter.ujfalusi@nokia.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -36,9 +37,7 @@
 #include "omap-mcbsp.h"
 #include "omap-pcm.h"
 
-#define OMAP_MCBSP_RATES	(SNDRV_PCM_RATE_44100 | \
-				 SNDRV_PCM_RATE_48000 | \
-				 SNDRV_PCM_RATE_KNOT)
+#define OMAP_MCBSP_RATES	(SNDRV_PCM_RATE_8000_96000)
 
 struct omap_mcbsp_data {
 	unsigned int			bus_id;
@@ -140,12 +139,24 @@ static const unsigned long omap34xx_mcbsp_port[][2] = {
 static const unsigned long omap34xx_mcbsp_port[][2] = {};
 #endif
 
-static int omap_mcbsp_dai_startup(struct snd_pcm_substream *substream)
+static int omap_mcbsp_dai_startup(struct snd_pcm_substream *substream,
+				  struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
 	struct omap_mcbsp_data *mcbsp_data = to_mcbsp(cpu_dai->private_data);
 	int err = 0;
+
+	if (cpu_is_omap343x() && mcbsp_data->bus_id == 1) {
+		/*
+		 * McBSP2 in OMAP3 has 1024 * 32-bit internal audio buffer.
+		 * Set constraint for minimum buffer size to the same than FIFO
+		 * size in order to avoid underruns in playback startup because
+		 * HW is keeping the DMA request active until FIFO is filled.
+		 */
+		snd_pcm_hw_constraint_minmax(substream->runtime,
+			SNDRV_PCM_HW_PARAM_BUFFER_BYTES, 4096, UINT_MAX);
+	}
 
 	if (!cpu_dai->active)
 		err = omap_mcbsp_request(mcbsp_data->bus_id);
@@ -153,7 +164,8 @@ static int omap_mcbsp_dai_startup(struct snd_pcm_substream *substream)
 	return err;
 }
 
-static void omap_mcbsp_dai_shutdown(struct snd_pcm_substream *substream)
+static void omap_mcbsp_dai_shutdown(struct snd_pcm_substream *substream,
+				    struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
@@ -165,7 +177,8 @@ static void omap_mcbsp_dai_shutdown(struct snd_pcm_substream *substream)
 	}
 }
 
-static int omap_mcbsp_dai_trigger(struct snd_pcm_substream *substream, int cmd)
+static int omap_mcbsp_dai_trigger(struct snd_pcm_substream *substream, int cmd,
+				  struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
@@ -194,14 +207,15 @@ static int omap_mcbsp_dai_trigger(struct snd_pcm_substream *substream, int cmd)
 }
 
 static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
-				    struct snd_pcm_hw_params *params)
+				    struct snd_pcm_hw_params *params,
+				    struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
 	struct omap_mcbsp_data *mcbsp_data = to_mcbsp(cpu_dai->private_data);
 	struct omap_mcbsp_reg_cfg *regs = &mcbsp_data->regs;
 	int dma, bus_id = mcbsp_data->bus_id, id = cpu_dai->id;
-	int wlen;
+	int wlen, channels;
 	unsigned long port;
 
 	if (cpu_class_is_omap1()) {
@@ -230,12 +244,17 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 		return 0;
 	}
 
-	switch (params_channels(params)) {
+	channels = params_channels(params);
+	switch (channels) {
 	case 2:
-		/* Set 1 word per (McBPSP) frame and use dual-phase frames */
-		regs->rcr2	|= RFRLEN2(1 - 1) | RPHASE;
+		/* Use dual-phase frames */
+		regs->rcr2	|= RPHASE;
+		regs->xcr2	|= XPHASE;
+	case 1:
+		/* Set 1 word per (McBSP) frame */
+		regs->rcr2	|= RFRLEN2(1 - 1);
 		regs->rcr1	|= RFRLEN1(1 - 1);
-		regs->xcr2	|= XFRLEN2(1 - 1) | XPHASE;
+		regs->xcr2	|= XFRLEN2(1 - 1);
 		regs->xcr1	|= XFRLEN1(1 - 1);
 		break;
 	default:
@@ -263,9 +282,9 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 		regs->srgr2	|= FPER(wlen * 2 - 1);
 		regs->srgr1	|= FWID(wlen - 1);
 		break;
-	case SND_SOC_DAIFMT_DSP_A:
-		regs->srgr2	|= FPER(wlen * 2 - 1);
-		regs->srgr1	|= FWID(wlen * 2 - 2);
+	case SND_SOC_DAIFMT_DSP_B:
+		regs->srgr2	|= FPER(wlen * channels - 1);
+		regs->srgr1	|= FWID(0);
 		break;
 	}
 
@@ -284,6 +303,7 @@ static int omap_mcbsp_dai_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 {
 	struct omap_mcbsp_data *mcbsp_data = to_mcbsp(cpu_dai->private_data);
 	struct omap_mcbsp_reg_cfg *regs = &mcbsp_data->regs;
+	unsigned int temp_fmt = fmt;
 
 	if (mcbsp_data->configured)
 		return 0;
@@ -295,6 +315,10 @@ static int omap_mcbsp_dai_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 	regs->spcr1	|= RINTM(3);
 	regs->rcr2	|= RFIG;
 	regs->xcr2	|= XFIG;
+	if (cpu_is_omap2430() || cpu_is_omap34xx()) {
+		regs->xccr = DXENDLY(1) | XDMAEN;
+		regs->rccr = RFULL_CYCLE | RDMAEN;
+	}
 
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
@@ -302,10 +326,12 @@ static int omap_mcbsp_dai_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 		regs->rcr2	|= RDATDLY(1);
 		regs->xcr2	|= XDATDLY(1);
 		break;
-	case SND_SOC_DAIFMT_DSP_A:
+	case SND_SOC_DAIFMT_DSP_B:
 		/* 0-bit data delay */
 		regs->rcr2      |= RDATDLY(0);
 		regs->xcr2      |= XDATDLY(0);
+		/* Invert FS polarity configuration */
+		temp_fmt ^= SND_SOC_DAIFMT_NB_IF;
 		break;
 	default:
 		/* Unsupported data format */
@@ -329,7 +355,7 @@ static int omap_mcbsp_dai_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 	}
 
 	/* Set bit clock (CLKX/CLKR) and FS polarities */
-	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
+	switch (temp_fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		/*
 		 * Normal BCLK + FS.
@@ -450,34 +476,33 @@ static int omap_mcbsp_dai_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 	return err;
 }
 
+static struct snd_soc_dai_ops omap_mcbsp_dai_ops = {
+	.startup	= omap_mcbsp_dai_startup,
+	.shutdown	= omap_mcbsp_dai_shutdown,
+	.trigger	= omap_mcbsp_dai_trigger,
+	.hw_params	= omap_mcbsp_dai_hw_params,
+	.set_fmt	= omap_mcbsp_dai_set_dai_fmt,
+	.set_clkdiv	= omap_mcbsp_dai_set_clkdiv,
+	.set_sysclk	= omap_mcbsp_dai_set_dai_sysclk,
+};
+
 #define OMAP_MCBSP_DAI_BUILDER(link_id)				\
 {								\
-	.name = "omap-mcbsp-dai-(link_id)",			\
+	.name = "omap-mcbsp-dai-"#link_id,			\
 	.id = (link_id),					\
-	.type = SND_SOC_DAI_I2S,				\
 	.playback = {						\
-		.channels_min = 2,				\
+		.channels_min = 1,				\
 		.channels_max = 2,				\
 		.rates = OMAP_MCBSP_RATES,			\
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,		\
 	},							\
 	.capture = {						\
-		.channels_min = 2,				\
+		.channels_min = 1,				\
 		.channels_max = 2,				\
 		.rates = OMAP_MCBSP_RATES,			\
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,		\
 	},							\
-	.ops = {						\
-		.startup = omap_mcbsp_dai_startup,		\
-		.shutdown = omap_mcbsp_dai_shutdown,		\
-		.trigger = omap_mcbsp_dai_trigger,		\
-		.hw_params = omap_mcbsp_dai_hw_params,		\
-	},							\
-	.dai_ops = {						\
-		.set_fmt = omap_mcbsp_dai_set_dai_fmt,		\
-		.set_clkdiv = omap_mcbsp_dai_set_clkdiv,	\
-		.set_sysclk = omap_mcbsp_dai_set_dai_sysclk,	\
-	},							\
+	.ops = &omap_mcbsp_dai_ops,				\
 	.private_data = &mcbsp_data[(link_id)].bus_id,		\
 }
 
@@ -495,6 +520,19 @@ struct snd_soc_dai omap_mcbsp_dai[] = {
 
 EXPORT_SYMBOL_GPL(omap_mcbsp_dai);
 
-MODULE_AUTHOR("Jarkko Nikula <jarkko.nikula@nokia.com>");
+static int __init snd_omap_mcbsp_init(void)
+{
+	return snd_soc_register_dais(omap_mcbsp_dai,
+				     ARRAY_SIZE(omap_mcbsp_dai));
+}
+module_init(snd_omap_mcbsp_init);
+
+static void __exit snd_omap_mcbsp_exit(void)
+{
+	snd_soc_unregister_dais(omap_mcbsp_dai, ARRAY_SIZE(omap_mcbsp_dai));
+}
+module_exit(snd_omap_mcbsp_exit);
+
+MODULE_AUTHOR("Jarkko Nikula <jhnikula@gmail.com>");
 MODULE_DESCRIPTION("OMAP I2S SoC Interface");
 MODULE_LICENSE("GPL");

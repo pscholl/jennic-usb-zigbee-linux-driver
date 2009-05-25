@@ -50,6 +50,7 @@
 #include <linux/ptrace.h>
 #include <linux/ioport.h>
 #include <linux/mm.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/netdevice.h>
 #include <linux/vmalloc.h>
@@ -520,7 +521,6 @@ static void tx_hold(struct tty_struct *tty);
 static void tx_release(struct tty_struct *tty);
 
 static int  ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg);
-static int  read_proc(char *page, char **start, off_t off, int count,int *eof, void *data);
 static int  chars_in_buffer(struct tty_struct *tty);
 static void throttle(struct tty_struct * tty);
 static void unthrottle(struct tty_struct * tty);
@@ -558,6 +558,7 @@ static void release_resources(SLMP_INFO *info);
 
 static int  startup(SLMP_INFO *info);
 static int  block_til_ready(struct tty_struct *tty, struct file * filp,SLMP_INFO *info);
+static int carrier_raised(struct tty_port *port);
 static void shutdown(SLMP_INFO *info);
 static void program_hw(SLMP_INFO *info);
 static void change_params(SLMP_INFO *info);
@@ -800,7 +801,7 @@ cleanup:
  */
 static void close(struct tty_struct *tty, struct file *filp)
 {
-	SLMP_INFO * info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO * info = tty->driver_data;
 
 	if (sanity_check(info, tty->name, "close"))
 		return;
@@ -809,70 +810,18 @@ static void close(struct tty_struct *tty, struct file *filp)
 		printk("%s(%d):%s close() entry, count=%d\n",
 			 __FILE__,__LINE__, info->device_name, info->port.count);
 
-	if (!info->port.count)
-		return;
-
-	if (tty_hung_up_p(filp))
+	if (tty_port_close_start(&info->port, tty, filp) == 0)
 		goto cleanup;
-
-	if ((tty->count == 1) && (info->port.count != 1)) {
-		/*
-		 * tty->count is 1 and the tty structure will be freed.
-		 * info->port.count should be one in this case.
-		 * if it's not, correct it so that the port is shutdown.
-		 */
-		printk("%s(%d):%s close: bad refcount; tty->count is 1, "
-		       "info->port.count is %d\n",
-			 __FILE__,__LINE__, info->device_name, info->port.count);
-		info->port.count = 1;
-	}
-
-	info->port.count--;
-
-	/* if at least one open remaining, leave hardware active */
-	if (info->port.count)
-		goto cleanup;
-
-	info->port.flags |= ASYNC_CLOSING;
-
-	/* set tty->closing to notify line discipline to
-	 * only process XON/XOFF characters. Only the N_TTY
-	 * discipline appears to use this (ppp does not).
-	 */
-	tty->closing = 1;
-
-	/* wait for transmit data to clear all layers */
-
-	if (info->port.closing_wait != ASYNC_CLOSING_WAIT_NONE) {
-		if (debug_level >= DEBUG_LEVEL_INFO)
-			printk("%s(%d):%s close() calling tty_wait_until_sent\n",
-				 __FILE__,__LINE__, info->device_name );
-		tty_wait_until_sent(tty, info->port.closing_wait);
-	}
-
+		
  	if (info->port.flags & ASYNC_INITIALIZED)
  		wait_until_sent(tty, info->timeout);
 
 	flush_buffer(tty);
-
 	tty_ldisc_flush(tty);
-
 	shutdown(info);
 
-	tty->closing = 0;
+	tty_port_close_end(&info->port, tty);
 	info->port.tty = NULL;
-
-	if (info->port.blocked_open) {
-		if (info->port.close_delay) {
-			msleep_interruptible(jiffies_to_msecs(info->port.close_delay));
-		}
-		wake_up_interruptible(&info->port.open_wait);
-	}
-
-	info->port.flags &= ~(ASYNC_NORMAL_ACTIVE|ASYNC_CLOSING);
-
-	wake_up_interruptible(&info->port.close_wait);
-
 cleanup:
 	if (debug_level >= DEBUG_LEVEL_INFO)
 		printk("%s(%d):%s close() exit, count=%d\n", __FILE__,__LINE__,
@@ -884,7 +833,7 @@ cleanup:
  */
 static void hangup(struct tty_struct *tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
 		printk("%s(%d):%s hangup()\n",
@@ -907,7 +856,7 @@ static void hangup(struct tty_struct *tty)
  */
 static void set_termios(struct tty_struct *tty, struct ktermios *old_termios)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -960,7 +909,7 @@ static int write(struct tty_struct *tty,
 		 const unsigned char *buf, int count)
 {
 	int	c, ret = 0;
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -1038,7 +987,7 @@ cleanup:
  */
 static int put_char(struct tty_struct *tty, unsigned char ch)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 	int ret = 0;
 
@@ -1075,7 +1024,7 @@ static int put_char(struct tty_struct *tty, unsigned char ch)
  */
 static void send_xchar(struct tty_struct *tty, char ch)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -1099,7 +1048,7 @@ static void send_xchar(struct tty_struct *tty, char ch)
  */
 static void wait_until_sent(struct tty_struct *tty, int timeout)
 {
-	SLMP_INFO * info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO * info = tty->driver_data;
 	unsigned long orig_jiffies, char_time;
 
 	if (!info )
@@ -1166,7 +1115,7 @@ exit:
  */
 static int write_room(struct tty_struct *tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	int ret;
 
 	if (sanity_check(info, tty->name, "write_room"))
@@ -1193,7 +1142,7 @@ static int write_room(struct tty_struct *tty)
  */
 static void flush_chars(struct tty_struct *tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if ( debug_level >= DEBUG_LEVEL_INFO )
@@ -1232,7 +1181,7 @@ static void flush_chars(struct tty_struct *tty)
  */
 static void flush_buffer(struct tty_struct *tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -1254,7 +1203,7 @@ static void flush_buffer(struct tty_struct *tty)
  */
 static void tx_hold(struct tty_struct *tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (sanity_check(info, tty->name, "tx_hold"))
@@ -1274,7 +1223,7 @@ static void tx_hold(struct tty_struct *tty)
  */
 static void tx_release(struct tty_struct *tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (sanity_check(info, tty->name, "tx_release"))
@@ -1304,7 +1253,7 @@ static void tx_release(struct tty_struct *tty)
 static int do_ioctl(struct tty_struct *tty, struct file *file,
 		 unsigned int cmd, unsigned long arg)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	int error;
 	struct mgsl_icount cnow;	/* kernel counter temps */
 	struct serial_icounter_struct __user *p_cuser;	/* user space */
@@ -1405,13 +1354,12 @@ static int ioctl(struct tty_struct *tty, struct file *file,
  * /proc fs routines....
  */
 
-static inline int line_info(char *buf, SLMP_INFO *info)
+static inline void line_info(struct seq_file *m, SLMP_INFO *info)
 {
 	char	stat_buf[30];
-	int	ret;
 	unsigned long flags;
 
-	ret = sprintf(buf, "%s: SCABase=%08x Mem=%08X StatusControl=%08x LCR=%08X\n"
+	seq_printf(m, "%s: SCABase=%08x Mem=%08X StatusControl=%08x LCR=%08X\n"
 		       "\tIRQ=%d MaxFrameSize=%u\n",
 		info->device_name,
 		info->phys_sca_base,
@@ -1442,80 +1390,75 @@ static inline int line_info(char *buf, SLMP_INFO *info)
 		strcat(stat_buf, "|RI");
 
 	if (info->params.mode == MGSL_MODE_HDLC) {
-		ret += sprintf(buf+ret, "\tHDLC txok:%d rxok:%d",
+		seq_printf(m, "\tHDLC txok:%d rxok:%d",
 			      info->icount.txok, info->icount.rxok);
 		if (info->icount.txunder)
-			ret += sprintf(buf+ret, " txunder:%d", info->icount.txunder);
+			seq_printf(m, " txunder:%d", info->icount.txunder);
 		if (info->icount.txabort)
-			ret += sprintf(buf+ret, " txabort:%d", info->icount.txabort);
+			seq_printf(m, " txabort:%d", info->icount.txabort);
 		if (info->icount.rxshort)
-			ret += sprintf(buf+ret, " rxshort:%d", info->icount.rxshort);
+			seq_printf(m, " rxshort:%d", info->icount.rxshort);
 		if (info->icount.rxlong)
-			ret += sprintf(buf+ret, " rxlong:%d", info->icount.rxlong);
+			seq_printf(m, " rxlong:%d", info->icount.rxlong);
 		if (info->icount.rxover)
-			ret += sprintf(buf+ret, " rxover:%d", info->icount.rxover);
+			seq_printf(m, " rxover:%d", info->icount.rxover);
 		if (info->icount.rxcrc)
-			ret += sprintf(buf+ret, " rxlong:%d", info->icount.rxcrc);
+			seq_printf(m, " rxlong:%d", info->icount.rxcrc);
 	} else {
-		ret += sprintf(buf+ret, "\tASYNC tx:%d rx:%d",
+		seq_printf(m, "\tASYNC tx:%d rx:%d",
 			      info->icount.tx, info->icount.rx);
 		if (info->icount.frame)
-			ret += sprintf(buf+ret, " fe:%d", info->icount.frame);
+			seq_printf(m, " fe:%d", info->icount.frame);
 		if (info->icount.parity)
-			ret += sprintf(buf+ret, " pe:%d", info->icount.parity);
+			seq_printf(m, " pe:%d", info->icount.parity);
 		if (info->icount.brk)
-			ret += sprintf(buf+ret, " brk:%d", info->icount.brk);
+			seq_printf(m, " brk:%d", info->icount.brk);
 		if (info->icount.overrun)
-			ret += sprintf(buf+ret, " oe:%d", info->icount.overrun);
+			seq_printf(m, " oe:%d", info->icount.overrun);
 	}
 
 	/* Append serial signal status to end */
-	ret += sprintf(buf+ret, " %s\n", stat_buf+1);
+	seq_printf(m, " %s\n", stat_buf+1);
 
-	ret += sprintf(buf+ret, "\ttxactive=%d bh_req=%d bh_run=%d pending_bh=%x\n",
+	seq_printf(m, "\ttxactive=%d bh_req=%d bh_run=%d pending_bh=%x\n",
 	 info->tx_active,info->bh_requested,info->bh_running,
 	 info->pending_bh);
-
-	return ret;
 }
 
 /* Called to print information about devices
  */
-static int read_proc(char *page, char **start, off_t off, int count,
-	      int *eof, void *data)
+static int synclinkmp_proc_show(struct seq_file *m, void *v)
 {
-	int len = 0, l;
-	off_t	begin = 0;
 	SLMP_INFO *info;
 
-	len += sprintf(page, "synclinkmp driver:%s\n", driver_version);
+	seq_printf(m, "synclinkmp driver:%s\n", driver_version);
 
 	info = synclinkmp_device_list;
 	while( info ) {
-		l = line_info(page + len, info);
-		len += l;
-		if (len+begin > off+count)
-			goto done;
-		if (len+begin < off) {
-			begin += len;
-			len = 0;
-		}
+		line_info(m, info);
 		info = info->next_device;
 	}
-
-	*eof = 1;
-done:
-	if (off >= len+begin)
-		return 0;
-	*start = page + (off-begin);
-	return ((count < begin+len-off) ? count : begin+len-off);
+	return 0;
 }
+
+static int synclinkmp_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, synclinkmp_proc_show, NULL);
+}
+
+static const struct file_operations synclinkmp_proc_fops = {
+	.owner		= THIS_MODULE,
+	.open		= synclinkmp_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
 
 /* Return the count of bytes in transmit buffer
  */
 static int chars_in_buffer(struct tty_struct *tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 
 	if (sanity_check(info, tty->name, "chars_in_buffer"))
 		return 0;
@@ -1531,7 +1474,7 @@ static int chars_in_buffer(struct tty_struct *tty)
  */
 static void throttle(struct tty_struct * tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -1556,7 +1499,7 @@ static void throttle(struct tty_struct * tty)
  */
 static void unthrottle(struct tty_struct * tty)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -1587,7 +1530,7 @@ static void unthrottle(struct tty_struct * tty)
 static int set_break(struct tty_struct *tty, int break_state)
 {
 	unsigned char RegValue;
-	SLMP_INFO * info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO * info = tty->driver_data;
 	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -1958,9 +1901,16 @@ static void hdlcdev_rx(SLMP_INFO *info, char *buf, int size)
 	dev->stats.rx_bytes += size;
 
 	netif_rx(skb);
-
-	dev->last_rx = jiffies;
 }
+
+static const struct net_device_ops hdlcdev_ops = {
+	.ndo_open       = hdlcdev_open,
+	.ndo_stop       = hdlcdev_close,
+	.ndo_change_mtu = hdlc_change_mtu,
+	.ndo_start_xmit = hdlc_start_xmit,
+	.ndo_do_ioctl   = hdlcdev_ioctl,
+	.ndo_tx_timeout = hdlcdev_tx_timeout,
+};
 
 /**
  * called by device driver when adding device instance
@@ -1989,11 +1939,8 @@ static int hdlcdev_init(SLMP_INFO *info)
 	dev->irq       = info->irq_level;
 
 	/* network layer callbacks and settings */
-	dev->do_ioctl       = hdlcdev_ioctl;
-	dev->open           = hdlcdev_open;
-	dev->stop           = hdlcdev_close;
-	dev->tx_timeout     = hdlcdev_tx_timeout;
-	dev->watchdog_timeo = 10*HZ;
+	dev->netdev_ops	    = &hdlcdev_ops;
+	dev->watchdog_timeo = 10 * HZ;
 	dev->tx_queue_len   = 50;
 
 	/* generic HDLC layer callbacks and settings */
@@ -3269,7 +3216,7 @@ static int modem_input_wait(SLMP_INFO *info,int arg)
  */
 static int tiocmget(struct tty_struct *tty, struct file *file)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
 	unsigned int result;
  	unsigned long flags;
 
@@ -3295,7 +3242,7 @@ static int tiocmget(struct tty_struct *tty, struct file *file)
 static int tiocmset(struct tty_struct *tty, struct file *file,
 		    unsigned int set, unsigned int clear)
 {
-	SLMP_INFO *info = (SLMP_INFO *)tty->driver_data;
+	SLMP_INFO *info = tty->driver_data;
  	unsigned long flags;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
@@ -3318,7 +3265,28 @@ static int tiocmset(struct tty_struct *tty, struct file *file,
 	return 0;
 }
 
+static int carrier_raised(struct tty_port *port)
+{
+	SLMP_INFO *info = container_of(port, SLMP_INFO, port);
+	unsigned long flags;
 
+	spin_lock_irqsave(&info->lock,flags);
+ 	get_signals(info);
+	spin_unlock_irqrestore(&info->lock,flags);
+
+	return (info->serial_signals & SerialSignal_DCD) ? 1 : 0;
+}
+
+static void raise_dtr_rts(struct tty_port *port)
+{
+	SLMP_INFO *info = container_of(port, SLMP_INFO, port);
+	unsigned long flags;
+
+	spin_lock_irqsave(&info->lock,flags);
+	info->serial_signals |= SerialSignal_RTS + SerialSignal_DTR;
+ 	set_signals(info);
+	spin_unlock_irqrestore(&info->lock,flags);
+}
 
 /* Block the current process until the specified port is ready to open.
  */
@@ -3330,6 +3298,8 @@ static int block_til_ready(struct tty_struct *tty, struct file *filp,
 	bool		do_clocal = false;
 	bool		extra_count = false;
 	unsigned long	flags;
+	int		cd;
+	struct tty_port *port = &info->port;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
 		printk("%s(%d):%s block_til_ready()\n",
@@ -3338,7 +3308,7 @@ static int block_til_ready(struct tty_struct *tty, struct file *filp,
 	if (filp->f_flags & O_NONBLOCK || tty->flags & (1 << TTY_IO_ERROR)){
 		/* nonblock mode is set or port is not enabled */
 		/* just verify that callout device is not active */
-		info->port.flags |= ASYNC_NORMAL_ACTIVE;
+		port->flags |= ASYNC_NORMAL_ACTIVE;
 		return 0;
 	}
 
@@ -3347,50 +3317,42 @@ static int block_til_ready(struct tty_struct *tty, struct file *filp,
 
 	/* Wait for carrier detect and the line to become
 	 * free (i.e., not in use by the callout).  While we are in
-	 * this loop, info->port.count is dropped by one, so that
+	 * this loop, port->count is dropped by one, so that
 	 * close() knows when to free things.  We restore it upon
 	 * exit, either normal or abnormal.
 	 */
 
 	retval = 0;
-	add_wait_queue(&info->port.open_wait, &wait);
+	add_wait_queue(&port->open_wait, &wait);
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
 		printk("%s(%d):%s block_til_ready() before block, count=%d\n",
-			 __FILE__,__LINE__, tty->driver->name, info->port.count );
+			 __FILE__,__LINE__, tty->driver->name, port->count );
 
 	spin_lock_irqsave(&info->lock, flags);
 	if (!tty_hung_up_p(filp)) {
 		extra_count = true;
-		info->port.count--;
+		port->count--;
 	}
 	spin_unlock_irqrestore(&info->lock, flags);
-	info->port.blocked_open++;
+	port->blocked_open++;
 
 	while (1) {
-		if ((tty->termios->c_cflag & CBAUD)) {
-			spin_lock_irqsave(&info->lock,flags);
-			info->serial_signals |= SerialSignal_RTS + SerialSignal_DTR;
-		 	set_signals(info);
-			spin_unlock_irqrestore(&info->lock,flags);
-		}
+		if (tty->termios->c_cflag & CBAUD)
+			tty_port_raise_dtr_rts(port);
 
 		set_current_state(TASK_INTERRUPTIBLE);
 
-		if (tty_hung_up_p(filp) || !(info->port.flags & ASYNC_INITIALIZED)){
-			retval = (info->port.flags & ASYNC_HUP_NOTIFY) ?
+		if (tty_hung_up_p(filp) || !(port->flags & ASYNC_INITIALIZED)){
+			retval = (port->flags & ASYNC_HUP_NOTIFY) ?
 					-EAGAIN : -ERESTARTSYS;
 			break;
 		}
 
-		spin_lock_irqsave(&info->lock,flags);
-	 	get_signals(info);
-		spin_unlock_irqrestore(&info->lock,flags);
+		cd = tty_port_carrier_raised(port);
 
- 		if (!(info->port.flags & ASYNC_CLOSING) &&
- 		    (do_clocal || (info->serial_signals & SerialSignal_DCD)) ) {
+ 		if (!(port->flags & ASYNC_CLOSING) && (do_clocal || cd))
  			break;
-		}
 
 		if (signal_pending(current)) {
 			retval = -ERESTARTSYS;
@@ -3399,24 +3361,24 @@ static int block_til_ready(struct tty_struct *tty, struct file *filp,
 
 		if (debug_level >= DEBUG_LEVEL_INFO)
 			printk("%s(%d):%s block_til_ready() count=%d\n",
-				 __FILE__,__LINE__, tty->driver->name, info->port.count );
+				 __FILE__,__LINE__, tty->driver->name, port->count );
 
 		schedule();
 	}
 
 	set_current_state(TASK_RUNNING);
-	remove_wait_queue(&info->port.open_wait, &wait);
+	remove_wait_queue(&port->open_wait, &wait);
 
 	if (extra_count)
-		info->port.count++;
-	info->port.blocked_open--;
+		port->count++;
+	port->blocked_open--;
 
 	if (debug_level >= DEBUG_LEVEL_INFO)
 		printk("%s(%d):%s block_til_ready() after, count=%d\n",
-			 __FILE__,__LINE__, tty->driver->name, info->port.count );
+			 __FILE__,__LINE__, tty->driver->name, port->count );
 
 	if (!retval)
-		info->port.flags |= ASYNC_NORMAL_ACTIVE;
+		port->flags |= ASYNC_NORMAL_ACTIVE;
 
 	return retval;
 }
@@ -3782,6 +3744,11 @@ static void add_device(SLMP_INFO *info)
 #endif
 }
 
+static const struct tty_port_operations port_ops = {
+	.carrier_raised = carrier_raised,
+	.raise_dtr_rts = raise_dtr_rts,
+};
+
 /* Allocate and initialize a device instance structure
  *
  * Return Value:	pointer to SLMP_INFO if success, otherwise NULL
@@ -3798,6 +3765,7 @@ static SLMP_INFO *alloc_dev(int adapter_num, int port_num, struct pci_dev *pdev)
 			__FILE__,__LINE__, adapter_num, port_num);
 	} else {
 		tty_port_init(&info->port);
+		info->port.ops = &port_ops;
 		info->magic = MGSL_MAGIC;
 		INIT_WORK(&info->task, bh_handler);
 		info->max_frame_size = 4096;
@@ -3931,14 +3899,15 @@ static const struct tty_operations ops = {
 	.send_xchar = send_xchar,
 	.break_ctl = set_break,
 	.wait_until_sent = wait_until_sent,
- 	.read_proc = read_proc,
 	.set_termios = set_termios,
 	.stop = tx_hold,
 	.start = tx_release,
 	.hangup = hangup,
 	.tiocmget = tiocmget,
 	.tiocmset = tiocmset,
+	.proc_fops = &synclinkmp_proc_fops,
 };
+
 
 static void synclinkmp_cleanup(void)
 {

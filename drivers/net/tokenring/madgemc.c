@@ -142,7 +142,7 @@ static void madgemc_sifwritew(struct net_device *dev, unsigned short val, unsign
 	return;
 }
 
-
+static struct net_device_ops madgemc_netdev_ops __read_mostly;
 
 static int __devinit madgemc_probe(struct device *device)
 {	
@@ -152,7 +152,6 @@ static int __devinit madgemc_probe(struct device *device)
 	struct card_info *card;
 	struct mca_device *mdev = to_mca_device(device);
 	int ret = 0;
-	DECLARE_MAC_BUF(mac);
 
 	if (versionprinted++ == 0)
 		printk("%s", version);
@@ -169,7 +168,7 @@ static int __devinit madgemc_probe(struct device *device)
 		goto getout;
 	}
 
-	dev->dma = 0;
+	dev->netdev_ops = &madgemc_netdev_ops;
 
 	card = kmalloc(sizeof(struct card_info), GFP_KERNEL);
 	if (card==NULL) {
@@ -323,8 +322,8 @@ static int __devinit madgemc_probe(struct device *device)
 	mca_device_set_name(mdev, (card->cardtype == 0x08)?MADGEMC16_CARDNAME:MADGEMC32_CARDNAME);
 	mca_set_adapter_procfn(mdev->slot, madgemc_mcaproc, dev);
 
-	printk("%s:     Ring Station Address: %s\n",
-	       dev->name, print_mac(mac, dev->dev_addr));
+	printk("%s:     Ring Station Address: %pM\n",
+	       dev->name, dev->dev_addr);
 
 	if (tmsdev_init(dev, device)) {
 		printk("%s: unable to get memory for dev->priv.\n", 
@@ -348,9 +347,6 @@ static int __devinit madgemc_probe(struct device *device)
 	tp->DataRate = (card->ringspeed)?SPEED_16:SPEED_4;
 
 	memcpy(tp->ProductID, "Madge MCA 16/4    ", PROD_ID_SIZE + 1);
-
-	dev->open = madgemc_open;
-	dev->stop = madgemc_close;
 
 	tp->tmspriv = card;
 	dev_set_drvdata(device, dev);
@@ -467,7 +463,7 @@ static irqreturn_t madgemc_interrupt(int irq, void *dev_id)
  * zero to leave the TMS NSELOUT bits unaffected.
  *
  */
-unsigned short madgemc_setnselout_pins(struct net_device *dev)
+static unsigned short madgemc_setnselout_pins(struct net_device *dev)
 {
 	unsigned char reg1;
 	struct net_local *tp = netdev_priv(dev);
@@ -690,12 +686,9 @@ static int madgemc_mcaproc(char *buf, int slot, void *d)
 	struct net_local *tp = netdev_priv(dev);
 	struct card_info *curcard = tp->tmspriv;
 	int len = 0;
-	DECLARE_MAC_BUF(mac);
 	
 	len += sprintf(buf+len, "-------\n");
 	if (curcard) {
-		struct net_local *tp = netdev_priv(dev);
-		
 		len += sprintf(buf+len, "Card Revision: %d\n", curcard->cardrev);
 		len += sprintf(buf+len, "RAM Size: %dkb\n", curcard->ramsize);
 		len += sprintf(buf+len, "Cable type: %s\n", (curcard->cabletype)?"STP/DB9":"UTP/RJ-45");
@@ -714,8 +707,8 @@ static int madgemc_mcaproc(char *buf, int slot, void *d)
 		}
 		len += sprintf(buf+len, " (%s)\n", (curcard->fairness)?"Unfair":"Fair");
 		
-		len += sprintf(buf+len, "Ring Station Address: %s\n",
-			       print_mac(mac, dev->dev_addr));
+		len += sprintf(buf+len, "Ring Station Address: %pM\n",
+			       dev->dev_addr);
 	} else 
 		len += sprintf(buf+len, "Card not configured\n");
 
@@ -762,6 +755,10 @@ static struct mca_driver madgemc_driver = {
 
 static int __init madgemc_init (void)
 {
+	madgemc_netdev_ops = tms380tr_netdev_ops;
+	madgemc_netdev_ops.ndo_open = madgemc_open;
+	madgemc_netdev_ops.ndo_stop = madgemc_close;
+
 	return mca_register_driver (&madgemc_driver);
 }
 

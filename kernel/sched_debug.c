@@ -53,6 +53,40 @@ static unsigned long nsec_low(unsigned long long nsec)
 
 #define SPLIT_NS(x) nsec_high(x), nsec_low(x)
 
+#ifdef CONFIG_FAIR_GROUP_SCHED
+static void print_cfs_group_stats(struct seq_file *m, int cpu,
+		struct task_group *tg)
+{
+	struct sched_entity *se = tg->se[cpu];
+	if (!se)
+		return;
+
+#define P(F) \
+	SEQ_printf(m, "  .%-30s: %lld\n", #F, (long long)F)
+#define PN(F) \
+	SEQ_printf(m, "  .%-30s: %lld.%06ld\n", #F, SPLIT_NS((long long)F))
+
+	PN(se->exec_start);
+	PN(se->vruntime);
+	PN(se->sum_exec_runtime);
+#ifdef CONFIG_SCHEDSTATS
+	PN(se->wait_start);
+	PN(se->sleep_start);
+	PN(se->block_start);
+	PN(se->sleep_max);
+	PN(se->block_max);
+	PN(se->exec_max);
+	PN(se->slice_max);
+	PN(se->wait_max);
+	PN(se->wait_sum);
+	P(se->wait_count);
+#endif
+	P(se->load.weight);
+#undef PN
+#undef P
+}
+#endif
+
 static void
 print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 {
@@ -111,6 +145,19 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 	read_unlock_irqrestore(&tasklist_lock, flags);
 }
 
+#if defined(CONFIG_CGROUP_SCHED) && \
+	(defined(CONFIG_FAIR_GROUP_SCHED) || defined(CONFIG_RT_GROUP_SCHED))
+static void task_group_path(struct task_group *tg, char *buf, int buflen)
+{
+	/* may be NULL if the underlying cgroup isn't fully-created yet */
+	if (!tg->css.cgroup) {
+		buf[0] = '\0';
+		return;
+	}
+	cgroup_path(tg->css.cgroup, buf, buflen);
+}
+#endif
+
 void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 {
 	s64 MIN_vruntime = -1, min_vruntime, max_vruntime = -1,
@@ -120,21 +167,20 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 	unsigned long flags;
 
 #if defined(CONFIG_CGROUP_SCHED) && defined(CONFIG_FAIR_GROUP_SCHED)
-	char path[128] = "";
-	struct cgroup *cgroup = NULL;
+	char path[128];
 	struct task_group *tg = cfs_rq->tg;
 
-	if (tg)
-		cgroup = tg->css.cgroup;
-
-	if (cgroup)
-		cgroup_path(cgroup, path, sizeof(path));
+	task_group_path(tg, path, sizeof(path));
 
 	SEQ_printf(m, "\ncfs_rq[%d]:%s\n", cpu, path);
+#elif defined(CONFIG_USER_SCHED) && defined(CONFIG_FAIR_GROUP_SCHED)
+	{
+		uid_t uid = cfs_rq->tg->uid;
+		SEQ_printf(m, "\ncfs_rq[%d] for UID: %u\n", cpu, uid);
+	}
 #else
 	SEQ_printf(m, "\ncfs_rq[%d]:\n", cpu);
 #endif
-
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "exec_clock",
 			SPLIT_NS(cfs_rq->exec_clock));
 
@@ -168,21 +214,17 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 #ifdef CONFIG_SMP
 	SEQ_printf(m, "  .%-30s: %lu\n", "shares", cfs_rq->shares);
 #endif
+	print_cfs_group_stats(m, cpu, cfs_rq->tg);
 #endif
 }
 
 void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 {
 #if defined(CONFIG_CGROUP_SCHED) && defined(CONFIG_RT_GROUP_SCHED)
-	char path[128] = "";
-	struct cgroup *cgroup = NULL;
+	char path[128];
 	struct task_group *tg = rt_rq->tg;
 
-	if (tg)
-		cgroup = tg->css.cgroup;
-
-	if (cgroup)
-		cgroup_path(cgroup, path, sizeof(path));
+	task_group_path(tg, path, sizeof(path));
 
 	SEQ_printf(m, "\nrt_rq[%d]:%s\n", cpu, path);
 #else
@@ -230,7 +272,6 @@ static void print_cpu(struct seq_file *m, int cpu)
 	P(nr_switches);
 	P(nr_load_updates);
 	P(nr_uninterruptible);
-	SEQ_printf(m, "  .%-30s: %lu\n", "jiffies", jiffies);
 	PN(next_balance);
 	P(curr->pid);
 	PN(clock);
@@ -245,9 +286,6 @@ static void print_cpu(struct seq_file *m, int cpu)
 #ifdef CONFIG_SCHEDSTATS
 #define P(n) SEQ_printf(m, "  .%-30s: %d\n", #n, rq->n);
 
-	P(yld_exp_empty);
-	P(yld_act_empty);
-	P(yld_both_empty);
 	P(yld_count);
 
 	P(sched_switch);
@@ -272,7 +310,7 @@ static int sched_debug_show(struct seq_file *m, void *v)
 	u64 now = ktime_to_ns(ktime_get());
 	int cpu;
 
-	SEQ_printf(m, "Sched Debug Version: v0.07, %s %.*s\n",
+	SEQ_printf(m, "Sched Debug Version: v0.09, %s %.*s\n",
 		init_utsname()->release,
 		(int)strcspn(init_utsname()->version, " "),
 		init_utsname()->version);
@@ -283,6 +321,7 @@ static int sched_debug_show(struct seq_file *m, void *v)
 	SEQ_printf(m, "  .%-40s: %Ld\n", #x, (long long)(x))
 #define PN(x) \
 	SEQ_printf(m, "  .%-40s: %Ld.%06ld\n", #x, SPLIT_NS(x))
+	P(jiffies);
 	PN(sysctl_sched_latency);
 	PN(sysctl_sched_min_granularity);
 	PN(sysctl_sched_wakeup_granularity);
@@ -355,6 +394,7 @@ void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
 	PN(se.vruntime);
 	PN(se.sum_exec_runtime);
 	PN(se.avg_overlap);
+	PN(se.avg_wakeup);
 
 	nr_switches = p->nvcsw + p->nivcsw;
 

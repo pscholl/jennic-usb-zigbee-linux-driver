@@ -169,6 +169,19 @@ static void tc589_detach(struct pcmcia_device *p_dev);
 
 ======================================================================*/
 
+static const struct net_device_ops el3_netdev_ops = {
+	.ndo_open 		= el3_open,
+	.ndo_stop 		= el3_close,
+	.ndo_start_xmit		= el3_start_xmit,
+	.ndo_tx_timeout 	= el3_tx_timeout,
+	.ndo_set_config		= el3_config,
+	.ndo_get_stats		= el3_get_stats,
+	.ndo_set_multicast_list = set_multicast_list,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 static int tc589_probe(struct pcmcia_device *link)
 {
     struct el3_private *lp;
@@ -195,17 +208,9 @@ static int tc589_probe(struct pcmcia_device *link)
     link->conf.IntType = INT_MEMORY_AND_IO;
     link->conf.ConfigIndex = 1;
 
-    /* The EL3-specific entries in the device structure. */
-    dev->hard_start_xmit = &el3_start_xmit;
-    dev->set_config = &el3_config;
-    dev->get_stats = &el3_get_stats;
-    dev->set_multicast_list = &set_multicast_list;
-    dev->open = &el3_open;
-    dev->stop = &el3_close;
-#ifdef HAVE_TX_TIMEOUT
-    dev->tx_timeout = el3_tx_timeout;
+    dev->netdev_ops = &el3_netdev_ops;
     dev->watchdog_timeo = TX_TIMEOUT;
-#endif
+
     SET_ETHTOOL_OPS(dev, &netdev_ethtool_ops);
 
     return tc589_config(link);
@@ -255,7 +260,6 @@ static int tc589_config(struct pcmcia_device *link)
     int last_fn, last_ret, i, j, multi = 0, fifo;
     unsigned int ioaddr;
     char *ram_split[] = {"5:3", "3:1", "1:1", "3:5"};
-    DECLARE_MAC_BUF(mac);
     
     DEBUG(0, "3c589_config(0x%p)\n", link);
 
@@ -333,9 +337,9 @@ static int tc589_config(struct pcmcia_device *link)
     strcpy(lp->node.dev_name, dev->name);
 
     printk(KERN_INFO "%s: 3Com 3c%s, io %#3lx, irq %d, "
-	   "hw_addr %s\n",
+	   "hw_addr %pM\n",
 	   dev->name, (multi ? "562" : "589"), dev->base_addr, dev->irq,
-	   print_mac(mac, dev->dev_addr));
+	   dev->dev_addr);
     printk(KERN_INFO "  %dK FIFO split %s Rx:Tx, %s xcvr\n",
 	   (fifo & 7) ? 32 : 8, ram_split[(fifo >> 16) & 3],
 	   if_names[dev->if_port]);
@@ -858,7 +862,8 @@ static int el3_rx(struct net_device *dev)
     DEBUG(3, "%s: in rx_packet(), status %4.4x, rx_status %4.4x.\n",
 	  dev->name, inw(ioaddr+EL3_STATUS), inw(ioaddr+RX_STATUS));
     while (!((rx_status = inw(ioaddr + RX_STATUS)) & 0x8000) &&
-	   (--worklimit >= 0)) {
+		    worklimit > 0) {
+	worklimit--;
 	if (rx_status & 0x4000) { /* Error, update stats. */
 	    short error = rx_status & 0x3800;
 	    dev->stats.rx_errors++;
@@ -884,7 +889,6 @@ static int el3_rx(struct net_device *dev)
 			(pkt_len+3)>>2);
 		skb->protocol = eth_type_trans(skb, dev);
 		netif_rx(skb);
-		dev->last_rx = jiffies;
 		dev->stats.rx_packets++;
 		dev->stats.rx_bytes += pkt_len;
 	    } else {

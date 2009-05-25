@@ -207,7 +207,6 @@ static int streamer_xmit(struct sk_buff *skb, struct net_device *dev);
 static int streamer_close(struct net_device *dev);
 static void streamer_set_rx_mode(struct net_device *dev);
 static irqreturn_t streamer_interrupt(int irq, void *dev_id);
-static struct net_device_stats *streamer_get_stats(struct net_device *dev);
 static int streamer_set_mac_address(struct net_device *dev, void *addr);
 static void streamer_arb_cmd(struct net_device *dev);
 static int streamer_change_mtu(struct net_device *dev, int mtu);
@@ -221,6 +220,18 @@ static int sprintf_info(char *buffer, struct net_device *dev);
 struct streamer_private *dev_streamer=NULL;
 #endif
 #endif
+
+static const struct net_device_ops streamer_netdev_ops = {
+	.ndo_open		= streamer_open,
+	.ndo_stop		= streamer_close,
+	.ndo_start_xmit		= streamer_xmit,
+	.ndo_change_mtu		= streamer_change_mtu,
+#if STREAMER_IOCTL
+	.ndo_do_ioctl		= streamer_ioctl,
+#endif
+	.ndo_set_multicast_list = streamer_set_rx_mode,
+	.ndo_set_mac_address	= streamer_set_mac_address,
+};
 
 static int __devinit streamer_init_one(struct pci_dev *pdev,
 				       const struct pci_device_id *ent)
@@ -256,7 +267,7 @@ static int __devinit streamer_init_one(struct pci_dev *pdev,
 #endif
 #endif
 
-	rc = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+	rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (rc) {
 		printk(KERN_ERR "%s: No suitable PCI mapping available.\n",
 				dev->name);
@@ -321,18 +332,7 @@ static int __devinit streamer_init_one(struct pci_dev *pdev,
 	init_waitqueue_head(&streamer_priv->srb_wait);
 	init_waitqueue_head(&streamer_priv->trb_wait);
 
-	dev->open = &streamer_open;
-	dev->hard_start_xmit = &streamer_xmit;
-	dev->change_mtu = &streamer_change_mtu;
-	dev->stop = &streamer_close;
-#if STREAMER_IOCTL
-	dev->do_ioctl = &streamer_ioctl;
-#else
-	dev->do_ioctl = NULL;
-#endif
-	dev->set_multicast_list = &streamer_set_rx_mode;
-	dev->get_stats = &streamer_get_stats;
-	dev->set_mac_address = &streamer_set_mac_address;
+	dev->netdev_ops = &streamer_netdev_ops;
 	dev->irq = pdev->irq;
 	dev->base_addr=pio_start;
 	SET_NETDEV_DEV(dev, &pdev->dev);
@@ -446,9 +446,6 @@ static int streamer_reset(struct net_device *dev)
 	unsigned int uaa_addr;
 	struct sk_buff *skb = NULL;
 	__u16 misr;
-#if STREAMER_DEBUG
-	DECLARE_MAC_BUF(mac);
-#endif
 
 	streamer_priv = netdev_priv(dev);
 	streamer_mmio = streamer_priv->streamer_mmio;
@@ -577,8 +574,7 @@ static int streamer_reset(struct net_device *dev)
 			dev->dev_addr[i+1]= addr & 0xff;
 		}
 #if STREAMER_DEBUG
-		printk("Adapter address: %s\n",
-		       print_mac(mac, dev->dev_addr));
+		printk("Adapter address: %pM\n", dev->dev_addr);
 #endif
 	}
 	return 0;
@@ -620,8 +616,6 @@ static int streamer_open(struct net_device *dev)
 	printk("SISR Mask = %04x\n", readw(streamer_mmio + SISR_MASK));
 #endif
 	do {
-		int i;
-
 		for (i = 0; i < SRB_COMMAND_SIZE; i += 2) {
 			writew(0, streamer_mmio + LAPDINC);
 		}
@@ -941,7 +935,7 @@ static void streamer_rx(struct net_device *dev)
 			if (skb == NULL) 
 			{
 				printk(KERN_WARNING "%s: Not enough memory to copy packet to upper layers. \n",	dev->name);
-				streamer_priv->streamer_stats.rx_dropped++;
+				dev->stats.rx_dropped++;
 			} else {	/* we allocated an skb OK */
 				if (buffer_cnt == 1) {
 					/* release the DMA mapping */
@@ -1013,9 +1007,8 @@ static void streamer_rx(struct net_device *dev)
 					/* send up to the protocol */
 					netif_rx(skb);
 				}
-				dev->last_rx = jiffies;
-				streamer_priv->streamer_stats.rx_packets++;
-				streamer_priv->streamer_stats.rx_bytes += length;
+				dev->stats.rx_packets++;
+				dev->stats.rx_bytes += length;
 			}	/* if skb == null */
 		}		/* end received without errors */
 
@@ -1058,8 +1051,8 @@ static irqreturn_t streamer_interrupt(int irq, void *dev_id)
 				while(streamer_priv->streamer_tx_ring[(streamer_priv->tx_ring_last_status + 1) & (STREAMER_TX_RING_SIZE - 1)].status) {
 				streamer_priv->tx_ring_last_status = (streamer_priv->tx_ring_last_status + 1) & (STREAMER_TX_RING_SIZE - 1);
 				streamer_priv->free_tx_ring_entries++;
-				streamer_priv->streamer_stats.tx_bytes += streamer_priv->tx_ring_skb[streamer_priv->tx_ring_last_status]->len;
-				streamer_priv->streamer_stats.tx_packets++;
+				dev->stats.tx_bytes += streamer_priv->tx_ring_skb[streamer_priv->tx_ring_last_status]->len;
+				dev->stats.tx_packets++;
 				dev_kfree_skb_irq(streamer_priv->tx_ring_skb[streamer_priv->tx_ring_last_status]);
 				streamer_priv->streamer_tx_ring[streamer_priv->tx_ring_last_status].buffer = 0xdeadbeef;
 				streamer_priv->streamer_tx_ring[streamer_priv->tx_ring_last_status].status = 0;
@@ -1489,13 +1482,6 @@ static void streamer_srb_bh(struct net_device *dev)
 	}			/* switch srb[0] */
 }
 
-static struct net_device_stats *streamer_get_stats(struct net_device *dev)
-{
-	struct streamer_private *streamer_priv;
-	streamer_priv = netdev_priv(dev);
-	return (struct net_device_stats *) &streamer_priv->streamer_stats;
-}
-
 static int streamer_set_mac_address(struct net_device *dev, void *addr)
 {
 	struct sockaddr *saddr = addr;
@@ -1538,7 +1524,6 @@ static void streamer_arb_cmd(struct net_device *dev)
 
 #if STREAMER_NETWORK_MONITOR
 	struct trh_hdr *mac_hdr;
-	DECLARE_MAC_BUF(mac);
 #endif
 
 	writew(streamer_priv->arb, streamer_mmio + LAPA);
@@ -1611,11 +1596,11 @@ static void streamer_arb_cmd(struct net_device *dev)
 		       dev->name);
 		mac_hdr = tr_hdr(mac_frame);
 		printk(KERN_WARNING
-		       "%s: MAC Frame Dest. Addr: %s\n",
-		       dev->name, print_mac(mac, mac_hdr->daddr));
+		       "%s: MAC Frame Dest. Addr: %pM\n",
+		       dev->name, mac_hdr->daddr);
 		printk(KERN_WARNING
-		       "%s: MAC Frame Srce. Addr: %s\n",
-		       dev->name, DEV->ADDR6(mac_hdr->saddr));
+		       "%s: MAC Frame Srce. Addr: %pM\n",
+		       dev->name, mac_hdr->saddr);
 #endif
 		netif_rx(mac_frame);
 
@@ -1850,8 +1835,6 @@ static int sprintf_info(char *buffer, struct net_device *dev)
 	struct streamer_parameters_table spt;
 	int size = 0;
 	int i;
-	DECLARE_MAC_BUF(mac);
-	DECLARE_MAC_BUF(mac2);
 
 	writew(streamer_priv->streamer_addr_table_addr, streamer_mmio + LAPA);
 	for (i = 0; i < 14; i += 2) {
@@ -1873,9 +1856,8 @@ static int sprintf_info(char *buffer, struct net_device *dev)
 	size = sprintf(buffer, "\n%6s: Adapter Address   : Node Address      : Functional Addr\n", dev->name);
 
 	size += sprintf(buffer + size,
-			"%6s: %s : %s : %02x:%02x:%02x:%02x\n",
-			dev->name, print_mac(mac, dev->dev_addr),
-			print_mac(mac2, sat.node_addr),
+			"%6s: %pM : %pM : %02x:%02x:%02x:%02x\n",
+			dev->name, dev->dev_addr, sat.node_addr,
 			sat.func_addr[0], sat.func_addr[1],
 			sat.func_addr[2], sat.func_addr[3]);
 
@@ -1884,19 +1866,18 @@ static int sprintf_info(char *buffer, struct net_device *dev)
 	size += sprintf(buffer + size, "%6s: Physical Addr : Up Node Address   : Poll Address      : AccPri : Auth Src : Att Code :\n", dev->name);
 
 	size += sprintf(buffer + size,
-		    "%6s: %02x:%02x:%02x:%02x   : %s : %s : %04x   : %04x     :  %04x    :\n",
+		    "%6s: %02x:%02x:%02x:%02x   : %pM : %pM : %04x   : %04x     :  %04x    :\n",
 		    dev->name, spt.phys_addr[0], spt.phys_addr[1],
 		    spt.phys_addr[2], spt.phys_addr[3],
-		    print_mac(mac, spt.up_node_addr),
-		    print_mac(mac2, spt.poll_addr),
+		    spt.up_node_addr, spt.poll_addr,
 		    ntohs(spt.acc_priority), ntohs(spt.auth_source_class),
 		    ntohs(spt.att_code));
 
 	size += sprintf(buffer + size, "%6s: Source Address    : Bcn T : Maj. V : Lan St : Lcl Rg : Mon Err : Frame Correl : \n", dev->name);
 
 	size += sprintf(buffer + size,
-		    "%6s: %s : %04x  : %04x   : %04x   : %04x   : %04x    :     %04x     : \n",
-		    dev->name, print_mac(mac, spt.source_addr),
+		    "%6s: %pM : %04x  : %04x   : %04x   : %04x   : %04x    :     %04x     : \n",
+		    dev->name, spt.source_addr,
 		    ntohs(spt.beacon_type), ntohs(spt.major_vector),
 		    ntohs(spt.lan_status), ntohs(spt.local_ring),
 		    ntohs(spt.mon_error), ntohs(spt.frame_correl));
@@ -1905,10 +1886,10 @@ static int sprintf_info(char *buffer, struct net_device *dev)
 		    dev->name);
 
 	size += sprintf(buffer + size,
-		    "%6s:                :  %02x  :  %02x  : %s : %02x:%02x:%02x:%02x    : \n",
+		    "%6s:                :  %02x  :  %02x  : %pM : %02x:%02x:%02x:%02x    : \n",
 		    dev->name, ntohs(spt.beacon_transmit),
 		    ntohs(spt.beacon_receive),
-		    print_mac(mac, spt.beacon_naun),
+		    spt.beacon_naun,
 		    spt.beacon_phys[0], spt.beacon_phys[1],
 		    spt.beacon_phys[2], spt.beacon_phys[3]);
 	return size;

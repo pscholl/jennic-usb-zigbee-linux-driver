@@ -19,6 +19,9 @@
 #undef DEBUGDATA
 #undef DEBUGCCW
 
+#define KMSG_COMPONENT "ctcm"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -386,11 +389,10 @@ int ctc_mpc_alloc_channel(int port_num, void (*callback)(int, int))
 		if (grp->allocchan_callback_retries < 4) {
 			if (grp->allochanfunc)
 				grp->allochanfunc(grp->port_num,
-					      grp->group_max_buflen);
+						  grp->group_max_buflen);
 		} else {
 			/* there are problems...bail out	    */
 			/* there may be a state mismatch so restart */
-			grp->port_persist = 1;
 			fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 			grp->allocchan_callback_retries = 0;
 		}
@@ -696,11 +698,9 @@ static void ctcmpc_send_sweep_resp(struct channel *rch)
 	return;
 
 done:
-	if (rc != 0) {
-		grp->in_sweep = 0;
-		ctcm_clear_busy_do(dev);
-		fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
-	}
+	grp->in_sweep = 0;
+	ctcm_clear_busy_do(dev);
+	fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 
 	return;
 }
@@ -1115,7 +1115,6 @@ static void ctcmpc_unpack_skb(struct channel *ch, struct sk_buff *pskb)
 
 		if (unlikely(fsm_getstate(grp->fsm) != MPCG_STATE_READY))
 					goto done;
-		pdu_last_seen = 0;
 		while ((pskb->len > 0) && !pdu_last_seen) {
 			curr_pdu = (struct pdu *)pskb->data;
 
@@ -1232,8 +1231,9 @@ done:
 
 	dev_kfree_skb_any(pskb);
 	if (sendrc == NET_RX_DROP) {
-		printk(KERN_WARNING "%s %s() NETWORK BACKLOG EXCEEDED"
-		       " - PACKET DROPPED\n", dev->name, __func__);
+		dev_warn(&dev->dev,
+			"The network backlog for %s is exceeded, "
+			"package dropped\n", __func__);
 		fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
 	}
 
@@ -1392,8 +1392,7 @@ static void mpc_action_go_inop(fsm_instance *fi, int event, void *arg)
 				CTCM_FUNTAIL, dev->name);
 	if ((grp->saved_state != MPCG_STATE_RESET) ||
 		/* dealloc_channel has been called */
-			((grp->saved_state == MPCG_STATE_RESET) &&
-						(grp->port_persist == 0)))
+		(grp->port_persist == 0))
 		fsm_deltimer(&priv->restart_timer);
 
 	wch = priv->channel[WRITE];
@@ -1670,10 +1669,11 @@ static int mpc_validate_xid(struct mpcg_info *mpcginfo)
 					CTCM_FUNTAIL, ch->id);
 		}
 	}
-
 done:
 	if (rc) {
-		ctcm_pr_info("ctcmpc	   :  %s() failed\n", __func__);
+		dev_warn(&dev->dev,
+			"The XID used in the MPC protocol is not valid, "
+			"rc = %d\n", rc);
 		priv->xid->xid2_flag2 = 0x40;
 		grp->saved_xid2->xid2_flag2 = 0x40;
 	}
@@ -1912,10 +1912,8 @@ static void mpc_action_doxid7(fsm_instance *fsm, int event, void *arg)
 
 	if (priv)
 		grp = priv->mpcg;
-	if (grp == NULL) {
-		fsm_event(grp->fsm, MPCG_EVENT_INOP, dev);
+	if (grp == NULL)
 		return;
-	}
 
 	for (direction = READ; direction <= WRITE; direction++)	{
 		struct channel *ch = priv->channel[direction];

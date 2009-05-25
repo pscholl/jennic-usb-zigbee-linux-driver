@@ -19,6 +19,8 @@
 #ifndef __LINUX_SPI_H
 #define __LINUX_SPI_H
 
+#include <linux/device.h>
+
 /*
  * INTERFACES between SPI master-side drivers and SPI infrastructure.
  * (There's no SPI slave support for Linux yet...)
@@ -202,6 +204,7 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  *	SPI slaves, and are numbered from zero to num_chipselects.
  *	each slave has a chipselect signal, but it's common that not
  *	every chipselect is connected to a slave.
+ * @dma_alignment: SPI controller constraint on DMA buffers alignment.
  * @setup: updates the device mode and clocking records used by a
  *	device's SPI controller; protocol code may call this.  This
  *	must fail if an unrecognized or unsupported mode is requested.
@@ -237,7 +240,17 @@ struct spi_master {
 	 */
 	u16			num_chipselect;
 
-	/* setup mode and clock, etc (spi driver may call many times) */
+	/* some SPI controllers pose alignment requirements on DMAable
+	 * buffers; let protocol drivers know about these requirements.
+	 */
+	u16			dma_alignment;
+
+	/* Setup mode and clock, etc (spi driver may call many times).
+	 *
+	 * IMPORTANT:  this may be called when transfers to another
+	 * device are active.  DO NOT UPDATE SHARED REGISTERS in ways
+	 * which could break those transfers.
+	 */
 	int			(*setup)(struct spi_device *spi);
 
 	/* bidirectional bulk transfers
@@ -325,9 +338,9 @@ extern struct spi_master *spi_busnum_to_master(u16 busnum);
  * @tx_dma: DMA address of tx_buf, if @spi_message.is_dma_mapped
  * @rx_dma: DMA address of rx_buf, if @spi_message.is_dma_mapped
  * @len: size of rx and tx buffers (in bytes)
- * @speed_hz: Select a speed other then the device default for this
+ * @speed_hz: Select a speed other than the device default for this
  *      transfer. If 0 the default (from @spi_device) is used.
- * @bits_per_word: select a bits_per_word other then the device default
+ * @bits_per_word: select a bits_per_word other than the device default
  *      for this transfer. If 0 the default (from @spi_device) is used.
  * @cs_change: affects chipselect after this transfer completes
  * @delay_usecs: microseconds to delay after this transfer before

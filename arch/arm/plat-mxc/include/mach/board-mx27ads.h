@@ -15,7 +15,7 @@
 #define __ASM_ARCH_MXC_BOARD_MX27ADS_H__
 
 /* external interrupt multiplexer */
-#define MXC_EXP_IO_BASE		(MXC_GPIO_BASE + MXC_MAX_GPIO_LINES)
+#define MXC_EXP_IO_BASE		(MXC_BOARD_IRQ_START)
 
 #define MXC_VIRTUAL_INTS_BASE	(MXC_EXP_IO_BASE + MXC_MAX_EXP_IO_LINES)
 #define MXC_SDIO1_CARD_IRQ	MXC_VIRTUAL_INTS_BASE
@@ -28,11 +28,6 @@
 /*
  * MXC UART EVB board level configurations
  */
-
-#define MXC_LL_EXTUART_PADDR	(CS4_BASE_ADDR + 0x20000)
-#define MXC_LL_EXTUART_VADDR	(CS4_BASE_ADDR_VIRT + 0x20000)
-#define MXC_LL_EXTUART_16BIT_BUS
-
 #define MXC_LL_UART_PADDR       UART1_BASE_ADDR
 #define MXC_LL_UART_VADDR       AIPI_IO_ADDRESS(UART1_BASE_ADDR)
 
@@ -52,8 +47,9 @@
 /*
  * Base address of PBC controller, CS4
  */
-#define PBC_BASE_ADDRESS        0xEB000000
-#define PBC_REG_ADDR(offset)    (PBC_BASE_ADDRESS + (offset))
+#define PBC_BASE_ADDRESS        0xf4300000
+#define PBC_REG_ADDR(offset)    (void __force __iomem *) \
+		(PBC_BASE_ADDRESS + (offset))
 
 /*
  * PBC Interupt name definitions

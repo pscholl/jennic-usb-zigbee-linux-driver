@@ -36,6 +36,7 @@ struct dm_table;
 /*-----------------------------------------------------------------
  * Internal table functions.
  *---------------------------------------------------------------*/
+void dm_table_destroy(struct dm_table *t);
 void dm_table_event_callback(struct dm_table *t,
 			     void (*fn)(void *), void *context);
 struct dm_target *dm_table_get_target(struct dm_table *t, unsigned int index);
@@ -58,7 +59,7 @@ int dm_table_any_congested(struct dm_table *t, int bdi_bits);
 int dm_target_init(void);
 void dm_target_exit(void);
 struct target_type *dm_get_target_type(const char *name);
-void dm_put_target_type(struct target_type *t);
+void dm_put_target_type(struct target_type *tt);
 int dm_target_iterate(void (*iter_func)(struct target_type *tt,
 					void *param), void *param);
 
@@ -70,6 +71,14 @@ int dm_split_args(int *argc, char ***argvp, char *input);
  */
 int dm_interface_init(void);
 void dm_interface_exit(void);
+
+/*
+ * sysfs interface
+ */
+int dm_sysfs_init(struct mapped_device *md);
+void dm_sysfs_exit(struct mapped_device *md);
+struct kobject *dm_kobject(struct mapped_device *md);
+struct mapped_device *dm_get_from_kobject(struct kobject *kobj);
 
 /*
  * Targets for linear and striped mappings

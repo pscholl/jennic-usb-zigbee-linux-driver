@@ -1,11 +1,16 @@
 #ifndef _ASM_X86_XEN_PAGE_H
 #define _ASM_X86_XEN_PAGE_H
 
+#include <linux/kernel.h>
+#include <linux/types.h>
+#include <linux/spinlock.h>
 #include <linux/pfn.h>
 
 #include <asm/uaccess.h>
+#include <asm/page.h>
 #include <asm/pgtable.h>
 
+#include <xen/interface/xen.h>
 #include <xen/features.h>
 
 /* Xen machine address */
@@ -119,7 +124,8 @@ static inline unsigned long mfn_to_local_pfn(unsigned long mfn)
 
 /* VIRT <-> MACHINE conversion */
 #define virt_to_machine(v)	(phys_to_machine(XPADDR(__pa(v))))
-#define virt_to_mfn(v)		(pfn_to_mfn(PFN_DOWN(__pa(v))))
+#define virt_to_pfn(v)          (PFN_DOWN(__pa(v)))
+#define virt_to_mfn(v)		(pfn_to_mfn(virt_to_pfn(v)))
 #define mfn_to_virt(m)		(__va(mfn_to_pfn(m) << PAGE_SHIFT))
 
 static inline unsigned long pte_mfn(pte_t pte)
@@ -132,7 +138,7 @@ static inline pte_t mfn_pte(unsigned long page_nr, pgprot_t pgprot)
 	pte_t pte;
 
 	pte.pte = ((phys_addr_t)page_nr << PAGE_SHIFT) |
-		(pgprot_val(pgprot) & __supported_pte_mask);
+			massage_pgprot(pgprot);
 
 	return pte;
 }
@@ -159,6 +165,7 @@ static inline pte_t __pte_ma(pteval_t x)
 
 
 xmaddr_t arbitrary_virt_to_machine(void *address);
+unsigned long arbitrary_virt_to_mfn(void *vaddr);
 void make_lowmem_page_readonly(void *vaddr);
 void make_lowmem_page_readwrite(void *vaddr);
 

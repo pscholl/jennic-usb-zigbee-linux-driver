@@ -68,7 +68,7 @@ typedef enum _lpfc_iocb_type {
 } lpfc_iocb_type;
 
 /**
- * lpfc_cmd_iocb: Get next command iocb entry in the ring.
+ * lpfc_cmd_iocb - Get next command iocb entry in the ring
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -85,7 +85,7 @@ lpfc_cmd_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * lpfc_resp_iocb: Get next response iocb entry in the ring.
+ * lpfc_resp_iocb - Get next response iocb entry in the ring
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -102,7 +102,7 @@ lpfc_resp_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * __lpfc_sli_get_iocbq: Allocates an iocb object from iocb pool.
+ * __lpfc_sli_get_iocbq - Allocates an iocb object from iocb pool
  * @phba: Pointer to HBA context object.
  *
  * This function is called with hbalock held. This function
@@ -121,7 +121,7 @@ __lpfc_sli_get_iocbq(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_get_iocbq: Allocates an iocb object from iocb pool.
+ * lpfc_sli_get_iocbq - Allocates an iocb object from iocb pool
  * @phba: Pointer to HBA context object.
  *
  * This function is called with no lock held. This function
@@ -142,7 +142,7 @@ lpfc_sli_get_iocbq(struct lpfc_hba *phba)
 }
 
 /**
- * __lpfc_sli_release_iocbq: Release iocb to the iocb pool.
+ * __lpfc_sli_release_iocbq - Release iocb to the iocb pool
  * @phba: Pointer to HBA context object.
  * @iocbq: Pointer to driver iocb object.
  *
@@ -164,7 +164,7 @@ __lpfc_sli_release_iocbq(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq)
 }
 
 /**
- * lpfc_sli_release_iocbq: Release iocb to the iocb pool.
+ * lpfc_sli_release_iocbq - Release iocb to the iocb pool
  * @phba: Pointer to HBA context object.
  * @iocbq: Pointer to driver iocb object.
  *
@@ -185,8 +185,40 @@ lpfc_sli_release_iocbq(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq)
 }
 
 /**
- * lpfc_sli_iocb_cmd_type: Get the iocb type.
- * @iocb_cmnd : iocb command code.
+ * lpfc_sli_cancel_iocbs - Cancel all iocbs from a list.
+ * @phba: Pointer to HBA context object.
+ * @iocblist: List of IOCBs.
+ * @ulpstatus: ULP status in IOCB command field.
+ * @ulpWord4: ULP word-4 in IOCB command field.
+ *
+ * This function is called with a list of IOCBs to cancel. It cancels the IOCB
+ * on the list by invoking the complete callback function associated with the
+ * IOCB with the provided @ulpstatus and @ulpword4 set to the IOCB commond
+ * fields.
+ **/
+void
+lpfc_sli_cancel_iocbs(struct lpfc_hba *phba, struct list_head *iocblist,
+		      uint32_t ulpstatus, uint32_t ulpWord4)
+{
+	struct lpfc_iocbq *piocb;
+
+	while (!list_empty(iocblist)) {
+		list_remove_head(iocblist, piocb, struct lpfc_iocbq, list);
+
+		if (!piocb->iocb_cmpl)
+			lpfc_sli_release_iocbq(phba, piocb);
+		else {
+			piocb->iocb.ulpStatus = ulpstatus;
+			piocb->iocb.un.ulpWord[4] = ulpWord4;
+			(piocb->iocb_cmpl) (phba, piocb, piocb);
+		}
+	}
+	return;
+}
+
+/**
+ * lpfc_sli_iocb_cmd_type - Get the iocb type
+ * @iocb_cmnd: iocb command code.
  *
  * This function is called by ring event handler function to get the iocb type.
  * This function translates the iocb command to an iocb command type used to
@@ -295,7 +327,7 @@ lpfc_sli_iocb_cmd_type(uint8_t iocb_cmnd)
 }
 
 /**
- * lpfc_sli_ring_map: Issue config_ring mbox for all rings.
+ * lpfc_sli_ring_map - Issue config_ring mbox for all rings
  * @phba: Pointer to HBA context object.
  *
  * This function is called from SLI initialization code
@@ -338,7 +370,7 @@ lpfc_sli_ring_map(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_ringtxcmpl_put: Adds new iocb to the txcmplq.
+ * lpfc_sli_ringtxcmpl_put - Adds new iocb to the txcmplq
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @piocb: Pointer to the driver iocb object.
@@ -370,7 +402,7 @@ lpfc_sli_ringtxcmpl_put(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_ringtx_get: Get first element of the txq.
+ * lpfc_sli_ringtx_get - Get first element of the txq
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -391,7 +423,7 @@ lpfc_sli_ringtx_get(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * lpfc_sli_next_iocb_slot: Get next iocb slot in the ring.
+ * lpfc_sli_next_iocb_slot - Get next iocb slot in the ring
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -420,7 +452,7 @@ lpfc_sli_next_iocb_slot (struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 		if (unlikely(pring->local_getidx >= max_cmd_idx)) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
 					"0315 Ring %d issue: portCmdGet %d "
-					"is bigger then cmd ring %d\n",
+					"is bigger than cmd ring %d\n",
 					pring->ringno,
 					pring->local_getidx, max_cmd_idx);
 
@@ -445,7 +477,7 @@ lpfc_sli_next_iocb_slot (struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * lpfc_sli_next_iotag: Get an iotag for the iocb.
+ * lpfc_sli_next_iotag - Get an iotag for the iocb
  * @phba: Pointer to HBA context object.
  * @iocbq: Pointer to driver iocb object.
  *
@@ -520,7 +552,7 @@ lpfc_sli_next_iotag(struct lpfc_hba *phba, struct lpfc_iocbq *iocbq)
 }
 
 /**
- * lpfc_sli_submit_iocb: Submit an iocb to the firmware.
+ * lpfc_sli_submit_iocb - Submit an iocb to the firmware
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @iocb: Pointer to iocb slot in the ring.
@@ -541,6 +573,7 @@ lpfc_sli_submit_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 	 * Set up an iotag
 	 */
 	nextiocb->iocb.ulpIoTag = (nextiocb->iocb_cmpl) ? nextiocb->iotag : 0;
+
 
 	if (pring->ringno == LPFC_ELS_RING) {
 		lpfc_debugfs_slow_ring_trc(phba,
@@ -576,7 +609,7 @@ lpfc_sli_submit_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_update_full_ring: Update the chip attention register.
+ * lpfc_sli_update_full_ring - Update the chip attention register
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -607,7 +640,7 @@ lpfc_sli_update_full_ring(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * lpfc_sli_update_ring: Update chip attention register.
+ * lpfc_sli_update_ring - Update chip attention register
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -631,7 +664,7 @@ lpfc_sli_update_ring(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * lpfc_sli_resume_iocb: Process iocbs in the txq.
+ * lpfc_sli_resume_iocb - Process iocbs in the txq
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -671,7 +704,7 @@ lpfc_sli_resume_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * lpfc_sli_next_hbq_slot: Get next hbq entry for the HBQ.
+ * lpfc_sli_next_hbq_slot - Get next hbq entry for the HBQ
  * @phba: Pointer to HBA context object.
  * @hbqno: HBQ number.
  *
@@ -716,7 +749,7 @@ lpfc_sli_next_hbq_slot(struct lpfc_hba *phba, uint32_t hbqno)
 }
 
 /**
- * lpfc_sli_hbqbuf_free_all: Free all the hbq buffers.
+ * lpfc_sli_hbqbuf_free_all - Free all the hbq buffers
  * @phba: Pointer to HBA context object.
  *
  * This function is called with no lock held to free all the
@@ -770,7 +803,7 @@ lpfc_sli_hbqbuf_free_all(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_hbq_to_firmware: Post the hbq buffer to firmware.
+ * lpfc_sli_hbq_to_firmware - Post the hbq buffer to firmware
  * @phba: Pointer to HBA context object.
  * @hbqno: HBQ number.
  * @hbq_buf: Pointer to HBQ buffer.
@@ -817,8 +850,8 @@ static struct lpfc_hbq_init lpfc_els_hbq = {
 	.profile = 0,
 	.ring_mask = (1 << LPFC_ELS_RING),
 	.buffer_count = 0,
-	.init_count = 20,
-	.add_count = 5,
+	.init_count = 40,
+	.add_count = 40,
 };
 
 /* HBQ for the extra ring if needed */
@@ -840,7 +873,7 @@ struct lpfc_hbq_init *lpfc_hbq_defs[] = {
 };
 
 /**
- * lpfc_sli_hbqbuf_fill_hbqs: Post more hbq buffers to HBQ.
+ * lpfc_sli_hbqbuf_fill_hbqs - Post more hbq buffers to HBQ
  * @phba: Pointer to HBA context object.
  * @hbqno: HBQ number.
  * @count: Number of HBQ buffers to be posted.
@@ -900,7 +933,7 @@ err:
 }
 
 /**
- * lpfc_sli_hbqbuf_add_hbqs: Post more HBQ buffers to firmware.
+ * lpfc_sli_hbqbuf_add_hbqs - Post more HBQ buffers to firmware
  * @phba: Pointer to HBA context object.
  * @qno: HBQ number.
  *
@@ -916,7 +949,7 @@ lpfc_sli_hbqbuf_add_hbqs(struct lpfc_hba *phba, uint32_t qno)
 }
 
 /**
- * lpfc_sli_hbqbuf_init_hbqs: Post initial buffers to the HBQ.
+ * lpfc_sli_hbqbuf_init_hbqs - Post initial buffers to the HBQ
  * @phba: Pointer to HBA context object.
  * @qno:  HBQ queue number.
  *
@@ -932,7 +965,7 @@ lpfc_sli_hbqbuf_init_hbqs(struct lpfc_hba *phba, uint32_t qno)
 }
 
 /**
- * lpfc_sli_hbqbuf_find: Find the hbq buffer associated with a tag.
+ * lpfc_sli_hbqbuf_find - Find the hbq buffer associated with a tag
  * @phba: Pointer to HBA context object.
  * @tag: Tag of the hbq buffer.
  *
@@ -965,7 +998,7 @@ lpfc_sli_hbqbuf_find(struct lpfc_hba *phba, uint32_t tag)
 }
 
 /**
- * lpfc_sli_free_hbq: Give back the hbq buffer to firmware.
+ * lpfc_sli_free_hbq - Give back the hbq buffer to firmware
  * @phba: Pointer to HBA context object.
  * @hbq_buffer: Pointer to HBQ buffer.
  *
@@ -987,7 +1020,7 @@ lpfc_sli_free_hbq(struct lpfc_hba *phba, struct hbq_dmabuf *hbq_buffer)
 }
 
 /**
- * lpfc_sli_chk_mbx_command: Check if the mailbox is a legitimate mailbox.
+ * lpfc_sli_chk_mbx_command - Check if the mailbox is a legitimate mailbox
  * @mbxCommand: mailbox command code.
  *
  * This function is called by the mailbox event handler function to verify
@@ -1063,8 +1096,7 @@ lpfc_sli_chk_mbx_command(uint8_t mbxCommand)
 }
 
 /**
- * lpfc_sli_wake_mbox_wait: Completion handler for mbox issued from
- *          lpfc_sli_issue_mbox_wait.
+ * lpfc_sli_wake_mbox_wait - lpfc_sli_issue_mbox_wait mbox completion handler
  * @phba: Pointer to HBA context object.
  * @pmboxq: Pointer to mailbox command.
  *
@@ -1095,7 +1127,7 @@ lpfc_sli_wake_mbox_wait(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 
 
 /**
- * lpfc_sli_def_mbox_cmpl: Default mailbox completion handler.
+ * lpfc_sli_def_mbox_cmpl - Default mailbox completion handler
  * @phba: Pointer to HBA context object.
  * @pmb: Pointer to mailbox object.
  *
@@ -1139,7 +1171,7 @@ lpfc_sli_def_mbox_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 }
 
 /**
- * lpfc_sli_handle_mb_event: Handle mailbox completions from firmware.
+ * lpfc_sli_handle_mb_event - Handle mailbox completions from firmware
  * @phba: Pointer to HBA context object.
  *
  * This function is called with no lock held. This function processes all
@@ -1259,69 +1291,7 @@ lpfc_sli_handle_mb_event(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_replace_hbqbuff: Replace the HBQ buffer with a new buffer.
- * @phba: Pointer to HBA context object.
- * @tag: Tag for the HBQ buffer.
- *
- * This function is called from unsolicited event handler code path to get the
- * HBQ buffer associated with an unsolicited iocb. This function is called with
- * no lock held. It returns the buffer associated with the given tag and posts
- * another buffer to the firmware. Note that the new buffer must be allocated
- * before taking the hbalock and that the hba lock must be held until it is
- * finished with the hbq entry swap.
- **/
-static struct lpfc_dmabuf *
-lpfc_sli_replace_hbqbuff(struct lpfc_hba *phba, uint32_t tag)
-{
-	struct hbq_dmabuf *hbq_entry, *new_hbq_entry;
-	uint32_t hbqno;
-	void *virt;		/* virtual address ptr */
-	dma_addr_t phys;	/* mapped address */
-	unsigned long flags;
-
-	hbqno = tag >> 16;
-	new_hbq_entry = (phba->hbqs[hbqno].hbq_alloc_buffer)(phba);
-	/* Check whether HBQ is still in use */
-	spin_lock_irqsave(&phba->hbalock, flags);
-	if (!phba->hbq_in_use) {
-		if (new_hbq_entry)
-			(phba->hbqs[hbqno].hbq_free_buffer)(phba,
-							    new_hbq_entry);
-		spin_unlock_irqrestore(&phba->hbalock, flags);
-		return NULL;
-	}
-
-	hbq_entry = lpfc_sli_hbqbuf_find(phba, tag);
-	if (hbq_entry == NULL) {
-		if (new_hbq_entry)
-			(phba->hbqs[hbqno].hbq_free_buffer)(phba,
-							    new_hbq_entry);
-		spin_unlock_irqrestore(&phba->hbalock, flags);
-		return NULL;
-	}
-	list_del(&hbq_entry->dbuf.list);
-
-	if (new_hbq_entry == NULL) {
-		list_add_tail(&hbq_entry->dbuf.list, &phba->hbqbuf_in_list);
-		spin_unlock_irqrestore(&phba->hbalock, flags);
-		return &hbq_entry->dbuf;
-	}
-	new_hbq_entry->tag = -1;
-	phys = new_hbq_entry->dbuf.phys;
-	virt = new_hbq_entry->dbuf.virt;
-	new_hbq_entry->dbuf.phys = hbq_entry->dbuf.phys;
-	new_hbq_entry->dbuf.virt = hbq_entry->dbuf.virt;
-	hbq_entry->dbuf.phys = phys;
-	hbq_entry->dbuf.virt = virt;
-	lpfc_sli_free_hbq(phba, hbq_entry);
-	list_add_tail(&new_hbq_entry->dbuf.list, &phba->hbqbuf_in_list);
-	spin_unlock_irqrestore(&phba->hbalock, flags);
-
-	return &new_hbq_entry->dbuf;
-}
-
-/**
- * lpfc_sli_get_buff: Get the buffer associated with the buffer tag.
+ * lpfc_sli_get_buff - Get the buffer associated with the buffer tag
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @tag: buffer tag.
@@ -1334,18 +1304,22 @@ lpfc_sli_replace_hbqbuff(struct lpfc_hba *phba, uint32_t tag)
  **/
 static struct lpfc_dmabuf *
 lpfc_sli_get_buff(struct lpfc_hba *phba,
-			struct lpfc_sli_ring *pring,
-			uint32_t tag)
+		  struct lpfc_sli_ring *pring,
+		  uint32_t tag)
 {
+	struct hbq_dmabuf *hbq_entry;
+
 	if (tag & QUE_BUFTAG_BIT)
 		return lpfc_sli_ring_taggedbuf_get(phba, pring, tag);
-	else
-		return lpfc_sli_replace_hbqbuff(phba, tag);
+	hbq_entry = lpfc_sli_hbqbuf_find(phba, tag);
+	if (!hbq_entry)
+		return NULL;
+	return &hbq_entry->dbuf;
 }
 
 
 /**
- * lpfc_sli_process_unsol_iocb: Unsolicited iocb handler.
+ * lpfc_sli_process_unsol_iocb - Unsolicited iocb handler
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @saveq: Pointer to the unsolicited iocb.
@@ -1372,8 +1346,6 @@ lpfc_sli_process_unsol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 	match = 0;
 	irsp = &(saveq->iocb);
 
-	if (irsp->ulpStatus == IOSTAT_NEED_BUFFER)
-		return 1;
 	if (irsp->ulpCommand == CMD_ASYNC_STATUS) {
 		if (pring->lpfc_sli_rcv_async_status)
 			pring->lpfc_sli_rcv_async_status(phba, pring, saveq);
@@ -1543,7 +1515,7 @@ lpfc_sli_process_unsol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_iocbq_lookup: Find command iocb for the given response iocb.
+ * lpfc_sli_iocbq_lookup - Find command iocb for the given response iocb
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @prspiocb: Pointer to response iocb object.
@@ -1580,7 +1552,7 @@ lpfc_sli_iocbq_lookup(struct lpfc_hba *phba,
 }
 
 /**
- * lpfc_sli_process_sol_iocb: process solicited iocb completion.
+ * lpfc_sli_process_sol_iocb - process solicited iocb completion
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @saveq: Pointer to the response iocb to be processed.
@@ -1656,7 +1628,7 @@ lpfc_sli_process_sol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 			 * Ring <ringno> handler: unexpected completion IoTag
 			 * <IoTag>
 			 */
-			lpfc_printf_vlog(cmdiocbp->vport, KERN_WARNING, LOG_SLI,
+			lpfc_printf_log(phba, KERN_WARNING, LOG_SLI,
 					 "0322 Ring %d handler: "
 					 "unexpected completion IoTag x%x "
 					 "Data: x%x x%x x%x x%x\n",
@@ -1673,7 +1645,7 @@ lpfc_sli_process_sol_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_rsp_pointers_error: Response ring pointer error handler.
+ * lpfc_sli_rsp_pointers_error - Response ring pointer error handler
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -1687,12 +1659,12 @@ lpfc_sli_rsp_pointers_error(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 {
 	struct lpfc_pgp *pgp = &phba->port_gp[pring->ringno];
 	/*
-	 * Ring <ringno> handler: portRspPut <portRspPut> is bigger then
+	 * Ring <ringno> handler: portRspPut <portRspPut> is bigger than
 	 * rsp ring <portRspMax>
 	 */
 	lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
 			"0312 Ring %d handler: portRspPut %d "
-			"is bigger then rsp ring %d\n",
+			"is bigger than rsp ring %d\n",
 			pring->ringno, le32_to_cpu(pgp->rspPutInx),
 			pring->numRiocb);
 
@@ -1711,7 +1683,7 @@ lpfc_sli_rsp_pointers_error(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 }
 
 /**
- * lpfc_poll_eratt: Error attention polling timer timeout handler.
+ * lpfc_poll_eratt - Error attention polling timer timeout handler
  * @ptr: Pointer to address of HBA context object.
  *
  * This function is invoked by the Error Attention polling timer when the
@@ -1741,7 +1713,7 @@ void lpfc_poll_eratt(unsigned long ptr)
 }
 
 /**
- * lpfc_sli_poll_fcp_ring: Handle FCP ring completion in polling mode.
+ * lpfc_sli_poll_fcp_ring - Handle FCP ring completion in polling mode
  * @phba: Pointer to HBA context object.
  *
  * This function is called from lpfc_queuecommand, lpfc_poll_timeout,
@@ -1904,7 +1876,7 @@ void lpfc_sli_poll_fcp_ring(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_handle_fast_ring_event: Handle ring events on FCP ring.
+ * lpfc_sli_handle_fast_ring_event - Handle ring events on FCP ring
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @mask: Host attention register mask for this ring.
@@ -1982,7 +1954,7 @@ lpfc_sli_handle_fast_ring_event(struct lpfc_hba *phba,
 			if ((irsp->ulpStatus == IOSTAT_LOCAL_REJECT) &&
 				(irsp->un.ulpWord[4] == IOERR_NO_RESOURCES)) {
 				spin_unlock_irqrestore(&phba->hbalock, iflag);
-				lpfc_adjust_queue_depth(phba);
+				lpfc_rampdown_queue_depth(phba);
 				spin_lock_irqsave(&phba->hbalock, iflag);
 			}
 
@@ -2096,7 +2068,7 @@ lpfc_sli_handle_fast_ring_event(struct lpfc_hba *phba,
 }
 
 /**
- * lpfc_sli_handle_slow_ring_event: Handle ring events for non-FCP rings.
+ * lpfc_sli_handle_slow_ring_event - Handle ring events for non-FCP rings
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @mask: Host attention register mask for this ring.
@@ -2142,12 +2114,12 @@ lpfc_sli_handle_slow_ring_event(struct lpfc_hba *phba,
 	portRspPut = le32_to_cpu(pgp->rspPutInx);
 	if (portRspPut >= portRspMax) {
 		/*
-		 * Ring <ringno> handler: portRspPut <portRspPut> is bigger then
+		 * Ring <ringno> handler: portRspPut <portRspPut> is bigger than
 		 * rsp ring <portRspMax>
 		 */
 		lpfc_printf_log(phba, KERN_ERR, LOG_SLI,
 				"0303 Ring %d handler: portRspPut %d "
-				"is bigger then rsp ring %d\n",
+				"is bigger than rsp ring %d\n",
 				pring->ringno, portRspPut, portRspMax);
 
 		phba->link_state = LPFC_HBA_ERROR;
@@ -2225,7 +2197,7 @@ lpfc_sli_handle_slow_ring_event(struct lpfc_hba *phba,
 			if ((irsp->ulpStatus == IOSTAT_LOCAL_REJECT) &&
 			     (irsp->un.ulpWord[4] == IOERR_NO_RESOURCES)) {
 				spin_unlock_irqrestore(&phba->hbalock, iflag);
-				lpfc_adjust_queue_depth(phba);
+				lpfc_rampdown_queue_depth(phba);
 				spin_lock_irqsave(&phba->hbalock, iflag);
 			}
 
@@ -2370,7 +2342,7 @@ lpfc_sli_handle_slow_ring_event(struct lpfc_hba *phba,
 }
 
 /**
- * lpfc_sli_abort_iocb_ring: Abort all iocbs in the ring.
+ * lpfc_sli_abort_iocb_ring - Abort all iocbs in the ring
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  *
@@ -2384,7 +2356,6 @@ lpfc_sli_abort_iocb_ring(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 {
 	LIST_HEAD(completions);
 	struct lpfc_iocbq *iocb, *next_iocb;
-	IOCB_t *cmd = NULL;
 
 	if (pring->ringno == LPFC_ELS_RING) {
 		lpfc_fabric_abort_hba(phba);
@@ -2403,23 +2374,13 @@ lpfc_sli_abort_iocb_ring(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 
 	spin_unlock_irq(&phba->hbalock);
 
-	while (!list_empty(&completions)) {
-		iocb = list_get_first(&completions, struct lpfc_iocbq, list);
-		cmd = &iocb->iocb;
-		list_del_init(&iocb->list);
-
-		if (!iocb->iocb_cmpl)
-			lpfc_sli_release_iocbq(phba, iocb);
-		else {
-			cmd->ulpStatus = IOSTAT_LOCAL_REJECT;
-			cmd->un.ulpWord[4] = IOERR_SLI_ABORTED;
-			(iocb->iocb_cmpl) (phba, iocb, iocb);
-		}
-	}
+	/* Cancel all the IOCBs from the completions list */
+	lpfc_sli_cancel_iocbs(phba, &completions, IOSTAT_LOCAL_REJECT,
+			      IOERR_SLI_ABORTED);
 }
 
 /**
- * lpfc_sli_flush_fcp_rings: flush all iocbs in the fcp ring.
+ * lpfc_sli_flush_fcp_rings - flush all iocbs in the fcp ring
  * @phba: Pointer to HBA context object.
  *
  * This function flushes all iocbs in the fcp ring and frees all the iocb
@@ -2433,8 +2394,6 @@ lpfc_sli_flush_fcp_rings(struct lpfc_hba *phba)
 {
 	LIST_HEAD(txq);
 	LIST_HEAD(txcmplq);
-	struct lpfc_iocbq *iocb;
-	IOCB_t *cmd = NULL;
 	struct lpfc_sli *psli = &phba->sli;
 	struct lpfc_sli_ring  *pring;
 
@@ -2452,38 +2411,16 @@ lpfc_sli_flush_fcp_rings(struct lpfc_hba *phba)
 	spin_unlock_irq(&phba->hbalock);
 
 	/* Flush the txq */
-	while (!list_empty(&txq)) {
-		iocb = list_get_first(&txq, struct lpfc_iocbq, list);
-		cmd = &iocb->iocb;
-		list_del_init(&iocb->list);
-
-		if (!iocb->iocb_cmpl)
-			lpfc_sli_release_iocbq(phba, iocb);
-		else {
-			cmd->ulpStatus = IOSTAT_LOCAL_REJECT;
-			cmd->un.ulpWord[4] = IOERR_SLI_DOWN;
-			(iocb->iocb_cmpl) (phba, iocb, iocb);
-		}
-	}
+	lpfc_sli_cancel_iocbs(phba, &txq, IOSTAT_LOCAL_REJECT,
+			      IOERR_SLI_DOWN);
 
 	/* Flush the txcmpq */
-	while (!list_empty(&txcmplq)) {
-		iocb = list_get_first(&txcmplq, struct lpfc_iocbq, list);
-		cmd = &iocb->iocb;
-		list_del_init(&iocb->list);
-
-		if (!iocb->iocb_cmpl)
-			lpfc_sli_release_iocbq(phba, iocb);
-		else {
-			cmd->ulpStatus = IOSTAT_LOCAL_REJECT;
-			cmd->un.ulpWord[4] = IOERR_SLI_DOWN;
-			(iocb->iocb_cmpl) (phba, iocb, iocb);
-		}
-	}
+	lpfc_sli_cancel_iocbs(phba, &txcmplq, IOSTAT_LOCAL_REJECT,
+			      IOERR_SLI_DOWN);
 }
 
 /**
- * lpfc_sli_brdready: Check for host status bits.
+ * lpfc_sli_brdready - Check for host status bits
  * @phba: Pointer to HBA context object.
  * @mask: Bit mask to be checked.
  *
@@ -2543,7 +2480,7 @@ lpfc_sli_brdready(struct lpfc_hba *phba, uint32_t mask)
 #define BARRIER_TEST_PATTERN (0xdeadbeef)
 
 /**
- * lpfc_reset_barrier: Make HBA ready for HBA reset.
+ * lpfc_reset_barrier - Make HBA ready for HBA reset
  * @phba: Pointer to HBA context object.
  *
  * This function is called before resetting an HBA. This
@@ -2623,7 +2560,7 @@ restore_hc:
 }
 
 /**
- * lpfc_sli_brdkill: Issue a kill_board mailbox command.
+ * lpfc_sli_brdkill - Issue a kill_board mailbox command
  * @phba: Pointer to HBA context object.
  *
  * This function issues a kill_board mailbox command and waits for
@@ -2710,7 +2647,7 @@ lpfc_sli_brdkill(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_brdreset: Reset the HBA.
+ * lpfc_sli_brdreset - Reset the HBA
  * @phba: Pointer to HBA context object.
  *
  * This function resets the HBA by writing HC_INITFF to the control
@@ -2773,7 +2710,7 @@ lpfc_sli_brdreset(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_brdrestart: Restart the HBA.
+ * lpfc_sli_brdrestart - Restart the HBA
  * @phba: Pointer to HBA context object.
  *
  * This function is called in the SLI initialization code path to
@@ -2790,7 +2727,6 @@ lpfc_sli_brdrestart(struct lpfc_hba *phba)
 {
 	MAILBOX_t *mb;
 	struct lpfc_sli *psli;
-	uint16_t skip_post;
 	volatile uint32_t word0;
 	void __iomem *to_slim;
 
@@ -2815,13 +2751,10 @@ lpfc_sli_brdrestart(struct lpfc_hba *phba)
 	readl(to_slim); /* flush */
 
 	/* Only skip post after fc_ffinit is completed */
-	if (phba->pport->port_state) {
-		skip_post = 1;
+	if (phba->pport->port_state)
 		word0 = 1;	/* This is really setting up word1 */
-	} else {
-		skip_post = 0;
+	else
 		word0 = 0;	/* This is really setting up word1 */
-	}
 	to_slim = phba->MBslimaddr + sizeof (uint32_t);
 	writel(*(uint32_t *) mb, to_slim);
 	readl(to_slim); /* flush */
@@ -2835,10 +2768,8 @@ lpfc_sli_brdrestart(struct lpfc_hba *phba)
 	memset(&psli->lnk_stat_offsets, 0, sizeof(psli->lnk_stat_offsets));
 	psli->stats_start = get_seconds();
 
-	if (skip_post)
-		mdelay(100);
-	else
-		mdelay(2000);
+	/* Give the INITFF and Post time to settle. */
+	mdelay(100);
 
 	lpfc_hba_down_post(phba);
 
@@ -2846,7 +2777,7 @@ lpfc_sli_brdrestart(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_chipset_init: Wait for the restart of the HBA after a restart.
+ * lpfc_sli_chipset_init - Wait for the restart of the HBA after a restart
  * @phba: Pointer to HBA context object.
  *
  * This function is called after a HBA restart to wait for successful
@@ -2941,7 +2872,7 @@ lpfc_sli_chipset_init(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_hbq_count: Get the number of HBQs to be configured.
+ * lpfc_sli_hbq_count - Get the number of HBQs to be configured
  *
  * This function calculates and returns the number of HBQs required to be
  * configured.
@@ -2953,7 +2884,7 @@ lpfc_sli_hbq_count(void)
 }
 
 /**
- * lpfc_sli_hbq_entry_count: Calculate total number of hbq entries.
+ * lpfc_sli_hbq_entry_count - Calculate total number of hbq entries
  *
  * This function adds the number of hbq entries in every HBQ to get
  * the total number of hbq entries required for the HBA and returns
@@ -2972,7 +2903,7 @@ lpfc_sli_hbq_entry_count(void)
 }
 
 /**
- * lpfc_sli_hbq_size: Calculate memory required for all hbq entries.
+ * lpfc_sli_hbq_size - Calculate memory required for all hbq entries
  *
  * This function calculates amount of memory required for all hbq entries
  * to be configured and returns the total memory required.
@@ -2984,7 +2915,7 @@ lpfc_sli_hbq_size(void)
 }
 
 /**
- * lpfc_sli_hbq_setup: configure and initialize HBQs.
+ * lpfc_sli_hbq_setup - configure and initialize HBQs
  * @phba: Pointer to HBA context object.
  *
  * This function is called during the SLI initialization to configure
@@ -3053,7 +2984,7 @@ lpfc_sli_hbq_setup(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_config_port: Issue config port mailbox command.
+ * lpfc_sli_config_port - Issue config port mailbox command
  * @phba: Pointer to HBA context object.
  * @sli_mode: sli mode - 2/3
  *
@@ -3084,7 +3015,6 @@ lpfc_sli_config_port(struct lpfc_hba *phba, int sli_mode)
 		spin_unlock_irq(&phba->hbalock);
 		phba->pport->port_state = LPFC_VPORT_UNKNOWN;
 		lpfc_sli_brdrestart(phba);
-		msleep(2500);
 		rc = lpfc_sli_chipset_init(phba);
 		if (rc)
 			break;
@@ -3111,7 +3041,8 @@ lpfc_sli_config_port(struct lpfc_hba *phba, int sli_mode)
 		phba->sli3_options &= ~(LPFC_SLI3_NPIV_ENABLED |
 					LPFC_SLI3_HBQ_ENABLED |
 					LPFC_SLI3_CRP_ENABLED |
-					LPFC_SLI3_INB_ENABLED);
+					LPFC_SLI3_INB_ENABLED |
+					LPFC_SLI3_BG_ENABLED);
 		if (rc != MBX_SUCCESS) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
 				"0442 Adapter failed to init, mbxCmd x%x "
@@ -3144,17 +3075,29 @@ lpfc_sli_config_port(struct lpfc_hba *phba, int sli_mode)
 			phba->sli3_options |= LPFC_SLI3_CRP_ENABLED;
 		if (pmb->mb.un.varCfgPort.ginb) {
 			phba->sli3_options |= LPFC_SLI3_INB_ENABLED;
+			phba->hbq_get = phba->mbox->us.s3_inb_pgp.hbq_get;
 			phba->port_gp = phba->mbox->us.s3_inb_pgp.port;
 			phba->inb_ha_copy = &phba->mbox->us.s3_inb_pgp.ha_copy;
 			phba->inb_counter = &phba->mbox->us.s3_inb_pgp.counter;
 			phba->inb_last_counter =
 					phba->mbox->us.s3_inb_pgp.counter;
 		} else {
+			phba->hbq_get = phba->mbox->us.s3_pgp.hbq_get;
 			phba->port_gp = phba->mbox->us.s3_pgp.port;
 			phba->inb_ha_copy = NULL;
 			phba->inb_counter = NULL;
 		}
+
+		if (phba->cfg_enable_bg) {
+			if (pmb->mb.un.varCfgPort.gbg)
+				phba->sli3_options |= LPFC_SLI3_BG_ENABLED;
+			else
+				lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+						"0443 Adapter did not grant "
+						"BlockGuard\n");
+		}
 	} else {
+		phba->hbq_get = NULL;
 		phba->port_gp = phba->mbox->us.s2.port;
 		phba->inb_ha_copy = NULL;
 		phba->inb_counter = NULL;
@@ -3167,7 +3110,7 @@ do_prep_failed:
 
 
 /**
- * lpfc_sli_hba_setup: SLI intialization function.
+ * lpfc_sli_hba_setup - SLI intialization function
  * @phba: Pointer to HBA context object.
  *
  * This function is the main SLI intialization function. This function
@@ -3259,7 +3202,7 @@ lpfc_sli_hba_setup_error:
 
 
 /**
- * lpfc_mbox_timeout: Timeout call back function for mbox timer.
+ * lpfc_mbox_timeout - Timeout call back function for mbox timer
  * @ptr: context object - pointer to hba structure.
  *
  * This is the callback function for mailbox timer. The mailbox
@@ -3290,7 +3233,7 @@ lpfc_mbox_timeout(unsigned long ptr)
 
 
 /**
- * lpfc_mbox_timeout_handler: Worker thread function to handle mailbox timeout.
+ * lpfc_mbox_timeout_handler - Worker thread function to handle mailbox timeout
  * @phba: Pointer to HBA context object.
  *
  * This function is called from worker thread when a mailbox command times out.
@@ -3305,7 +3248,18 @@ lpfc_mbox_timeout_handler(struct lpfc_hba *phba)
 	struct lpfc_sli *psli = &phba->sli;
 	struct lpfc_sli_ring *pring;
 
-	if (!(phba->pport->work_port_events & WORKER_MBOX_TMO)) {
+	/* Check the pmbox pointer first.  There is a race condition
+	 * between the mbox timeout handler getting executed in the
+	 * worklist and the mailbox actually completing. When this
+	 * race condition occurs, the mbox_active will be NULL.
+	 */
+	spin_lock_irq(&phba->hbalock);
+	if (pmbox == NULL) {
+		lpfc_printf_log(phba, KERN_WARNING,
+				LOG_MBOX | LOG_SLI,
+				"0353 Active Mailbox cleared - mailbox timeout "
+				"exiting\n");
+		spin_unlock_irq(&phba->hbalock);
 		return;
 	}
 
@@ -3316,6 +3270,7 @@ lpfc_mbox_timeout_handler(struct lpfc_hba *phba)
 			phba->pport->port_state,
 			phba->sli.sli_flag,
 			phba->sli.mbox_active);
+	spin_unlock_irq(&phba->hbalock);
 
 	/* Setting state unknown so lpfc_sli_abort_iocb_ring
 	 * would get IOCB_ERROR from lpfc_sli_issue_iocb, allowing
@@ -3352,7 +3307,7 @@ lpfc_mbox_timeout_handler(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_issue_mbox: Issue a mailbox command to firmware.
+ * lpfc_sli_issue_mbox - Issue a mailbox command to firmware
  * @phba: Pointer to HBA context object.
  * @pmbox: Pointer to mailbox object.
  * @flag: Flag indicating how the mailbox need to be processed.
@@ -3418,6 +3373,12 @@ lpfc_sli_issue_mbox(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmbox, uint32_t flag)
 
 	/* If the PCI channel is in offline state, do not post mbox. */
 	if (unlikely(pci_channel_offline(phba->pcidev))) {
+		spin_unlock_irqrestore(&phba->hbalock, drvr_flag);
+		goto out_not_finished;
+	}
+
+	/* If HBA has a deferred error attention, fail the iocb. */
+	if (unlikely(phba->hba_flag & DEFER_ERATT)) {
 		spin_unlock_irqrestore(&phba->hbalock, drvr_flag);
 		goto out_not_finished;
 	}
@@ -3689,7 +3650,7 @@ out_not_finished:
 }
 
 /**
- * __lpfc_sli_ringtx_put: Add an iocb to the txq.
+ * __lpfc_sli_ringtx_put - Add an iocb to the txq
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @piocb: Pointer to address of newly added command iocb.
@@ -3708,7 +3669,7 @@ __lpfc_sli_ringtx_put(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_next_iocb: Get the next iocb in the txq.
+ * lpfc_sli_next_iocb - Get the next iocb in the txq
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @piocb: Pointer to address of newly added command iocb.
@@ -3740,7 +3701,7 @@ lpfc_sli_next_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * __lpfc_sli_issue_iocb: Lockless version of lpfc_sli_issue_iocb.
+ * __lpfc_sli_issue_iocb - Lockless version of lpfc_sli_issue_iocb
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @piocb: Pointer to command iocb.
@@ -3784,6 +3745,10 @@ __lpfc_sli_issue_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 
 	/* If the PCI channel is in offline state, do not post iocbs. */
 	if (unlikely(pci_channel_offline(phba->pcidev)))
+		return IOCB_ERROR;
+
+	/* If HBA has a deferred error attention, fail the iocb. */
+	if (unlikely(phba->hba_flag & DEFER_ERATT))
 		return IOCB_ERROR;
 
 	/*
@@ -3870,7 +3835,7 @@ __lpfc_sli_issue_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 
 
 /**
- * lpfc_sli_issue_iocb: Wrapper function for __lpfc_sli_issue_iocb.
+ * lpfc_sli_issue_iocb - Wrapper function for __lpfc_sli_issue_iocb
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @piocb: Pointer to command iocb.
@@ -3897,7 +3862,7 @@ lpfc_sli_issue_iocb(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_extra_ring_setup: Extra ring setup function.
+ * lpfc_extra_ring_setup - Extra ring setup function
  * @phba: Pointer to HBA context object.
  *
  * This function is called while driver attaches with the
@@ -3943,7 +3908,7 @@ lpfc_extra_ring_setup( struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_async_event_handler: ASYNC iocb handler function.
+ * lpfc_sli_async_event_handler - ASYNC iocb handler function
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @iocbq: Pointer to iocb object.
@@ -3964,6 +3929,7 @@ lpfc_sli_async_event_handler(struct lpfc_hba * phba,
 	uint16_t temp;
 	struct temp_event temp_event_data;
 	struct Scsi_Host *shost;
+	uint32_t *iocb_w;
 
 	icmd = &iocbq->iocb;
 	evt_code = icmd->un.asyncstat.evt_code;
@@ -3971,13 +3937,23 @@ lpfc_sli_async_event_handler(struct lpfc_hba * phba,
 
 	if ((evt_code != ASYNC_TEMP_WARN) &&
 		(evt_code != ASYNC_TEMP_SAFE)) {
+		iocb_w = (uint32_t *) icmd;
 		lpfc_printf_log(phba,
 			KERN_ERR,
 			LOG_SLI,
 			"0346 Ring %d handler: unexpected ASYNC_STATUS"
-			" evt_code 0x%x\n",
+			" evt_code 0x%x \n"
+			"W0  0x%08x W1  0x%08x W2  0x%08x W3  0x%08x\n"
+			"W4  0x%08x W5  0x%08x W6  0x%08x W7  0x%08x\n"
+			"W8  0x%08x W9  0x%08x W10 0x%08x W11 0x%08x\n"
+			"W12 0x%08x W13 0x%08x W14 0x%08x W15 0x%08x\n",
 			pring->ringno,
-			icmd->un.asyncstat.evt_code);
+			icmd->un.asyncstat.evt_code,
+			iocb_w[0], iocb_w[1], iocb_w[2], iocb_w[3],
+			iocb_w[4], iocb_w[5], iocb_w[6], iocb_w[7],
+			iocb_w[8], iocb_w[9], iocb_w[10], iocb_w[11],
+			iocb_w[12], iocb_w[13], iocb_w[14], iocb_w[15]);
+
 		return;
 	}
 	temp_event_data.data = (uint32_t)temp;
@@ -4005,13 +3981,13 @@ lpfc_sli_async_event_handler(struct lpfc_hba * phba,
 	shost = lpfc_shost_from_vport(phba->pport);
 	fc_host_post_vendor_event(shost, fc_get_event_number(),
 		sizeof(temp_event_data), (char *) &temp_event_data,
-		SCSI_NL_VID_TYPE_PCI | PCI_VENDOR_ID_EMULEX);
+		LPFC_NL_VENDOR_ID);
 
 }
 
 
 /**
- * lpfc_sli_setup: SLI ring setup function.
+ * lpfc_sli_setup - SLI ring setup function
  * @phba: Pointer to HBA context object.
  *
  * lpfc_sli_setup sets up rings of the SLI interface with
@@ -4133,7 +4109,7 @@ lpfc_sli_setup(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_queue_setup: Queue initialization function.
+ * lpfc_sli_queue_setup - Queue initialization function
  * @phba: Pointer to HBA context object.
  *
  * lpfc_sli_queue_setup sets up mailbox queues and iocb queues for each
@@ -4172,7 +4148,7 @@ lpfc_sli_queue_setup(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_host_down: Vport cleanup function.
+ * lpfc_sli_host_down - Vport cleanup function
  * @vport: Pointer to virtual port object.
  *
  * lpfc_sli_host_down is called to clean up the resources
@@ -4236,22 +4212,14 @@ lpfc_sli_host_down(struct lpfc_vport *vport)
 
 	spin_unlock_irqrestore(&phba->hbalock, flags);
 
-	while (!list_empty(&completions)) {
-		list_remove_head(&completions, iocb, struct lpfc_iocbq, list);
-
-		if (!iocb->iocb_cmpl)
-			lpfc_sli_release_iocbq(phba, iocb);
-		else {
-			iocb->iocb.ulpStatus = IOSTAT_LOCAL_REJECT;
-			iocb->iocb.un.ulpWord[4] = IOERR_SLI_DOWN;
-			(iocb->iocb_cmpl) (phba, iocb, iocb);
-		}
-	}
+	/* Cancel all the IOCBs from the completions list */
+	lpfc_sli_cancel_iocbs(phba, &completions, IOSTAT_LOCAL_REJECT,
+			      IOERR_SLI_DOWN);
 	return 1;
 }
 
 /**
- * lpfc_sli_hba_down: Resource cleanup function for the HBA.
+ * lpfc_sli_hba_down - Resource cleanup function for the HBA
  * @phba: Pointer to HBA context object.
  *
  * This function cleans up all iocb, buffers, mailbox commands
@@ -4273,8 +4241,6 @@ lpfc_sli_hba_down(struct lpfc_hba *phba)
 	struct lpfc_sli_ring *pring;
 	struct lpfc_dmabuf *buf_ptr;
 	LPFC_MBOXQ_t *pmb;
-	struct lpfc_iocbq *iocb;
-	IOCB_t *cmd = NULL;
 	int i;
 	unsigned long flags = 0;
 
@@ -4302,18 +4268,9 @@ lpfc_sli_hba_down(struct lpfc_hba *phba)
 	}
 	spin_unlock_irqrestore(&phba->hbalock, flags);
 
-	while (!list_empty(&completions)) {
-		list_remove_head(&completions, iocb, struct lpfc_iocbq, list);
-		cmd = &iocb->iocb;
-
-		if (!iocb->iocb_cmpl)
-			lpfc_sli_release_iocbq(phba, iocb);
-		else {
-			cmd->ulpStatus = IOSTAT_LOCAL_REJECT;
-			cmd->un.ulpWord[4] = IOERR_SLI_DOWN;
-			(iocb->iocb_cmpl) (phba, iocb, iocb);
-		}
-	}
+	/* Cancel all the IOCBs from the completions list */
+	lpfc_sli_cancel_iocbs(phba, &completions, IOSTAT_LOCAL_REJECT,
+			      IOERR_SLI_DOWN);
 
 	spin_lock_irqsave(&phba->hbalock, flags);
 	list_splice_init(&phba->elsbuf, &completions);
@@ -4356,7 +4313,7 @@ lpfc_sli_hba_down(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_pcimem_bcopy: SLI memory copy function.
+ * lpfc_sli_pcimem_bcopy - SLI memory copy function
  * @srcp: Source memory pointer.
  * @destp: Destination memory pointer.
  * @cnt: Number of words required to be copied.
@@ -4386,7 +4343,7 @@ lpfc_sli_pcimem_bcopy(void *srcp, void *destp, uint32_t cnt)
 
 
 /**
- * lpfc_sli_ringpostbuf_put: Function to add a buffer to postbufq.
+ * lpfc_sli_ringpostbuf_put - Function to add a buffer to postbufq
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @mp: Pointer to driver buffer object.
@@ -4409,8 +4366,7 @@ lpfc_sli_ringpostbuf_put(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_get_buffer_tag: Tag allocation function for a buffer posted
- *          using CMD_QUE_XRI64_CX iocb.
+ * lpfc_sli_get_buffer_tag - allocates a tag for a CMD_QUE_XRI64_CX buffer
  * @phba: Pointer to HBA context object.
  *
  * When HBQ is enabled, buffers are searched based on tags. This function
@@ -4435,8 +4391,7 @@ lpfc_sli_get_buffer_tag(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sli_ring_taggedbuf_get: Search HBQ buffer associated with
- *              posted using CMD_QUE_XRI64_CX iocb.
+ * lpfc_sli_ring_taggedbuf_get - find HBQ buffer associated with given tag
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @tag: Buffer tag.
@@ -4479,8 +4434,7 @@ lpfc_sli_ring_taggedbuf_get(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_ringpostbuf_get: SLI2 buffer search function for
- *      unsolicited ct and els events.
+ * lpfc_sli_ringpostbuf_get - search buffers for unsolicited CT and ELS events
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @phys: DMA address of the buffer.
@@ -4523,7 +4477,7 @@ lpfc_sli_ringpostbuf_get(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_abort_els_cmpl: Completion handler for the els abort iocbs.
+ * lpfc_sli_abort_els_cmpl - Completion handler for the els abort iocbs
  * @phba: Pointer to HBA context object.
  * @cmdiocb: Pointer to driver command iocb object.
  * @rspiocb: Pointer to driver response iocb object.
@@ -4599,7 +4553,7 @@ lpfc_sli_abort_els_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 }
 
 /**
- * lpfc_ignore_els_cmpl: Completion handler for aborted ELS command.
+ * lpfc_ignore_els_cmpl - Completion handler for aborted ELS command
  * @phba: Pointer to HBA context object.
  * @cmdiocb: Pointer to driver command iocb object.
  * @rspiocb: Pointer to driver response iocb object.
@@ -4629,7 +4583,7 @@ lpfc_ignore_els_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 }
 
 /**
- * lpfc_sli_issue_abort_iotag: Abort function for a command iocb.
+ * lpfc_sli_issue_abort_iotag - Abort function for a command iocb
  * @phba: Pointer to HBA context object.
  * @pring: Pointer to driver SLI ring object.
  * @cmdiocb: Pointer to driver command iocb object.
@@ -4715,15 +4669,14 @@ abort_iotag_exit:
 }
 
 /**
- * lpfc_sli_validate_fcp_iocb: Filtering function, used to find commands
- *                    associated with a vport/SCSI target/lun.
+ * lpfc_sli_validate_fcp_iocb - find commands associated with a vport or LUN
  * @iocbq: Pointer to driver iocb object.
  * @vport: Pointer to driver virtual port object.
  * @tgt_id: SCSI ID of the target.
  * @lun_id: LUN ID of the scsi device.
  * @ctx_cmd: LPFC_CTX_LUN/LPFC_CTX_TGT/LPFC_CTX_HOST
  *
- * This function acts as iocb filter for functions which abort or count
+ * This function acts as an iocb filter for functions which abort or count
  * all FCP iocbs pending on a lun/SCSI target/SCSI host. It will return
  * 0 if the filtering criteria is met for the given iocb and will return
  * 1 if the filtering criteria is not met.
@@ -4781,7 +4734,7 @@ lpfc_sli_validate_fcp_iocb(struct lpfc_iocbq *iocbq, struct lpfc_vport *vport,
 }
 
 /**
- * lpfc_sli_sum_iocb: Function to count the number of FCP iocbs pending.
+ * lpfc_sli_sum_iocb - Function to count the number of FCP iocbs pending
  * @vport: Pointer to virtual port.
  * @tgt_id: SCSI ID of the target.
  * @lun_id: LUN ID of the scsi device.
@@ -4819,8 +4772,7 @@ lpfc_sli_sum_iocb(struct lpfc_vport *vport, uint16_t tgt_id, uint64_t lun_id,
 }
 
 /**
- * lpfc_sli_abort_fcp_cmpl: Completion handler function for an aborted
- *       FCP iocb.
+ * lpfc_sli_abort_fcp_cmpl - Completion handler function for aborted FCP IOCBs
  * @phba: Pointer to HBA context object
  * @cmdiocb: Pointer to command iocb object.
  * @rspiocb: Pointer to response iocb object.
@@ -4838,8 +4790,7 @@ lpfc_sli_abort_fcp_cmpl(struct lpfc_hba *phba, struct lpfc_iocbq *cmdiocb,
 }
 
 /**
- * lpfc_sli_abort_iocb: This function issue abort for all SCSI commands
- *          pending on a SCSI host(vport)/target/lun.
+ * lpfc_sli_abort_iocb - issue abort for all commands on a host/target/LUN
  * @vport: Pointer to virtual port.
  * @pring: Pointer to driver SLI ring object.
  * @tgt_id: SCSI ID of the target.
@@ -4911,8 +4862,7 @@ lpfc_sli_abort_iocb(struct lpfc_vport *vport, struct lpfc_sli_ring *pring,
 }
 
 /**
- * lpfc_sli_wake_iocb_wait: iocb completion handler for iocb issued using
- *                          lpfc_sli_issue_iocb_wait.
+ * lpfc_sli_wake_iocb_wait - lpfc_sli_issue_iocb_wait's completion handler
  * @phba: Pointer to HBA context object.
  * @cmdiocbq: Pointer to command iocb.
  * @rspiocbq: Pointer to response iocb.
@@ -4950,7 +4900,7 @@ lpfc_sli_wake_iocb_wait(struct lpfc_hba *phba,
 }
 
 /**
- * lpfc_sli_issue_iocb_wait: Synchronous function to issue iocb commands.
+ * lpfc_sli_issue_iocb_wait - Synchronous function to issue iocb commands
  * @phba: Pointer to HBA context object..
  * @pring: Pointer to sli ring.
  * @piocb: Pointer to command iocb.
@@ -5057,7 +5007,7 @@ lpfc_sli_issue_iocb_wait(struct lpfc_hba *phba,
 }
 
 /**
- * lpfc_sli_issue_mbox_wait: Synchronous function to issue mailbox.
+ * lpfc_sli_issue_mbox_wait - Synchronous function to issue mailbox
  * @phba: Pointer to HBA context object.
  * @pmboxq: Pointer to driver mailbox object.
  * @timeout: Timeout in number of seconds.
@@ -5127,7 +5077,7 @@ lpfc_sli_issue_mbox_wait(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq,
 }
 
 /**
- * lpfc_sli_flush_mbox_queue: mailbox queue cleanup function.
+ * lpfc_sli_flush_mbox_queue - mailbox queue cleanup function
  * @phba: Pointer to HBA context.
  *
  * This function is called to cleanup any pending mailbox
@@ -5170,7 +5120,7 @@ lpfc_sli_flush_mbox_queue(struct lpfc_hba * phba)
 }
 
 /**
- * lpfc_sli_check_eratt: check error attention events
+ * lpfc_sli_check_eratt - check error attention events
  * @phba: Pointer to HBA context.
  *
  * This function is called form timer soft interrupt context to check HBA's
@@ -5183,6 +5133,10 @@ int
 lpfc_sli_check_eratt(struct lpfc_hba *phba)
 {
 	uint32_t ha_copy;
+
+	/* If PCI channel is offline, don't process it */
+	if (unlikely(pci_channel_offline(phba->pcidev)))
+		return 0;
 
 	/* If somebody is waiting to handle an eratt, don't process it
 	 * here. The brdkill function will do this.
@@ -5198,11 +5152,31 @@ lpfc_sli_check_eratt(struct lpfc_hba *phba)
 		return 0;
 	}
 
+	/*
+	 * If there is deferred error attention, do not check for error
+	 * attention
+	 */
+	if (unlikely(phba->hba_flag & DEFER_ERATT)) {
+		spin_unlock_irq(&phba->hbalock);
+		return 0;
+	}
+
 	/* Read chip Host Attention (HA) register */
 	ha_copy = readl(phba->HAregaddr);
 	if (ha_copy & HA_ERATT) {
 		/* Read host status register to retrieve error event */
 		lpfc_sli_read_hs(phba);
+
+		/* Check if there is a deferred error condition is active */
+		if ((HS_FFER1 & phba->work_hs) &&
+			((HS_FFER2 | HS_FFER3 | HS_FFER4 | HS_FFER5 |
+			HS_FFER6 | HS_FFER7) & phba->work_hs)) {
+			phba->hba_flag |= DEFER_ERATT;
+			/* Clear all interrupt enable conditions */
+			writel(0, phba->HCregaddr);
+			readl(phba->HCregaddr);
+		}
+
 		/* Set the driver HA work bitmap */
 		phba->work_ha |= HA_ERATT;
 		/* Indicate polling handles this ERATT */
@@ -5215,7 +5189,7 @@ lpfc_sli_check_eratt(struct lpfc_hba *phba)
 }
 
 /**
- * lpfc_sp_intr_handler: The slow-path interrupt handler of lpfc driver.
+ * lpfc_sp_intr_handler - The slow-path interrupt handler of lpfc driver
  * @irq: Interrupt number.
  * @dev_id: The device context pointer.
  *
@@ -5242,6 +5216,7 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 	uint32_t ha_copy;
 	uint32_t work_ha_copy;
 	unsigned long status;
+	unsigned long iflag;
 	uint32_t control;
 
 	MAILBOX_t *mbox, *pmbox;
@@ -5274,7 +5249,7 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 		if (unlikely(phba->link_state < LPFC_LINK_DOWN))
 			return IRQ_NONE;
 		/* Need to read HA REG for slow-path events */
-		spin_lock(&phba->hbalock);
+		spin_lock_irqsave(&phba->hbalock, iflag);
 		ha_copy = readl(phba->HAregaddr);
 		/* If somebody is waiting to handle an eratt don't process it
 		 * here. The brdkill function will do this.
@@ -5290,11 +5265,21 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 				/* Indicate interrupt handler handles ERATT */
 				phba->hba_flag |= HBA_ERATT_HANDLED;
 		}
+
+		/*
+		 * If there is deferred error attention, do not check for any
+		 * interrupt.
+		 */
+		if (unlikely(phba->hba_flag & DEFER_ERATT)) {
+			spin_unlock_irq(&phba->hbalock);
+			return IRQ_NONE;
+		}
+
 		/* Clear up only attention source related to slow-path */
 		writel((ha_copy & (HA_MBATT | HA_R2_CLR_MSK)),
 			phba->HAregaddr);
 		readl(phba->HAregaddr); /* flush */
-		spin_unlock(&phba->hbalock);
+		spin_unlock_irqrestore(&phba->hbalock, iflag);
 	} else
 		ha_copy = phba->ha_copy;
 
@@ -5307,13 +5292,13 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 				 * Turn off Link Attention interrupts
 				 * until CLEAR_LA done
 				 */
-				spin_lock(&phba->hbalock);
+				spin_lock_irqsave(&phba->hbalock, iflag);
 				phba->sli.sli_flag &= ~LPFC_PROCESS_LA;
 				control = readl(phba->HCregaddr);
 				control &= ~HC_LAINT_ENA;
 				writel(control, phba->HCregaddr);
 				readl(phba->HCregaddr); /* flush */
-				spin_unlock(&phba->hbalock);
+				spin_unlock_irqrestore(&phba->hbalock, iflag);
 			}
 			else
 				work_ha_copy &= ~HA_LATT;
@@ -5328,7 +5313,7 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 				(HA_RXMASK  << (4*LPFC_ELS_RING)));
 			status >>= (4*LPFC_ELS_RING);
 			if (status & HA_RXMASK) {
-				spin_lock(&phba->hbalock);
+				spin_lock_irqsave(&phba->hbalock, iflag);
 				control = readl(phba->HCregaddr);
 
 				lpfc_debugfs_slow_ring_trc(phba,
@@ -5357,12 +5342,26 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 						(uint32_t)((unsigned long)
 						&phba->work_waitq));
 				}
-				spin_unlock(&phba->hbalock);
+				spin_unlock_irqrestore(&phba->hbalock, iflag);
 			}
 		}
-		spin_lock(&phba->hbalock);
-		if (work_ha_copy & HA_ERATT)
+		spin_lock_irqsave(&phba->hbalock, iflag);
+		if (work_ha_copy & HA_ERATT) {
 			lpfc_sli_read_hs(phba);
+			/*
+			 * Check if there is a deferred error condition
+			 * is active
+			 */
+			if ((HS_FFER1 & phba->work_hs) &&
+				((HS_FFER2 | HS_FFER3 | HS_FFER4 | HS_FFER5 |
+				HS_FFER6 | HS_FFER7) & phba->work_hs)) {
+				phba->hba_flag |= DEFER_ERATT;
+				/* Clear all interrupt enable conditions */
+				writel(0, phba->HCregaddr);
+				readl(phba->HCregaddr);
+			}
+		}
+
 		if ((work_ha_copy & HA_MBATT) && (phba->sli.mbox_active)) {
 			pmb = phba->sli.mbox_active;
 			pmbox = &pmb->mb;
@@ -5372,7 +5371,7 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 			/* First check out the status word */
 			lpfc_sli_pcimem_bcopy(mbox, pmbox, sizeof(uint32_t));
 			if (pmbox->mbxOwner != OWN_HOST) {
-				spin_unlock(&phba->hbalock);
+				spin_unlock_irqrestore(&phba->hbalock, iflag);
 				/*
 				 * Stray Mailbox Interrupt, mbxCommand <cmd>
 				 * mbxStatus <status>
@@ -5389,7 +5388,7 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 				work_ha_copy &= ~HA_MBATT;
 			} else {
 				phba->sli.mbox_active = NULL;
-				spin_unlock(&phba->hbalock);
+				spin_unlock_irqrestore(&phba->hbalock, iflag);
 				phba->last_completion_time = jiffies;
 				del_timer(&phba->sli.mbox_tmo);
 				if (pmb->mbox_cmpl) {
@@ -5438,14 +5437,18 @@ lpfc_sp_intr_handler(int irq, void *dev_id)
 						goto send_current_mbox;
 					}
 				}
-				spin_lock(&phba->pport->work_port_lock);
+				spin_lock_irqsave(
+						&phba->pport->work_port_lock,
+						iflag);
 				phba->pport->work_port_events &=
 					~WORKER_MBOX_TMO;
-				spin_unlock(&phba->pport->work_port_lock);
+				spin_unlock_irqrestore(
+						&phba->pport->work_port_lock,
+						iflag);
 				lpfc_mbox_cmpl_put(phba, pmb);
 			}
 		} else
-			spin_unlock(&phba->hbalock);
+			spin_unlock_irqrestore(&phba->hbalock, iflag);
 
 		if ((work_ha_copy & HA_MBATT) &&
 		    (phba->sli.mbox_active == NULL)) {
@@ -5461,9 +5464,9 @@ send_current_mbox:
 						"MBX_SUCCESS");
 		}
 
-		spin_lock(&phba->hbalock);
+		spin_lock_irqsave(&phba->hbalock, iflag);
 		phba->work_ha |= work_ha_copy;
-		spin_unlock(&phba->hbalock);
+		spin_unlock_irqrestore(&phba->hbalock, iflag);
 		lpfc_worker_wake_up(phba);
 	}
 	return IRQ_HANDLED;
@@ -5471,7 +5474,7 @@ send_current_mbox:
 } /* lpfc_sp_intr_handler */
 
 /**
- * lpfc_fp_intr_handler: The fast-path interrupt handler of lpfc driver.
+ * lpfc_fp_intr_handler - The fast-path interrupt handler of lpfc driver
  * @irq: Interrupt number.
  * @dev_id: The device context pointer.
  *
@@ -5495,6 +5498,7 @@ lpfc_fp_intr_handler(int irq, void *dev_id)
 	struct lpfc_hba  *phba;
 	uint32_t ha_copy;
 	unsigned long status;
+	unsigned long iflag;
 
 	/* Get the driver's phba structure from the dev_id and
 	 * assume the HBA is not interrupting.
@@ -5520,11 +5524,19 @@ lpfc_fp_intr_handler(int irq, void *dev_id)
 		/* Need to read HA REG for FCP ring and other ring events */
 		ha_copy = readl(phba->HAregaddr);
 		/* Clear up only attention source related to fast-path */
-		spin_lock(&phba->hbalock);
+		spin_lock_irqsave(&phba->hbalock, iflag);
+		/*
+		 * If there is deferred error attention, do not check for
+		 * any interrupt.
+		 */
+		if (unlikely(phba->hba_flag & DEFER_ERATT)) {
+			spin_unlock_irq(&phba->hbalock);
+			return IRQ_NONE;
+		}
 		writel((ha_copy & (HA_R0_CLR_MSK | HA_R1_CLR_MSK)),
 			phba->HAregaddr);
 		readl(phba->HAregaddr); /* flush */
-		spin_unlock(&phba->hbalock);
+		spin_unlock_irqrestore(&phba->hbalock, iflag);
 	} else
 		ha_copy = phba->ha_copy;
 
@@ -5557,7 +5569,7 @@ lpfc_fp_intr_handler(int irq, void *dev_id)
 }  /* lpfc_fp_intr_handler */
 
 /**
- * lpfc_intr_handler: The device-level interrupt handler of lpfc driver.
+ * lpfc_intr_handler - The device-level interrupt handler of lpfc driver
  * @irq: Interrupt number.
  * @dev_id: The device context pointer.
  *
@@ -5611,6 +5623,14 @@ lpfc_intr_handler(int irq, void *dev_id)
 		else
 			/* Indicate interrupt handler handles ERATT */
 			phba->hba_flag |= HBA_ERATT_HANDLED;
+	}
+
+	/*
+	 * If there is deferred error attention, do not check for any interrupt.
+	 */
+	if (unlikely(phba->hba_flag & DEFER_ERATT)) {
+		spin_unlock_irq(&phba->hbalock);
+		return IRQ_NONE;
 	}
 
 	/* Clear attention sources except link and error attentions */

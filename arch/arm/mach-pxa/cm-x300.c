@@ -28,10 +28,7 @@
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 
-#include <mach/mfp-pxa300.h>
-
-#include <mach/hardware.h>
-#include <mach/gpio.h>
+#include <mach/pxa300.h>
 #include <mach/pxafb.h>
 #include <mach/mmc.h>
 #include <mach/ohci.h>
@@ -137,6 +134,10 @@ static mfp_cfg_t cm_x300_mfp_cfg[] __initdata = {
 	GPIO82_GPIO | MFP_PULL_HIGH,	/* MMC CD */
 	GPIO85_GPIO,			/* MMC WP */
 	GPIO99_GPIO,			/* Ethernet IRQ */
+
+	/* Standard I2C */
+	GPIO21_I2C_SCL,
+	GPIO22_I2C_SDA,
 };
 
 #if defined(CONFIG_DM9000) || defined(CONFIG_DM9000_MODULE)
@@ -159,7 +160,7 @@ static struct resource dm9000_resources[] = {
 };
 
 static struct dm9000_plat_data cm_x300_dm9000_platdata = {
-	.flags		= DM9000_PLATF_16BITONLY,
+	.flags		= DM9000_PLATF_16BITONLY | DM9000_PLATF_NO_EEPROM,
 };
 
 static struct platform_device dm9000_device = {

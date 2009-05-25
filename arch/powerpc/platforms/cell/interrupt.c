@@ -148,7 +148,7 @@ static unsigned int iic_get_irq(void)
 
 	iic = &__get_cpu_var(iic);
 	*(unsigned long *) &pending =
-		in_be64((unsigned long __iomem *) &iic->regs->pending_destr);
+		in_be64((u64 __iomem *) &iic->regs->pending_destr);
 	if (!(pending.flags & CBE_IIC_IRQ_VALID))
 		return NO_IRQ;
 	virq = irq_linear_revmap(iic_host, iic_pending_to_hwnum(pending));
@@ -237,8 +237,6 @@ extern int noirqdebug;
 
 static void handle_iic_irq(unsigned int irq, struct irq_desc *desc)
 {
-	const unsigned int cpu = smp_processor_id();
-
 	spin_lock(&desc->lock);
 
 	desc->status &= ~(IRQ_REPLAY | IRQ_WAITING);
@@ -254,7 +252,7 @@ static void handle_iic_irq(unsigned int irq, struct irq_desc *desc)
 		goto out_eoi;
 	}
 
-	kstat_cpu(cpu).irqs[irq]++;
+	kstat_incr_irqs_this_cpu(irq, desc);
 
 	/* Mark the IRQ currently in progress.*/
 	desc->status |= IRQ_INPROGRESS;

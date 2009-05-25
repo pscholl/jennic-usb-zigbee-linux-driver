@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2007, 2008 Wolfson Microelectronics PLC.
  *
- * Author: Liam Girdwood <lg@opensource.wolfsonmicro.com>
+ * Author: Liam Girdwood <lrg@slimlogic.co.uk>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -44,6 +44,10 @@ struct regulator;
  * struct regulator_state - regulator state during low power syatem states
  *
  * This describes a regulators state during a system wide low power state.
+ *
+ * @uV: Operating voltage during suspend.
+ * @mode: Operating mode during suspend.
+ * @enabled: Enabled during suspend.
  */
 struct regulator_state {
 	int uV;	/* suspend voltage */
@@ -55,6 +59,33 @@ struct regulator_state {
  * struct regulation_constraints - regulator operating constraints.
  *
  * This struct describes regulator and board/machine specific constraints.
+ *
+ * @name: Descriptive name for the constraints, used for display purposes.
+ *
+ * @min_uV: Smallest voltage consumers may set.
+ * @max_uV: Largest voltage consumers may set.
+ *
+ * @min_uA: Smallest consumers consumers may set.
+ * @max_uA: Largest current consumers may set.
+ *
+ * @valid_modes_mask: Mask of modes which may be configured by consumers.
+ * @valid_ops_mask: Operations which may be performed by consumers.
+ *
+ * @always_on: Set if the regulator should never be disabled.
+ * @boot_on: Set if the regulator is enabled when the system is initially
+ *           started.  If the regulator is not enabled by the hardware or
+ *           bootloader then it will be enabled when the constraints are
+ *           applied.
+ * @apply_uV: Apply the voltage constraint when initialising.
+ *
+ * @input_uV: Input voltage for regulator when supplied by another regulator.
+ *
+ * @state_disk: State for regulator when system is suspended in disk mode.
+ * @state_mem: State for regulator when system is suspended in mem mode.
+ * @state_standby: State for regulator when system is suspended in standby
+ *                 mode.
+ * @initial_state: Suspend state to set by default.
+ * @initial_mode: Mode to set at startup.
  */
 struct regulation_constraints {
 
@@ -83,6 +114,9 @@ struct regulation_constraints {
 	struct regulator_state state_standby;
 	suspend_state_t initial_state; /* suspend state to set at init */
 
+	/* mode to set on startup */
+	unsigned int initial_mode;
+
 	/* constriant flags */
 	unsigned always_on:1;	/* regulator never off when system is on */
 	unsigned boot_on:1;	/* bootloader/firmware enabled regulator */
@@ -93,6 +127,9 @@ struct regulation_constraints {
  * struct regulator_consumer_supply - supply -> device mapping
  *
  * This maps a supply name to a device.
+ *
+ * @dev: Device structure for the consumer.
+ * @supply: Name for the supply.
  */
 struct regulator_consumer_supply {
 	struct device *dev;	/* consumer */
@@ -103,6 +140,16 @@ struct regulator_consumer_supply {
  * struct regulator_init_data - regulator platform initialisation data.
  *
  * Initialisation constraints, our supply and consumers supplies.
+ *
+ * @supply_regulator_dev: Parent regulator (if any).
+ *
+ * @constraints: Constraints.  These must be specified for the regulator to
+ *               be usable.
+ * @num_consumer_supplies: Number of consumer device supplies.
+ * @consumer_supplies: Consumer device supply configuration.
+ *
+ * @regulator_init: Callback invoked when the regulator has been registered.
+ * @driver_data: Data passed to regulator_init.
  */
 struct regulator_init_data {
 	struct device *supply_regulator_dev; /* or NULL for LINE */
@@ -118,5 +165,7 @@ struct regulator_init_data {
 };
 
 int regulator_suspend_prepare(suspend_state_t state);
+
+void regulator_has_full_constraints(void);
 
 #endif

@@ -143,6 +143,7 @@ static const struct ac97_codec_id snd_ac97_codec_ids[] = {
 { 0x43525970, 0xfffffff8, "CS4202",		NULL,		NULL },
 { 0x43585421, 0xffffffff, "HSD11246",		NULL,		NULL },	// SmartMC II
 { 0x43585428, 0xfffffff8, "Cx20468",		patch_conexant,	NULL }, // SmartAMC fixme: the mask might be different
+{ 0x43585430, 0xffffffff, "Cx20468-31",		patch_conexant, NULL },
 { 0x43585431, 0xffffffff, "Cx20551",           patch_cx20551,  NULL },
 { 0x44543031, 0xfffffff0, "DT0398",		NULL,		NULL },
 { 0x454d4328, 0xffffffff, "EM28028",		NULL,		NULL },  // same as TR28028?
@@ -175,7 +176,7 @@ static const struct ac97_codec_id snd_ac97_codec_ids[] = {
 { 0x574d4C04, 0xffffffff, "WM9704M,WM9704Q",	patch_wolfson04, NULL},
 { 0x574d4C05, 0xffffffff, "WM9705,WM9710",	patch_wolfson05, NULL},
 { 0x574d4C09, 0xffffffff, "WM9709",		NULL,		NULL},
-{ 0x574d4C12, 0xffffffff, "WM9711,WM9712",	patch_wolfson11, NULL},
+{ 0x574d4C12, 0xffffffff, "WM9711,WM9712,WM9715",	patch_wolfson11, NULL},
 { 0x574d4c13, 0xffffffff, "WM9713,WM9714",	patch_wolfson13, NULL, AC97_DEFAULT_POWER_OFF},
 { 0x594d4800, 0xffffffff, "YMF743",		patch_yamaha_ymf743,	NULL },
 { 0x594d4802, 0xffffffff, "YMF752",		NULL,		NULL },
@@ -383,7 +384,7 @@ int snd_ac97_update_bits(struct snd_ac97 *ac97, unsigned short reg, unsigned sho
 
 EXPORT_SYMBOL(snd_ac97_update_bits);
 
-/* no lock version - see snd_ac97_updat_bits() */
+/* no lock version - see snd_ac97_update_bits() */
 int snd_ac97_update_bits_nolock(struct snd_ac97 *ac97, unsigned short reg,
 				unsigned short mask, unsigned short value)
 {
@@ -1643,7 +1644,10 @@ static int snd_ac97_modem_build(struct snd_card *card, struct snd_ac97 * ac97)
 {
 	int err, idx;
 
-	//printk("AC97_GPIO_CFG = %x\n",snd_ac97_read(ac97,AC97_GPIO_CFG));
+	/*
+	printk(KERN_DEBUG "AC97_GPIO_CFG = %x\n",
+	       snd_ac97_read(ac97,AC97_GPIO_CFG));
+	*/
 	snd_ac97_write(ac97, AC97_GPIO_CFG, 0xffff & ~(AC97_GPIO_LINE1_OH));
 	snd_ac97_write(ac97, AC97_GPIO_POLARITY, 0xffff & ~(AC97_GPIO_LINE1_OH));
 	snd_ac97_write(ac97, AC97_GPIO_STICKY, 0xffff);
@@ -2118,7 +2122,7 @@ int snd_ac97_mixer(struct snd_ac97_bus *bus, struct snd_ac97_template *template,
 		}
 		/* nothing should be in powerdown mode */
 		snd_ac97_write_cache(ac97, AC97_GENERAL_PURPOSE, 0);
-		end_time = jiffies + msecs_to_jiffies(100);
+		end_time = jiffies + msecs_to_jiffies(120);
 		do {
 			if ((snd_ac97_read(ac97, AC97_POWERDOWN) & 0x0f) == 0x0f)
 				goto __ready_ok;

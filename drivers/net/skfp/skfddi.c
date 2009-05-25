@@ -135,14 +135,11 @@ void dump_data(unsigned char *Data, int length);
 
 // External functions from the hardware module
 extern u_int mac_drv_check_space(void);
-extern void read_address(struct s_smc *smc, u_char * mac_addr);
-extern void card_stop(struct s_smc *smc);
 extern int mac_drv_init(struct s_smc *smc);
 extern void hwm_tx_frag(struct s_smc *smc, char far * virt, u_long phys,
 			int len, int frame_status);
 extern int hwm_tx_init(struct s_smc *smc, u_char fc, int frag_count,
 		       int frame_len, int frame_status);
-extern int init_smt(struct s_smc *smc, u_char * mac_addr);
 extern void fddi_isr(struct s_smc *smc);
 extern void hwm_rx_frag(struct s_smc *smc, char far * virt, u_long phys,
 			int len, int frame_status);
@@ -167,6 +164,17 @@ static int num_boards;	/* total number of adapters configured */
 #else
 #define PRINTK(s, args...)
 #endif				// DRIVERDEBUG
+
+static const struct net_device_ops skfp_netdev_ops = {
+	.ndo_open		= skfp_open,
+	.ndo_stop		= skfp_close,
+	.ndo_start_xmit		= skfp_send_pkt,
+	.ndo_get_stats		= skfp_ctl_get_stats,
+	.ndo_change_mtu		= fddi_change_mtu,
+	.ndo_set_multicast_list = skfp_ctl_set_multicast_list,
+	.ndo_set_mac_address	= skfp_ctl_set_mac_address,
+	.ndo_do_ioctl		= skfp_ioctl,
+};
 
 /*
  * =================
@@ -253,13 +261,7 @@ static int skfp_init_one(struct pci_dev *pdev,
 	}
 
 	dev->irq = pdev->irq;
-	dev->get_stats = &skfp_ctl_get_stats;
-	dev->open = &skfp_open;
-	dev->stop = &skfp_close;
-	dev->hard_start_xmit = &skfp_send_pkt;
-	dev->set_multicast_list = &skfp_ctl_set_multicast_list;
-	dev->set_mac_address = &skfp_ctl_set_mac_address;
-	dev->do_ioctl = &skfp_ioctl;
+	dev->netdev_ops = &skfp_netdev_ops;
 
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
@@ -612,7 +614,7 @@ static int skfp_close(struct net_device *dev)
  *   Interrupts are disabled, then reenabled at the adapter.
  */
 
-irqreturn_t skfp_interrupt(int irq, void *dev_id)
+static irqreturn_t skfp_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
 	struct s_smc *smc;	/* private board structure pointer */
@@ -679,7 +681,7 @@ irqreturn_t skfp_interrupt(int irq, void *dev_id)
  *   independent.
  *
  */
-struct net_device_stats *skfp_ctl_get_stats(struct net_device *dev)
+static struct net_device_stats *skfp_ctl_get_stats(struct net_device *dev)
 {
 	struct s_smc *bp = netdev_priv(dev);
 
@@ -998,9 +1000,9 @@ static int skfp_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 		break;
 	case SKFP_CLR_STATS:	/* Zero out the driver statistics */
 		if (!capable(CAP_NET_ADMIN)) {
-			memset(&lp->MacStat, 0, sizeof(lp->MacStat));
-		} else {
 			status = -EPERM;
+		} else {
+			memset(&lp->MacStat, 0, sizeof(lp->MacStat));
 		}
 		break;
 	default:
@@ -1224,7 +1226,7 @@ static void send_queued_packets(struct s_smc *smc)
  * Verify if the source address is set. Insert it if necessary.
  *
  ************************/
-void CheckSourceAddress(unsigned char *frame, unsigned char *hw_addr)
+static void CheckSourceAddress(unsigned char *frame, unsigned char *hw_addr)
 {
 	unsigned char SRBit;
 
@@ -1680,7 +1682,6 @@ void mac_drv_rx_complete(struct s_smc *smc, volatile struct s_smt_fp_rxd *rxd,
 	skb->protocol = fddi_type_trans(skb, bp->dev);
 
 	netif_rx(skb);
-	bp->dev->last_rx = jiffies;
 
 	HWM_RX_CHECK(smc, RX_LOW_WATERMARK);
 	return;
@@ -1939,7 +1940,6 @@ int mac_drv_rx_init(struct s_smc *smc, int len, int fc,
 
 	// deliver frame to system
 	skb->protocol = fddi_type_trans(skb, smc->os.dev);
-	skb->dev->last_rx = jiffies;
 	netif_rx(skb);
 
 	return (0);

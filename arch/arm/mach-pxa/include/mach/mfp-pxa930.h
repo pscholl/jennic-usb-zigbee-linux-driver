@@ -13,7 +13,6 @@
 #ifndef __ASM_ARCH_MFP_PXA9xx_H
 #define __ASM_ARCH_MFP_PXA9xx_H
 
-#include <mach/mfp.h>
 #include <mach/mfp-pxa3xx.h>
 
 /* GPIO */
@@ -421,6 +420,7 @@
 #define GPIO20_PWM0		MFP_CFG_LPM(GPIO20, AF2, PULL_LOW)
 #define GPIO21_PWM2		MFP_CFG_LPM(GPIO21, AF3, PULL_LOW)
 #define GPIO22_PWM3		MFP_CFG_LPM(GPIO22, AF3, PULL_LOW)
+#define GPIO32_PWM0		MFP_CFG_LPM(GPIO32, AF4, PULL_LOW)
 
 /* CIR */
 #define GPIO46_CIR_OUT		MFP_CFG(GPIO46, AF1)
