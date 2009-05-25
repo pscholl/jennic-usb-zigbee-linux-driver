@@ -272,10 +272,10 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
 
 	if (!status) {
-		if (lqi && *len >= lp->buf[1])
-			*lqi = buf[lp->buf[1]];
+		if (lqi && *len > lp->buf[1])
+			*lqi = data[lp->buf[1]];
 
-		*len = lp->buf[1] - 1;
+		*len = lp->buf[1];
 	}
 
 	mutex_unlock(&lp->bmux);
@@ -437,7 +437,6 @@ static void at86rf230_irqwork(struct work_struct *work)
 			u8 len = 128;
 			u8 lqi = 0;
 			struct sk_buff *skb;
-			int i;
 
 			status &= ~IRQ_TRX_END;
 
@@ -445,13 +444,13 @@ static void at86rf230_irqwork(struct work_struct *work)
 			if (!skb)
 				break;
 
-			rc = at86rf230_read_fbuf(lp, skb_put(skb, 0), &len, &lqi);
+			rc = at86rf230_read_fbuf(lp, skb_put(skb, len), &len, &lqi);
 			if (len < 2) {
 				kfree_skb(skb);
 				continue;
 			}
 
-			skb_put(skb, len-2); /* We do not put CRC into the frame */
+			skb_trim(skb, len-2); /* We do not put CRC into the frame */
 
 			skb_pull(skb, 2); // FIXME: hack for old firmware of mc13192
 			ieee802154_rx_irqsafe(lp->dev, skb, lqi);
