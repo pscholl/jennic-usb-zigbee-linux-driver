@@ -148,7 +148,7 @@ static void ieee802154_netdev_setup_master(struct net_device *dev)
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
 }
-static ssize_t ieee80215_netdev_show(const struct device *dev,
+static ssize_t ieee802154_netdev_show(const struct device *dev,
 			   struct device_attribute *attr, char *buf,
 			   ssize_t (*format)(const struct net_device *, char *))
 {
@@ -169,7 +169,7 @@ static ssize_t format_##field(const struct net_device *dev, char *buf)	\
 static ssize_t show_##field(struct device *dev,				\
 			    struct device_attribute *attr, char *buf)	\
 {									\
-	return ieee80215_netdev_show(dev, attr, buf, format_##field);	\
+	return ieee802154_netdev_show(dev, attr, buf, format_##field);	\
 }									\
 static DEVICE_ATTR(field, S_IRUGO, show_##field, NULL)
 
@@ -191,7 +191,7 @@ static struct attribute_group pmib_group = {
 	.attrs  = pmib_attrs,
 };
 
-static void ieee80215_register_netdev_master_sysfs(struct net_device *dev)
+static void ieee802154_register_netdev_master_sysfs(struct net_device *dev)
 {
 	struct attribute_group **groups = dev->sysfs_groups;
 	groups[1] = &pmib_group;
@@ -222,7 +222,7 @@ int ieee802154_register_netdev_master(struct ieee802154_priv *hw)
 	dev->netdev_ops = &ieee802154_master_ops;
 	dev->needed_headroom = hw->hw.extra_tx_headroom;
 	SET_NETDEV_DEV(dev, hw->hw.parent);
-	ieee80215_register_netdev_master_sysfs(dev);
+	ieee802154_register_netdev_master_sysfs(dev);
 	register_netdev(dev);
 	return 0;
 }
