@@ -43,6 +43,7 @@ struct at86rf230_local {
 	struct mutex bmux;
 
 	struct work_struct irqwork;
+	struct completion tx_complete;
 
 	struct ieee802154_dev *dev;
 
@@ -363,9 +364,36 @@ at86rf230_channel(struct ieee802154_dev *dev, int channel)
 static int
 at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
+	char *data;
+	struct at86rf230_local *lp = dev->priv;
+	int rc;
+
 	pr_debug("%s\n", __func__);
 
 	might_sleep();
+
+	data = skb_push(skb, 2); // FIXME: hack for old f/w
+	data[0] = 0x7e;
+	data[1] = 0xff;
+
+	rc = at86rf230_write_fbuf(lp, data, skb->len);
+	if (rc)
+		return PHY_ERROR;
+
+	if (gpio_is_valid(lp->slp_tr)) {
+		gpio_set_value(lp->slp_tr, 1);
+	} else {
+		rc = at86rf230_write_single(lp, RG_TRX_STATE, STATE_BUSY_TX);
+		if (rc)
+			return PHY_ERROR;
+	}
+
+	rc = wait_for_completion_interruptible(&lp->tx_complete);
+
+	gpio_set_value(lp->slp_tr, 0);
+
+	if (rc < 0)
+		return PHY_ERROR;
 
 	return PHY_SUCCESS;
 }
@@ -390,7 +418,7 @@ static int at86rf230_register(struct at86rf230_local *lp)
 	lp->dev->name = dev_name(&lp->spi->dev);
 	lp->dev->priv = lp;
 	lp->dev->parent = &lp->spi->dev;
-	lp->dev->extra_tx_headroom = 0;
+	lp->dev->extra_tx_headroom = 2; // FIXME: hack for old f/w
 	lp->dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
 	lp->dev->flags = IEEE802154_OPS_OMIT_CKSUM;
 
@@ -432,6 +460,12 @@ static void at86rf230_irqwork(struct work_struct *work)
 		status &= ~IRQ_TRX_UR; /* FIXME: possibly handle ???*/
 
 		if (status & IRQ_TRX_END) {
+			status &= ~IRQ_TRX_END;
+			complete(&lp->tx_complete);
+		}
+
+#if 0
+		if (status & IRQ_TRX_END) {
 
 			// FIXME: handle TX
 			u8 len = 128;
@@ -452,11 +486,17 @@ static void at86rf230_irqwork(struct work_struct *work)
 
 			skb_trim(skb, len-2); /* We do not put CRC into the frame */
 
+			if (len < 2) {
+				kfree_skb(skb);
+				continue;
+			}
+
 			skb_pull(skb, 2); // FIXME: hack for old firmware of mc13192
 			ieee802154_rx_irqsafe(lp->dev, skb, lqi);
 
 			dev_dbg(&lp->spi->dev, "READ_FBUF: %d %d %x\n", rc, len, lqi);
 		}
+#endif
 
 	} while (status != 0);
 
@@ -590,6 +630,7 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	mutex_init(&lp->bmux);
 	INIT_WORK(&lp->irqwork, at86rf230_irqwork);
 	spin_lock_init(&lp->lock);
+	init_completion(&lp->tx_complete);
 
 	spi_set_drvdata(spi, lp);
 
