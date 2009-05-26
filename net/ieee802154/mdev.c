@@ -163,7 +163,7 @@ static ssize_t ieee80215_netdev_show(const struct device *dev,
 #define MASTER_SHOW(field, format_string)				\
 static ssize_t format_##field(const struct net_device *dev, char *buf)	\
 {									\
-	struct ieee80215_mnetdev_priv *priv = netdev_priv(dev);		\
+	struct ieee802154_mnetdev_priv *priv = netdev_priv(dev);		\
 	return sprintf(buf, format_string, priv->hw->hw.field);		\
 }									\
 static ssize_t show_##field(struct device *dev,				\
