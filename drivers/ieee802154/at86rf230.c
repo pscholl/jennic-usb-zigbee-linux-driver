@@ -596,15 +596,22 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	rc = gpio_request(lp->rstn, "rstn");
 	if (rc)
 		goto err_rstn;
-	rc = gpio_request(lp->slp_tr, "slp_tr");
-	if (rc)
-		goto err_slp_tr;
+
+	if (gpio_is_valid(lp->slp_tr)) {
+		rc = gpio_request(lp->slp_tr, "slp_tr");
+		if (rc)
+			goto err_slp_tr;
+	}
+
 	rc = gpio_direction_output(lp->rstn, 1);
 	if (rc)
 		goto err_gpio_dir;
-	rc = gpio_direction_output(lp->slp_tr, 0);
-	if (rc)
-		goto err_gpio_dir;
+
+	if (gpio_is_valid(lp->slp_tr)) {
+		rc = gpio_direction_output(lp->slp_tr, 0);
+		if (rc)
+			goto err_gpio_dir;
+	}
 
 	/* Reset */
 	msleep(1);
@@ -675,7 +682,8 @@ err_irq:
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
 err_gpio_dir:
-	gpio_free(lp->slp_tr);
+	if (gpio_is_valid(lp->slp_tr))
+		gpio_free(lp->slp_tr);
 err_slp_tr:
 	gpio_free(lp->rstn);
 err_rstn:
@@ -695,7 +703,8 @@ static int __devexit at86rf230_remove(struct spi_device *spi)
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
 
-	gpio_free(lp->slp_tr);
+	if (gpio_is_valid(lp->slp_tr))
+		gpio_free(lp->slp_tr);
 	gpio_free(lp->rstn);
 
 	spi_set_drvdata(spi, NULL);
