@@ -91,6 +91,7 @@ static int ieee802154_slave_open(struct net_device *dev)
 static int ieee802154_slave_close(struct net_device *dev)
 {
 	struct ieee802154_netdev_priv *priv;
+	dev->priv_flags &= ~IFF_IEEE802154_COORD;
 	netif_stop_queue(dev);
 	priv = netdev_priv(dev);
 	netif_stop_queue(dev);
