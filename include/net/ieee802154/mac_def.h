@@ -73,21 +73,25 @@
 #ifdef __KERNEL__
 int ieee802154_process_cmd(struct net_device *dev, struct sk_buff *skb);
 
-int ieee802154_send_cmd(struct net_device *dev,
-		struct ieee802154_addr *addr, struct ieee802154_addr *saddr,
-		const u8 *buf, int len);
-
 int ieee802154_send_beacon_req(struct net_device *dev);
 int ieee802154_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration);
-
-int ieee802154_mlme_start_req(struct net_device *dev, u16 panid, u8 channel,
-			     u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
-			     u8 coord_realign, u8 sec);
 
 #define IEEE802154_MAC_SCAN_ED		0
 #define IEEE802154_MAC_SCAN_ACTIVE	1
 #define IEEE802154_MAC_SCAN_PASSIVE	2
 #define IEEE802154_MAC_SCAN_ORPHAN	3
+
+struct ieee802154_mlme_ops {
+	int (*assoc_req)(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap);
+	int (*assoc_resp)(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status);
+	int (*disassoc_req)(struct net_device *dev, struct ieee802154_addr *addr, u8 reason);
+	int (*start_req)(struct net_device *dev, struct ieee802154_addr *addr, u8 channel,
+			     u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
+			     u8 coord_realign);
+	int (*scan_req)(struct net_device *dev, u8 type, u32 channels, u8 duration);
+};
+
+#define IEEE802154_MLME_OPS(dev)	((struct ieee802154_mlme_ops *) dev->ml_priv)
 
 #endif
 

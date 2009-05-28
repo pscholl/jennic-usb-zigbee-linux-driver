@@ -372,6 +372,7 @@ int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 	dev->priv_flags = IFF_SLAVE_INACTIVE;
 	dev->netdev_ops = &ieee802154_slave_ops;
+	dev->ml_priv = &ieee802154_mlme;
 
 	priv->pan_id = IEEE802154_PANID_DEF;
 	priv->short_addr = IEEE802154_SHORT_ADDRESS_DEF;

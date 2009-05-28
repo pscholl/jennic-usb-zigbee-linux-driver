@@ -176,19 +176,7 @@ drop:
 	return NET_RX_DROP;
 }
 
-int ieee802154_send_beacon_req(struct net_device *dev)
-{
-	struct ieee802154_addr addr;
-	struct ieee802154_addr saddr;
-	u8 cmd = IEEE802154_CMD_BEACON_REQ;
-	addr.addr_type = IEEE802154_ADDR_SHORT;
-	addr.short_addr = IEEE802154_ADDR_BROADCAST;
-	addr.pan_id = IEEE802154_PANID_BROADCAST;
-	saddr.addr_type = IEEE802154_ADDR_NONE;
-	return ieee802154_send_cmd(dev, &addr, &saddr, &cmd, 1);
-}
-
-int ieee802154_send_cmd(struct net_device *dev,
+static int ieee802154_send_cmd(struct net_device *dev,
 		struct ieee802154_addr *addr, struct ieee802154_addr *saddr,
 		const u8 *buf, int len)
 {
@@ -223,4 +211,109 @@ int ieee802154_send_cmd(struct net_device *dev,
 
 	return dev_queue_xmit(skb);
 }
+
+int ieee802154_send_beacon_req(struct net_device *dev)
+{
+	struct ieee802154_addr addr;
+	struct ieee802154_addr saddr;
+	u8 cmd = IEEE802154_CMD_BEACON_REQ;
+	addr.addr_type = IEEE802154_ADDR_SHORT;
+	addr.short_addr = IEEE802154_ADDR_BROADCAST;
+	addr.pan_id = IEEE802154_PANID_BROADCAST;
+	saddr.addr_type = IEEE802154_ADDR_NONE;
+	return ieee802154_send_cmd(dev, &addr, &saddr, &cmd, 1);
+}
+
+
+static int ieee802154_mlme_assoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap)
+{
+	struct ieee802154_addr saddr;
+	u8 buf[2];
+	int pos = 0;
+
+	saddr.addr_type = IEEE802154_ADDR_LONG;
+	saddr.pan_id = IEEE802154_PANID_BROADCAST;
+	memcpy(saddr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN);
+
+
+	/* FIXME: set PIB/MIB info */
+	ieee802154_dev_set_pan_id(dev, addr->pan_id);
+	ieee802154_dev_set_channel(dev, channel);
+
+	buf[pos++] = IEEE802154_CMD_ASSOCIATION_REQ;
+	buf[pos++] = cap;
+
+	return ieee802154_send_cmd(dev, addr, &saddr, buf, pos);
+}
+
+int ieee802154_mlme_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status)
+{
+	struct ieee802154_addr saddr;
+	u8 buf[4];
+	int pos = 0;
+
+	saddr.addr_type = IEEE802154_ADDR_LONG;
+	saddr.pan_id = addr->pan_id;
+	memcpy(saddr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN);
+
+	buf[pos++] = IEEE802154_CMD_ASSOCIATION_RESP;
+	buf[pos++] = short_addr;
+	buf[pos++] = short_addr >> 8;
+	buf[pos++] = status;
+
+	return ieee802154_send_cmd(dev, addr, &saddr, buf, pos);
+}
+
+int ieee802154_mlme_disassoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
+{
+	struct ieee802154_addr saddr;
+	u8 buf[2];
+	int pos = 0;
+	int ret;
+
+	saddr.addr_type = IEEE802154_ADDR_LONG;
+	saddr.pan_id = addr->pan_id;
+	memcpy(saddr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN);
+
+	buf[pos++] = IEEE802154_CMD_DISASSOCIATION_NOTIFY;
+	buf[pos++] = reason;
+
+	ret = ieee802154_send_cmd(dev, addr, &saddr, buf, pos);
+
+	/* FIXME: this should be after the ack receved */
+	ieee802154_dev_set_pan_id(dev, 0xffff);
+	ieee802154_dev_set_short_addr(dev, 0xffff);
+	ieee802154_nl_disassoc_confirm(dev, 0x00);
+
+	return ret;
+}
+
+static int ieee802154_mlme_start_req(struct net_device *dev, struct ieee802154_addr *addr,
+				u8 channel,
+				u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
+				u8 coord_realign)
+{
+	BUG_ON(addr->addr_type != IEEE802154_ADDR_SHORT);
+
+	ieee802154_set_pan_id(dev, addr->pan_id);
+	ieee802154_dev_set_short_addr(dev, addr->short_addr);
+	ieee802154_dev_set_channel(dev, channel);
+
+	/* FIXME: add validation for unused parameters to be sane for SoftMAC */
+
+	if (pan_coord)
+		dev->priv_flags |= IFF_IEEE802154_COORD;
+	else
+		dev->priv_flags &= ~IFF_IEEE802154_COORD;
+
+	return 0;
+}
+
+struct ieee802154_mlme_ops ieee802154_mlme = {
+	.assoc_req = ieee802154_mlme_assoc_req,
+	.assoc_resp = ieee802154_mlme_assoc_resp,
+	.disassoc_req = ieee802154_mlme_disassoc_req,
+	.start_req = ieee802154_mlme_start_req,
+	.scan_req = ieee802154_mlme_scan_req,
+};
 

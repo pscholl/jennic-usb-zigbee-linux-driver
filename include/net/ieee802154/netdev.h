@@ -42,6 +42,8 @@ void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val);
 void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val);
 void ieee802154_dev_set_channel(struct net_device *dev, u8 chan);
 
+extern struct ieee802154_mlme_ops ieee802154_mlme;
+
 struct ieee802154_phy_cb {
 	u8 lqi;
 	u8 chan;

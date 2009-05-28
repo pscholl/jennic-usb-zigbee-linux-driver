@@ -261,9 +261,7 @@ struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
 static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
-	struct ieee802154_addr addr, saddr;
-	u8 buf[2];
-	int pos = 0;
+	struct ieee802154_addr addr;
 	int ret = -EINVAL;
 
 	if (!info->attrs[IEEE802154_ATTR_CHANNEL]
@@ -285,17 +283,9 @@ static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 	}
 	addr.pan_id = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_PAN_ID]);
 
-	saddr.addr_type = IEEE802154_ADDR_LONG;
-	saddr.pan_id = IEEE802154_PANID_BROADCAST;
-	memcpy(saddr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN);
-
-	/* FIXME: set PIB/MIB info */
-	ieee802154_dev_set_pan_id(dev, addr.pan_id);
-	ieee802154_dev_set_channel(dev, nla_get_u8(info->attrs[IEEE802154_ATTR_CHANNEL]));
-
-	buf[pos++] = IEEE802154_CMD_ASSOCIATION_REQ;
-	buf[pos++] = nla_get_u8(info->attrs[IEEE802154_ATTR_CAPABILITY]);
-	ret = ieee802154_send_cmd(dev, &addr, &saddr, buf, pos);
+	ret = IEEE802154_MLME_OPS(dev)->assoc_req(dev, &addr,
+			nla_get_u8(info->attrs[IEEE802154_ATTR_CHANNEL]),
+			nla_get_u8(info->attrs[IEEE802154_ATTR_CAPABILITY]));
 
 	dev_put(dev);
 	return ret;
@@ -304,10 +294,7 @@ static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
-	struct ieee802154_addr addr, saddr;
-	u8 buf[4];
-	int pos = 0;
-	u16 short_addr;
+	struct ieee802154_addr addr;
 	int ret = -EINVAL;
 
 	if (!info->attrs[IEEE802154_ATTR_STATUS]
@@ -323,18 +310,10 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 	NLA_GET_HW_ADDR(info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], addr.hwaddr);
 	addr.pan_id = ieee802154_dev_get_pan_id(dev);
 
-	saddr.addr_type = IEEE802154_ADDR_LONG;
-	saddr.pan_id = addr.pan_id;
-	memcpy(saddr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN);
 
-	short_addr = nla_get_u16(info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR]);
-
-	buf[pos++] = IEEE802154_CMD_ASSOCIATION_RESP;
-	buf[pos++] = short_addr;
-	buf[pos++] = short_addr >> 8;
-	buf[pos++] = nla_get_u8(info->attrs[IEEE802154_ATTR_STATUS]);
-
-	ret = ieee802154_send_cmd(dev, &addr, &saddr, buf, pos);
+	ret = IEEE802154_MLME_OPS(dev)->assoc_resp(dev, &addr,
+			nla_get_u16(info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR]),
+			nla_get_u8(info->attrs[IEEE802154_ATTR_STATUS]));
 
 	dev_put(dev);
 	return ret;
@@ -343,9 +322,7 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
-	struct ieee802154_addr addr, saddr;
-	u8 buf[2];
-	int pos = 0;
+	struct ieee802154_addr addr;
 	int ret = -EINVAL;
 
 	if ((!info->attrs[IEEE802154_ATTR_DEST_HW_ADDR] && !info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR])
@@ -365,18 +342,8 @@ static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *in
 	}
 	addr.pan_id = ieee802154_dev_get_pan_id(dev);
 
-	saddr.addr_type = IEEE802154_ADDR_LONG;
-	saddr.pan_id = ieee802154_dev_get_pan_id(dev);
-	memcpy(saddr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN);
-
-	buf[pos++] = IEEE802154_CMD_DISASSOCIATION_NOTIFY;
-	buf[pos++] = nla_get_u8(info->attrs[IEEE802154_ATTR_REASON]);
-	ret = ieee802154_send_cmd(dev, &addr, &saddr, buf, pos);
-
-	/* FIXME: this should be after the ack receved */
-	ieee802154_dev_set_pan_id(dev, 0xffff);
-	ieee802154_dev_set_short_addr(dev, 0xffff);
-	ieee802154_nl_disassoc_confirm(dev, 0x00);
+	ret = IEEE802154_MLME_OPS(dev)->disassoc_req(dev, &addr,
+			nla_get_u8(info->attrs[IEEE802154_ATTR_REASON]));
 
 	dev_put(dev);
 	return ret;
@@ -390,49 +357,41 @@ static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *in
 static int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
-	u16 panid;
-	u8 channel = 0, bcn_ord = 15, sf_ord = 15;
-	int pan_coord, blx = 0, coord_realign = 0, sec = 0;
-	u16 short_addr;
+	struct ieee802154_addr addr;
+
+	u8 channel, bcn_ord, sf_ord;
+	int pan_coord, blx, coord_realign;
 	int ret;
 
 	if (!info->attrs[IEEE802154_ATTR_COORD_PAN_ID]
 	 || !info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR]
-/*
 	 || !info->attrs[IEEE802154_ATTR_CHANNEL]
 	 || !info->attrs[IEEE802154_ATTR_BCN_ORD]
 	 || !info->attrs[IEEE802154_ATTR_SF_ORD]
-*/
 	 || !info->attrs[IEEE802154_ATTR_PAN_COORD]
-/*
 	 || !info->attrs[IEEE802154_ATTR_BAT_EXT]
 	 || !info->attrs[IEEE802154_ATTR_COORD_REALIGN]
-	 || !info->attrs[IEEE802154_ATTR_SEC] */)
+	 )
 		return -EINVAL;
 
 	dev = ieee802154_nl_get_dev(info);
 	if (!dev)
 		return -ENODEV;
 
-	panid = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_PAN_ID]);
-#if 0
+	addr.addr_type = IEEE802154_ADDR_SHORT;
+	addr.short_addr = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR]);
+	addr.pan_id = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_PAN_ID]);
+
 	channel = nla_get_u8(info->attrs[IEEE802154_ATTR_CHANNEL]);
 	bcn_ord = nla_get_u8(info->attrs[IEEE802154_ATTR_BCN_ORD]);
 	sf_ord = nla_get_u8(info->attrs[IEEE802154_ATTR_SF_ORD]);
-#endif
 	pan_coord = nla_get_u8(info->attrs[IEEE802154_ATTR_PAN_COORD]);
-#if 0
 	blx = nla_get_u8(info->attrs[IEEE802154_ATTR_BAT_EXT]);
 	coord_realign = nla_get_u8(info->attrs[IEEE802154_ATTR_COORD_REALIGN]);
-	sec = nla_get_u8(info->attrs[IEEE802154_ATTR_COORD_SEC]);
-#endif
-	short_addr = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR]);
-	ret = ieee802154_mlme_start_req(dev, panid, channel, bcn_ord, sf_ord,
-		pan_coord, blx, coord_realign, sec);
-	if (ret < 0)
-		goto out;
-	ieee802154_dev_set_short_addr(dev, short_addr);
-out:
+
+	ret = IEEE802154_MLME_OPS(dev)->start_req(dev, &addr, channel, bcn_ord, sf_ord,
+		pan_coord, blx, coord_realign);
+
 	dev_put(dev);
 	return ret;
 }
@@ -458,7 +417,7 @@ static int ieee802154_scan_req(struct sk_buff *skb, struct genl_info *info)
 	channels = nla_get_u32(info->attrs[IEEE802154_ATTR_CHANNELS]);
 	duration = nla_get_u8(info->attrs[IEEE802154_ATTR_DURATION]);
 
-	ret = ieee802154_mlme_scan_req(dev, type, channels, duration);
+	ret = IEEE802154_MLME_OPS(dev)->scan_req(dev, type, channels, duration);
 
 	dev_put(dev);
 	return ret;
