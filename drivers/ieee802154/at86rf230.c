@@ -48,7 +48,8 @@ struct at86rf230_local {
 	struct ieee802154_dev *dev;
 
 	spinlock_t lock;
-	unsigned irq_disabled:1;
+	unsigned irq_disabled:1; /* P: lock */
+	unsigned is_tx:1; /* P: lock */
 };
 
 #define	RG_TRX_STATUS	(0x01)
@@ -499,6 +500,7 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	char *data;
 	struct at86rf230_local *lp = dev->priv;
 	int rc;
+	unsigned long flags;
 
 	pr_debug("%s\n", __func__);
 
@@ -508,16 +510,22 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	data[0] = 0x7e;
 	data[1] = 0xff;
 
+	spin_lock_irqsave(&lp->lock, flags);
+	BUG_ON(lp->is_tx);
+	lp->is_tx = 1;
+	INIT_COMPLETION(lp->tx_complete);
+	spin_unlock_irqrestore(&lp->lock, flags);
+
 	rc = at86rf230_write_fbuf(lp, data, skb->len);
 	if (rc)
-		return PHY_ERROR;
+		goto err;
 
 	if (gpio_is_valid(lp->slp_tr)) {
 		gpio_set_value(lp->slp_tr, 1);
 	} else {
 		rc = at86rf230_write_subreg(lp, SR_TRX_CMD, STATE_BUSY_TX);
 		if (rc)
-			return PHY_ERROR;
+			goto err;
 	}
 
 	rc = wait_for_completion_interruptible(&lp->tx_complete);
@@ -525,9 +533,47 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	gpio_set_value(lp->slp_tr, 0);
 
 	if (rc < 0)
-		return PHY_ERROR;
+		goto err;
 
 	return PHY_SUCCESS;
+err:
+	spin_lock_irqsave(&lp->lock, flags);
+	lp->is_tx = 0;
+	spin_unlock_irqrestore(&lp->lock, flags);
+
+	return PHY_ERROR;
+}
+
+static int at86rf230_rx(struct at86rf230_local *lp)
+{
+	u8 len = 128;
+	u8 lqi = 0;
+	int rc;
+	struct sk_buff *skb;
+
+	skb = alloc_skb(len, GFP_KERNEL);
+	if (!skb)
+		return -ENOMEM;
+
+	rc = at86rf230_read_fbuf(lp, skb_put(skb, len), &len, &lqi);
+	if (len < 2) {
+		kfree_skb(skb);
+		return -EINVAL;
+	}
+
+	skb_trim(skb, len-2); /* We do not put CRC into the frame */
+
+	if (len < 2) {
+		kfree_skb(skb);
+		return -EINVAL;
+	}
+
+	skb_pull(skb, 2); // FIXME: hack for old firmware of mc13192
+	ieee802154_rx_irqsafe(lp->dev, skb, lqi);
+
+	dev_dbg(&lp->spi->dev, "READ_FBUF: %d %d %x\n", rc, len, lqi);
+
+	return 0;
 }
 
 static struct ieee802154_ops at86rf230_ops = {
@@ -589,46 +635,21 @@ static void at86rf230_irqwork(struct work_struct *work)
 
 		status &= ~IRQ_PLL_LOCK; /* ignore */
 		status &= ~IRQ_RX_START; /* ignore */
+		status &= ~IRQ_AMI; /* ignore */
 		status &= ~IRQ_TRX_UR; /* FIXME: possibly handle ???*/
 
 		if (status & IRQ_TRX_END) {
 			status &= ~IRQ_TRX_END;
-			complete(&lp->tx_complete);
-		}
-
-#if 0
-		if (status & IRQ_TRX_END) {
-
-			// FIXME: handle TX
-			u8 len = 128;
-			u8 lqi = 0;
-			struct sk_buff *skb;
-
-			status &= ~IRQ_TRX_END;
-
-			skb = alloc_skb(len, GFP_KERNEL);
-			if (!skb)
-				break;
-
-			rc = at86rf230_read_fbuf(lp, skb_put(skb, len), &len, &lqi);
-			if (len < 2) {
-				kfree_skb(skb);
-				continue;
+			spin_lock_irqsave(&lp->lock, flags);
+			if (lp->is_tx) {
+				lp->is_tx = 0;
+				spin_unlock_irqrestore(&lp->lock, flags);
+				complete(&lp->tx_complete);
+			} else {
+				spin_unlock_irqrestore(&lp->lock, flags);
+				at86rf230_rx(lp);
 			}
-
-			skb_trim(skb, len-2); /* We do not put CRC into the frame */
-
-			if (len < 2) {
-				kfree_skb(skb);
-				continue;
-			}
-
-			skb_pull(skb, 2); // FIXME: hack for old firmware of mc13192
-			ieee802154_rx_irqsafe(lp->dev, skb, lqi);
-
-			dev_dbg(&lp->spi->dev, "READ_FBUF: %d %d %x\n", rc, len, lqi);
 		}
-#endif
 
 	} while (status != 0);
 
