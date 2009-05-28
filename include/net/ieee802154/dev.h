@@ -59,9 +59,6 @@ struct ieee802154_ops {
 	/* FIXME: PIB get/set ??? */
 };
 
-#ifdef __KERNEL__
-#define IEEE802154_MAC_CMD_SCAN		0
-
 struct ieee802154_priv {
 	struct ieee802154_dev	hw;
 	struct ieee802154_ops	*ops;
@@ -78,8 +75,6 @@ struct ieee802154_priv {
 };
 
 #define ieee802154_to_priv(_hw)	container_of(_hw, struct ieee802154_priv, hw)
-
-#endif
 
 struct ieee802154_dev *ieee802154_alloc_device(void);
 int ieee802154_register_device(struct ieee802154_dev *dev, struct ieee802154_ops *ops);
