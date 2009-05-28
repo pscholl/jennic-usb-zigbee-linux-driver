@@ -487,8 +487,17 @@ err:
 static phy_status_t
 at86rf230_channel(struct ieee802154_dev *dev, int channel)
 {
+	struct at86rf230_local *lp = dev->priv;
+	int rc;
+
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
+
+	BUG_ON(channel < 11);
+	BUG_ON(channel > 26);
+
+	rc = at86rf230_write_subreg(lp, SR_CHANNEL, channel);
+	msleep(1); /* Wait for PLL */
 	dev->current_channel = channel;
 
 	return PHY_SUCCESS;
