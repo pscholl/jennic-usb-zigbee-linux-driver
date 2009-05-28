@@ -237,6 +237,26 @@ nla_put_failure:
 }
 
 /* Requests from userspace */
+struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
+{
+	struct net_device *dev;
+
+	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME], sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX])
+		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
+	else
+		return NULL;
+
+	if (dev->type != ARPHRD_IEEE802154) {
+		dev_put(dev);
+		return NULL;
+	}
+
+	return dev;
+}
 
 static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 {
@@ -252,21 +272,9 @@ static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 	 || !info->attrs[IEEE802154_ATTR_CAPABILITY])
 		return -EINVAL;
 
-	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
-		char name[IFNAMSIZ + 1];
-		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME], sizeof(name));
-		dev = dev_get_by_name(&init_net, name);
-	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX]) {
-		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
-	} else
-		return -ENODEV;
-
+	dev = ieee802154_nl_get_dev(info);
 	if (!dev)
 		return -ENODEV;
-	if (dev->type != ARPHRD_IEEE802154) {
-		dev_put(dev);
-		return -EINVAL;
-	}
 
 	if (info->attrs[IEEE802154_ATTR_COORD_HW_ADDR]) {
 		addr.addr_type = IEEE802154_ADDR_LONG;
@@ -307,21 +315,9 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 	 || !info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR])
 		return -EINVAL;
 
-	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
-		char name[IFNAMSIZ + 1];
-		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME], sizeof(name));
-		dev = dev_get_by_name(&init_net, name);
-	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX]) {
-		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
-	} else
-		return -ENODEV;
-
+	dev = ieee802154_nl_get_dev(info);
 	if (!dev)
 		return -ENODEV;
-	if (dev->type != ARPHRD_IEEE802154) {
-		dev_put(dev);
-		return -EINVAL;
-	}
 
 	addr.addr_type = IEEE802154_ADDR_LONG;
 	NLA_GET_HW_ADDR(info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], addr.hwaddr);
@@ -356,21 +352,9 @@ static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *in
 	 || !info->attrs[IEEE802154_ATTR_REASON])
 		return -EINVAL;
 
-	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
-		char name[IFNAMSIZ + 1];
-		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME], sizeof(name));
-		dev = dev_get_by_name(&init_net, name);
-	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX]) {
-		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
-	} else
-		return -ENODEV;
-
+	dev = ieee802154_nl_get_dev(info);
 	if (!dev)
 		return -ENODEV;
-	if (dev->type != ARPHRD_IEEE802154) {
-		dev_put(dev);
-		return -EINVAL;
-	}
 
 	if (info->attrs[IEEE802154_ATTR_DEST_HW_ADDR]) {
 		addr.addr_type = IEEE802154_ADDR_LONG;
@@ -425,23 +409,11 @@ static int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 	 || !info->attrs[IEEE802154_ATTR_COORD_REALIGN]
 	 || !info->attrs[IEEE802154_ATTR_SEC] */)
 		return -EINVAL;
-	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
-		char name[IFNAMSIZ + 1];
-		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME], sizeof(name));
-		dev = dev_get_by_name(&init_net, name);
-	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX]) {
-		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
-	} else
-		return -ENODEV;
 
+	dev = ieee802154_nl_get_dev(info);
 	if (!dev)
 		return -ENODEV;
 
-
-	if (dev->type != ARPHRD_IEEE802154) {
-		dev_put(dev);
-		return -EINVAL;
-	}
 	panid = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_PAN_ID]);
 #if 0
 	channel = nla_get_u8(info->attrs[IEEE802154_ATTR_CHANNEL]);
@@ -478,21 +450,9 @@ static int ieee802154_scan_req(struct sk_buff *skb, struct genl_info *info)
 	 || !info->attrs[IEEE802154_ATTR_DURATION])
 		return -EINVAL;
 
-	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
-		char name[IFNAMSIZ + 1];
-		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME], sizeof(name));
-		dev = dev_get_by_name(&init_net, name);
-	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX]) {
-		dev = dev_get_by_index(&init_net, nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
-	} else
-		return -ENODEV;
-
+	dev = ieee802154_nl_get_dev(info);
 	if (!dev)
 		return -ENODEV;
-	if (dev->type != ARPHRD_IEEE802154) {
-		dev_put(dev);
-		return -EINVAL;
-	}
 
 	type = nla_get_u8(info->attrs[IEEE802154_ATTR_SCAN_TYPE]);
 	channels = nla_get_u32(info->attrs[IEEE802154_ATTR_CHANNELS]);
@@ -520,53 +480,6 @@ static struct genl_ops ieee802154_coordinator_ops[] = {
 	IEEE802154_OP(IEEE802154_SCAN_REQ, ieee802154_scan_req),
 	IEEE802154_OP(IEEE802154_START_REQ, ieee802154_start_req),
 };
-
-#if 0
-static int ieee802154_coordinator_rcv(struct sk_buff *skb, struct genl_info *info)
-{
-	struct sk_buff *msg;
-	void *hdr;
-	char name[IFNAMSIZ + 1];
-	struct net_device *dev;
-
-
-	pr_debug("%s\n", __func__);
-
-	if (!info->attrs[IEEE802154_ATTR_DEV_NAME])
-		return -EINVAL;
-
-	nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME], sizeof(name));
-
-	dev = dev_get_by_name(&init_net, name);
-	if (!dev)
-		goto out_dev;
-
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
-	if (!msg)
-		goto out_msg;
-
-	hdr = genlmsg_put(msg, info->snd_pid, info->snd_seq, &ieee802154_coordinator_family, /* flags*/ 0, /* cmd */ 1);
-	if (!hdr)
-		goto out_free;
-
-	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, name);
-	NLA_PUT_U64(msg, IEEE802154_ATTR_HW_ADDR, *(u64 *)&dev->dev_addr);
-
-	if (!genlmsg_end(msg, hdr))
-		goto out_free;
-
-	return genlmsg_unicast(msg, info->snd_pid);
-
-nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
-out_msg:
-	dev_put(dev);
-out_dev:
-	return -ENOBUFS;
-}
-#endif
 
 int __init ieee802154_nl_init(void)
 {
