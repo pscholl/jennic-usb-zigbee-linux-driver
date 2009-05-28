@@ -113,6 +113,7 @@ int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *ad
 nla_put_failure:
 	return ieee802154_nl_put_failure(msg);
 }
+EXPORT_SYMBOL(ieee802154_nl_assoc_indic);
 
 int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status)
 {
@@ -136,6 +137,7 @@ int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 statu
 nla_put_failure:
 	return ieee802154_nl_put_failure(msg);
 }
+EXPORT_SYMBOL(ieee802154_nl_assoc_confirm);
 
 int ieee802154_nl_disassoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
 {
@@ -163,6 +165,7 @@ int ieee802154_nl_disassoc_indic(struct net_device *dev, struct ieee802154_addr 
 nla_put_failure:
 	return ieee802154_nl_put_failure(msg);
 }
+EXPORT_SYMBOL(ieee802154_nl_disassoc_indic);
 
 int ieee802154_nl_disassoc_confirm(struct net_device *dev, u8 status)
 {
@@ -185,6 +188,7 @@ int ieee802154_nl_disassoc_confirm(struct net_device *dev, u8 status)
 nla_put_failure:
 	return ieee802154_nl_put_failure(msg);
 }
+EXPORT_SYMBOL(ieee802154_nl_disassoc_confirm);
 
 int ieee802154_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr) /* TODO */
 {
@@ -207,6 +211,7 @@ int ieee802154_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr
 nla_put_failure:
 	return ieee802154_nl_put_failure(msg);
 }
+EXPORT_SYMBOL(ieee802154_nl_beacon_indic);
 
 int ieee802154_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, u32 unscanned,
 		u8 *edl/* , struct list_head *pan_desc_list */)
@@ -235,6 +240,7 @@ int ieee802154_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, 
 nla_put_failure:
 	return ieee802154_nl_put_failure(msg);
 }
+EXPORT_SYMBOL(ieee802154_nl_scan_confirm);
 
 /* Requests from userspace */
 struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
@@ -440,7 +446,7 @@ static struct genl_ops ieee802154_coordinator_ops[] = {
 	IEEE802154_OP(IEEE802154_START_REQ, ieee802154_start_req),
 };
 
-int __init ieee802154_nl_init(void)
+static int __init ieee802154_nl_init(void)
 {
 	int rc;
 	int i;
@@ -470,8 +476,11 @@ fail:
 	genl_unregister_family(&ieee802154_coordinator_family);
 	return rc;
 }
+module_init(ieee802154_nl_init);
 
-void __exit ieee802154_nl_exit(void)
+static void __exit ieee802154_nl_exit(void)
 {
 	genl_unregister_family(&ieee802154_coordinator_family);
 }
+module_exit(ieee802154_nl_exit);
+

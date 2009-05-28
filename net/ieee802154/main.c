@@ -158,18 +158,6 @@ void ieee802154_rx_irqsafe(struct ieee802154_dev *dev, struct sk_buff *skb, u8 l
 }
 EXPORT_SYMBOL(ieee802154_rx_irqsafe);
 
-static int __init ieee802154_init(void)
-{
-	return ieee802154_nl_init();
-}
-module_init(ieee802154_init);
-
-static void __exit ieee802154_exit(void)
-{
-	ieee802154_nl_exit();
-}
-module_exit(ieee802154_exit);
-
 MODULE_DESCRIPTION("IEEE 802.15.4 implementation");
 MODULE_LICENSE("GPL v2");
 
