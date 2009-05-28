@@ -36,7 +36,9 @@ struct ieee802154_pandsc {
 	u16			sf;
 	bool			gts_permit;
 	u8			lqi;
-	u32			timestamp; /* FIXME */
+/* FIXME: Aging of stored PAN descriptors is not decided yet,
+ * because no PAN descriptor storage is implemented yet */
+	u32			timestamp;
 	bool			security;
 	u8			mac_sec;
 	bool			sec_fail;
