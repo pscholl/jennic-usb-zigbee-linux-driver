@@ -24,6 +24,7 @@
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/at73c213.h>
+#include <linux/spi/at86rf230.h>
 #include <linux/clk.h>
 
 #include <mach/hardware.h>
@@ -59,6 +60,8 @@ static void __init ek_map_io(void)
 	/* USART1 on ttyS2. (Rx, Tx, RTS, CTS) */
 	at91_register_uart(AT91SAM9260_ID_US1, 2, ATMEL_UART_CTS | ATMEL_UART_RTS);
 
+	at91_register_uart(AT91SAM9260_ID_US4, 3, 0);
+
 	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
@@ -88,6 +91,11 @@ static struct at91_udc_data __initdata ek_udc_data = {
 /*
  * SPI devices.
  */
+static struct at86rf230_platform_data rf231_pdata = {
+	.rstn		= AT91_PIN_PB10,
+	.slp_tr		= AT91_PIN_PB11,
+	.dig2		= AT91_PIN_PB12,
+};
 static struct spi_board_info ek_spi_devices[] = {
 #if !defined(CONFIG_MMC_AT91)
 	{	/* DataFlash chip */
@@ -105,6 +113,14 @@ static struct spi_board_info ek_spi_devices[] = {
 	},
 #endif
 #endif
+	{
+		.modalias	= "at86rf230",
+		.chip_select	= 3,
+		.max_speed_hz	= 3 * 1000 * 1000,
+		.bus_num	= 1,
+		.irq		= AT91_PIN_PB13,
+		.platform_data	= &rf231_pdata,
+	},
 };
 
 
@@ -218,6 +234,13 @@ static struct gpio_led ek_leds[] = {
 	}
 };
 
+static struct i2c_board_info __initdata ek_i2c_devices[] = {
+	{
+		I2C_BOARD_INFO("24c512", 0x50),
+	},
+};
+
+
 static void __init ek_board_init(void)
 {
 	/* Serial */
@@ -235,7 +258,7 @@ static void __init ek_board_init(void)
 	/* MMC */
 	at91_add_device_mmc(0, &ek_mmc_data);
 	/* I2C */
-	at91_add_device_i2c(NULL, 0);
+	at91_add_device_i2c(ek_i2c_devices, ARRAY_SIZE(ek_i2c_devices));
 	/* LEDs */
 	at91_gpio_leds(ek_leds, ARRAY_SIZE(ek_leds));
 	/* PCK0 provides MCLK to the WM8731 */

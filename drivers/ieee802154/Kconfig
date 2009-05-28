@@ -22,5 +22,10 @@ config IEEE802154_FAKELB
 config IEEE802154_SERIAL
 	tristate "Simple LR-WPAN UART driver"
 
+config IEEE802154_AT86RF230
+	tristate "AT86RF230 transceiver driver"
+	depends on SPI
+
+
 endif
 
