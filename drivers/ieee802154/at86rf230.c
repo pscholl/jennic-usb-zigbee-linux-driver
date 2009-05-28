@@ -456,7 +456,7 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	} while (val == STATE_TRANSITION_IN_PROGRESS);
 
 	if (val == state)
-		return state;
+		goto out;
 
 	/* FIXME: handle all non-standard states here!!! */
 
@@ -473,8 +473,9 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	} while (val == STATE_TRANSITION_IN_PROGRESS);
 
 	if (val == state)
-		return PHY_SUCCESS;
+		val = PHY_SUCCESS;
 
+out:
 	return val;
 
 err:
