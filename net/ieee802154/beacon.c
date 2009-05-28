@@ -214,11 +214,13 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 	/* Filling-up pre-parsed values */
 	pd->lqi = MAC_CB(skb)->phy.lqi;
 	pd->sf = sf;
+	/* FIXME: make sure we do it right */
 	memcpy(&pd->addr, &MAC_CB(skb)->da, sizeof(struct ieee802154_addr));
 
 	/* Supplying our nitifiers with data */
 	ieee802154_slave_event(skb->dev, IEEE802154_NOTIFIER_BEACON, pd);
-	ieee802154_nl_beacon_indic(skb->dev, 0xeba1, 1); /* FIXME */
+	ieee802154_nl_beacon_indic(skb->dev, pd->pan_id, pd->short_addr);
+	/* FIXME: We don't cache PAN descriptors yet */
 	kfree(pd);
 
 	offt += 2;
