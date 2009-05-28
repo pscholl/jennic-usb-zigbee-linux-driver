@@ -51,21 +51,53 @@ static struct genl_multicast_group ieee802154_beacon_mcgrp = {
 };
 
 /* Requests to userspace */
+static struct sk_buff *ieee802154_nl_create(int flags, u8 req)
+{
+	void *hdr;
+	struct sk_buff *msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+
+	if (!msg)
+		return NULL;
+
+	hdr = genlmsg_put(msg, 0, ieee802154_seq_num++, &ieee802154_coordinator_family, flags, req);
+	if (!hdr) {
+		nlmsg_free(msg);
+		return NULL;
+	}
+
+	return msg;
+}
+
+static int ieee802154_nl_finish(struct sk_buff *msg)
+{
+	void *hdr = genlmsg_data(NLMSG_DATA(msg->data)); /* XXX: nlh is right at the start of msg */
+
+	if (!genlmsg_end(msg, hdr))
+		goto out;
+
+	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id, GFP_ATOMIC);
+out:
+	nlmsg_free(msg);
+	return -ENOBUFS;
+}
+
+static int ieee802154_nl_put_failure(struct sk_buff *msg)
+{
+	void *hdr = genlmsg_data(NLMSG_DATA(msg->data)); /* XXX: nlh is right at the start of msg */
+	genlmsg_cancel(msg, hdr);
+	nlmsg_free(msg);
+	return -ENOBUFS;
+}
 
 int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 cap)
 {
 	struct sk_buff *msg;
-	void *hdr;
 
 	pr_debug("%s\n", __func__);
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	msg = ieee802154_nl_create(/* flags*/ 0, IEEE802154_ASSOCIATE_INDIC);
 	if (!msg)
-		goto out_msg;
-
-	hdr = genlmsg_put(msg, 0, ieee802154_seq_num++, &ieee802154_coordinator_family, /* flags*/ 0, IEEE802154_ASSOCIATE_INDIC);
-	if (!hdr)
-		goto out_free;
+		return -ENOBUFS;
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
@@ -76,64 +108,21 @@ int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *ad
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_CAPABILITY, cap);
 
-	if (!genlmsg_end(msg, hdr))
-		goto out_free;
-
-	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id, GFP_ATOMIC);
+	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
-out_msg:
-	return -ENOBUFS;
-}
-
-int ieee802154_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr) /* TODO */
-{
-	struct sk_buff *msg;
-	void *hdr;
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
-	if (!msg)
-		goto out_msg;
-	hdr = genlmsg_put(msg, 0, ieee802154_seq_num++, &ieee802154_coordinator_family, /* flags*/ 0, IEEE802154_ASSOCIATE_CONF);
-	if (!hdr)
-		goto out_free;
-
-	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
-	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
-	NLA_PUT_U16(msg, IEEE802154_ATTR_COORD_SHORT_ADDR, coord_addr);
-	NLA_PUT_U16(msg, IEEE802154_ATTR_COORD_PAN_ID, panid);
-
-	if (!genlmsg_end(msg, hdr))
-		goto out_free;
-
-	/* FIXME different multicast group needed */
-	return genlmsg_multicast(msg, 0, ieee802154_beacon_mcgrp.id, GFP_ATOMIC);
-
-nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
-out_msg:
-	return -ENOBUFS;
+	return ieee802154_nl_put_failure(msg);
 }
 
 int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status)
 {
 	struct sk_buff *msg;
-	void *hdr;
 
 	pr_debug("%s\n", __func__);
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	msg = ieee802154_nl_create(/* flags*/ 0, IEEE802154_ASSOCIATE_CONF);
 	if (!msg)
-		goto out_msg;
-
-	hdr = genlmsg_put(msg, 0, ieee802154_seq_num++, &ieee802154_coordinator_family, /* flags*/ 0, IEEE802154_ASSOCIATE_CONF);
-	if (!hdr)
-		goto out_free;
+		return -ENOBUFS;
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
@@ -142,33 +131,21 @@ int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 statu
 	NLA_PUT_U16(msg, IEEE802154_ATTR_SHORT_ADDR, short_addr);
 	NLA_PUT_U8(msg, IEEE802154_ATTR_STATUS, status);
 
-	if (!genlmsg_end(msg, hdr))
-		goto out_free;
-
-	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id, GFP_ATOMIC);
+	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
-out_msg:
-	return -ENOBUFS;
+	return ieee802154_nl_put_failure(msg);
 }
 
 int ieee802154_nl_disassoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
 {
 	struct sk_buff *msg;
-	void *hdr;
 
 	pr_debug("%s\n", __func__);
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	msg = ieee802154_nl_create(/* flags*/ 0, IEEE802154_DISASSOCIATE_INDIC);
 	if (!msg)
-		goto out_msg;
-
-	hdr = genlmsg_put(msg, 0, ieee802154_seq_num++, &ieee802154_coordinator_family, /* flags*/ 0, IEEE802154_DISASSOCIATE_INDIC);
-	if (!hdr)
-		goto out_free;
+		return -ENOBUFS;
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
@@ -181,33 +158,21 @@ int ieee802154_nl_disassoc_indic(struct net_device *dev, struct ieee802154_addr 
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_REASON, reason);
 
-	if (!genlmsg_end(msg, hdr))
-		goto out_free;
-
-	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id, GFP_ATOMIC);
+	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
-out_msg:
-	return -ENOBUFS;
+	return ieee802154_nl_put_failure(msg);
 }
 
 int ieee802154_nl_disassoc_confirm(struct net_device *dev, u8 status)
 {
 	struct sk_buff *msg;
-	void *hdr;
 
 	pr_debug("%s\n", __func__);
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	msg = ieee802154_nl_create(/* flags*/ 0, IEEE802154_DISASSOCIATE_CONF);
 	if (!msg)
-		goto out_msg;
-
-	hdr = genlmsg_put(msg, 0, ieee802154_seq_num++, &ieee802154_coordinator_family, /* flags*/ 0, IEEE802154_DISASSOCIATE_CONF);
-	if (!hdr)
-		goto out_free;
+		return -ENOBUFS;
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
@@ -215,34 +180,44 @@ int ieee802154_nl_disassoc_confirm(struct net_device *dev, u8 status)
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_STATUS, status);
 
-	if (!genlmsg_end(msg, hdr))
-		goto out_free;
-
-	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id, GFP_ATOMIC);
+	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
-out_msg:
-	return -ENOBUFS;
+	return ieee802154_nl_put_failure(msg);
+}
+
+int ieee802154_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr) /* TODO */
+{
+	struct sk_buff *msg;
+
+	pr_debug("%s\n", __func__);
+
+	msg = ieee802154_nl_create(/* flags*/ 0, IEEE802154_BEACON_NOTIFY_INDIC);
+	if (!msg)
+		return -ENOBUFS;
+
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT_U16(msg, IEEE802154_ATTR_COORD_SHORT_ADDR, coord_addr);
+	NLA_PUT_U16(msg, IEEE802154_ATTR_COORD_PAN_ID, panid);
+
+	return ieee802154_nl_finish(msg);
+
+nla_put_failure:
+	return ieee802154_nl_put_failure(msg);
 }
 
 int ieee802154_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, u32 unscanned,
 		u8 *edl/* , struct list_head *pan_desc_list */)
 {
 	struct sk_buff *msg;
-	void *hdr;
 
 	pr_debug("%s\n", __func__);
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_ATOMIC);
+	msg = ieee802154_nl_create(/* flags*/ 0, IEEE802154_SCAN_CONF);
 	if (!msg)
-		goto out_msg;
-
-	hdr = genlmsg_put(msg, 0, ieee802154_seq_num++, &ieee802154_coordinator_family, /* flags*/ 0, IEEE802154_SCAN_CONF);
-	if (!hdr)
-		goto out_free;
+		return -ENOBUFS;
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
@@ -255,17 +230,10 @@ int ieee802154_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, 
 	if (edl)
 		NLA_PUT(msg, IEEE802154_ATTR_ED_LIST, 27, edl);
 
-	if (!genlmsg_end(msg, hdr))
-		goto out_free;
-
-	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id, GFP_ATOMIC);
+	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
-out_msg:
-	return -ENOBUFS;
+	return ieee802154_nl_put_failure(msg);
 }
 
 /* Requests from userspace */
