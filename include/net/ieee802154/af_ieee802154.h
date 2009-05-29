@@ -45,6 +45,10 @@ struct ieee802154_addr {
 	};
 };
 
+#define IEEE802154_PANID_BROADCAST	0xffff
+#define IEEE802154_ADDR_BROADCAST	0xffff
+#define IEEE802154_ADDR_UNDEF		0xfffe
+
 struct sockaddr_ieee802154 {
 	sa_family_t family; /* AF_IEEE802154 */
 	struct ieee802154_addr addr;

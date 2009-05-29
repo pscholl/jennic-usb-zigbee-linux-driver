@@ -42,8 +42,6 @@ void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val);
 void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val);
 void ieee802154_dev_set_channel(struct net_device *dev, u8 chan);
 
-extern struct ieee802154_mlme_ops ieee802154_mlme;
-
 struct ieee802154_phy_cb {
 	u8 lqi;
 	u8 chan;
@@ -71,6 +69,28 @@ struct ieee802154_mac_cb {
 #define MAC_CB_IS_SECEN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_SECEN)
 #define MAC_CB_IS_INTRAPAN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN)
 #define MAC_CB_TYPE(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_TYPEMASK)
+
+struct ieee802154_mlme_ops {
+	int (*assoc_req)(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap);
+	int (*assoc_resp)(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status);
+	int (*disassoc_req)(struct net_device *dev, struct ieee802154_addr *addr, u8 reason);
+	int (*start_req)(struct net_device *dev, struct ieee802154_addr *addr, u8 channel,
+			     u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
+			     u8 coord_realign);
+	int (*scan_req)(struct net_device *dev, u8 type, u32 channels, u8 duration);
+
+	/*
+	 * FIXME: these should become the part of PIB/MIB interface.
+	 * However we still don't have IB interface of any kind
+	 */
+	u16 (*get_pan_id)(struct net_device *dev);
+	u16 (*get_short_addr)(struct net_device *dev);
+	u8 (*get_dsn)(struct net_device *dev);
+};
+
+#define IEEE802154_MLME_OPS(dev)	((struct ieee802154_mlme_ops *) dev->ml_priv)
+
+extern struct ieee802154_mlme_ops ieee802154_mlme;
 
 #endif
 

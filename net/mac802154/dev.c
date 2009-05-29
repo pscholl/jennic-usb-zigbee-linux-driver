@@ -755,47 +755,6 @@ out:
 	return;
 }
 
-struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *addr)
-{
-	struct net_device *dev = NULL;
-
-	switch (addr->addr_type) {
-	case IEEE802154_ADDR_LONG:
-		rtnl_lock();
-		dev = dev_getbyhwaddr(net, ARPHRD_IEEE802154, addr->hwaddr);
-		if (dev)
-			dev_hold(dev);
-		rtnl_unlock();
-		break;
-	case IEEE802154_ADDR_SHORT:
-		if (addr->pan_id != 0xffff && addr->short_addr != IEEE802154_ADDR_UNDEF && addr->short_addr != 0xffff) {
-			struct net_device *tmp;
-
-			rtnl_lock();
-
-			for_each_netdev(net, tmp) {
-				if (tmp->type == ARPHRD_IEEE802154) {
-					struct ieee802154_netdev_priv *priv = netdev_priv(tmp);
-					if (priv->pan_id == addr->pan_id && priv->short_addr == addr->short_addr) {
-						dev = tmp;
-						dev_hold(dev);
-						break;
-					}
-				}
-			}
-
-			rtnl_unlock();
-		}
-		break;
-	default:
-		pr_warning("Unsupported ieee802154 address type: %d\n", addr->addr_type);
-		break;
-	}
-
-	return dev;
-}
-EXPORT_SYMBOL(ieee802154_get_dev);
-
 u16 ieee802154_dev_get_pan_id(struct net_device *dev)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
@@ -804,7 +763,6 @@ u16 ieee802154_dev_get_pan_id(struct net_device *dev)
 
 	return priv->pan_id;
 }
-EXPORT_SYMBOL(ieee802154_dev_get_pan_id);
 
 u16 ieee802154_dev_get_short_addr(struct net_device *dev)
 {
@@ -814,7 +772,6 @@ u16 ieee802154_dev_get_short_addr(struct net_device *dev)
 
 	return priv->short_addr;
 }
-EXPORT_SYMBOL(ieee802154_dev_get_short_addr);
 
 void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
 {
@@ -848,7 +805,6 @@ struct ieee802154_priv *ieee802154_slave_get_hw(struct net_device *dev)
 	priv = netdev_priv(dev);
 	return priv->hw;
 }
-EXPORT_SYMBOL(ieee802154_slave_get_hw);
 
 int ieee802154_pib_set(struct ieee802154_dev *hw, struct ieee802154_pib *pib)
 {

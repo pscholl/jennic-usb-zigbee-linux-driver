@@ -246,7 +246,7 @@ static int ieee802154_mlme_assoc_req(struct net_device *dev, struct ieee802154_a
 	return ieee802154_send_cmd(dev, addr, &saddr, buf, pos);
 }
 
-int ieee802154_mlme_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status)
+static int ieee802154_mlme_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status)
 {
 	struct ieee802154_addr saddr;
 	u8 buf[4];
@@ -264,7 +264,7 @@ int ieee802154_mlme_assoc_resp(struct net_device *dev, struct ieee802154_addr *a
 	return ieee802154_send_cmd(dev, addr, &saddr, buf, pos);
 }
 
-int ieee802154_mlme_disassoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
+static int ieee802154_mlme_disassoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
 {
 	struct ieee802154_addr saddr;
 	u8 buf[2];
@@ -309,11 +309,21 @@ static int ieee802154_mlme_start_req(struct net_device *dev, struct ieee802154_a
 	return 0;
 }
 
+static u8 ieee802154_dev_get_dsn(struct net_device *dev)
+{
+	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
+	return hw->dsn++;
+}
+
 struct ieee802154_mlme_ops ieee802154_mlme = {
 	.assoc_req = ieee802154_mlme_assoc_req,
 	.assoc_resp = ieee802154_mlme_assoc_resp,
 	.disassoc_req = ieee802154_mlme_disassoc_req,
 	.start_req = ieee802154_mlme_start_req,
 	.scan_req = ieee802154_mlme_scan_req,
+
+	.get_pan_id = ieee802154_dev_get_pan_id,
+	.get_short_addr = ieee802154_dev_get_short_addr,
+	.get_dsn = ieee802154_dev_get_dsn,
 };
 

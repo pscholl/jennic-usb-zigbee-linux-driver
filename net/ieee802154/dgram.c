@@ -202,7 +202,6 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	struct sk_buff *skb;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int err;
-	struct ieee802154_priv *hw;
 
 	if (msg->msg_flags & MSG_OOB) {
 		pr_debug("msg->msg_flags = 0x%x\n", msg->msg_flags);
@@ -218,7 +217,6 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 		pr_debug("no dev\n");
 		return -ENXIO;
 	}
-	hw = ieee802154_slave_get_hw(dev);
 	mtu = dev->mtu;
 	pr_debug("name = %s, mtu = %u\n", dev->name, mtu);
 
@@ -233,7 +231,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	skb_reset_network_header(skb);
 
 	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
-	MAC_CB(skb)->seq = hw->dsn;
+	MAC_CB(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
 	if (err < 0) {
 		kfree_skb(skb);
@@ -260,7 +258,6 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	skb->protocol = htons(ETH_P_IEEE802154);
 
 	err = dev_queue_xmit(skb);
-	hw->dsn++;
 
 	dev_put(dev);
 
@@ -322,6 +319,7 @@ int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	int ret = NET_RX_SUCCESS;
 
 	/* Data frame processing */
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	read_lock(&dgram_lock);
 	sk_for_each(sk, node, &dgram_head) {
@@ -330,8 +328,8 @@ int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 		  (ro->src_addr.addr_type == IEEE802154_ADDR_LONG &&
 		     !memcmp(ro->src_addr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN)) ||
 		  (ro->src_addr.addr_type == IEEE802154_ADDR_SHORT &&
-		     ieee802154_dev_get_pan_id(dev) == ro->src_addr.pan_id &&
-		     ieee802154_dev_get_short_addr(dev) == ro->src_addr.short_addr)) {
+		     IEEE802154_MLME_OPS(dev)->get_pan_id(dev) == ro->src_addr.pan_id &&
+		     IEEE802154_MLME_OPS(dev)->get_short_addr(dev) == ro->src_addr.short_addr)) {
 			if (prev) {
 				struct sk_buff *clone;
 				clone = skb_clone(skb, GFP_ATOMIC);

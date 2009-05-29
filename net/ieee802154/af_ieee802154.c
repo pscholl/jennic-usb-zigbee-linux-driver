@@ -46,6 +46,49 @@
 	} \
 }
 
+/*
+ * Utility function for families
+ */
+struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *addr)
+{
+	struct net_device *dev = NULL;
+
+	switch (addr->addr_type) {
+	case IEEE802154_ADDR_LONG:
+		rtnl_lock();
+		dev = dev_getbyhwaddr(net, ARPHRD_IEEE802154, addr->hwaddr);
+		if (dev)
+			dev_hold(dev);
+		rtnl_unlock();
+		break;
+	case IEEE802154_ADDR_SHORT:
+		if (addr->pan_id != 0xffff && addr->short_addr != IEEE802154_ADDR_UNDEF && addr->short_addr != 0xffff) {
+			struct net_device *tmp;
+
+			rtnl_lock();
+
+			for_each_netdev(net, tmp) {
+				if (tmp->type == ARPHRD_IEEE802154) {
+					if (IEEE802154_MLME_OPS(dev)->get_pan_id(dev) == addr->pan_id
+					  && IEEE802154_MLME_OPS(dev)->get_short_addr(dev) == addr->short_addr) {
+						dev = tmp;
+						dev_hold(dev);
+						break;
+					}
+				}
+			}
+
+			rtnl_unlock();
+		}
+		break;
+	default:
+		pr_warning("Unsupported ieee802154 address type: %d\n", addr->addr_type);
+		break;
+	}
+
+	return dev;
+}
+
 static int ieee802154_sock_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;

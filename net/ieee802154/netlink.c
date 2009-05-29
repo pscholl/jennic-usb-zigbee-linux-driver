@@ -243,7 +243,7 @@ nla_put_failure:
 EXPORT_SYMBOL(ieee802154_nl_scan_confirm);
 
 /* Requests from userspace */
-struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
+static struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
 {
 	struct net_device *dev;
 
@@ -314,7 +314,7 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 
 	addr.addr_type = IEEE802154_ADDR_LONG;
 	NLA_GET_HW_ADDR(info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], addr.hwaddr);
-	addr.pan_id = ieee802154_dev_get_pan_id(dev);
+	addr.pan_id = IEEE802154_MLME_OPS(dev)->get_pan_id(dev);
 
 
 	ret = IEEE802154_MLME_OPS(dev)->assoc_resp(dev, &addr,
@@ -346,7 +346,7 @@ static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *in
 		addr.addr_type = IEEE802154_ADDR_SHORT;
 		addr.short_addr = nla_get_u16(info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR]);
 	}
-	addr.pan_id = ieee802154_dev_get_pan_id(dev);
+	addr.pan_id = IEEE802154_MLME_OPS(dev)->get_pan_id(dev);
 
 	ret = IEEE802154_MLME_OPS(dev)->disassoc_req(dev, &addr,
 			nla_get_u8(info->attrs[IEEE802154_ATTR_REASON]));
