@@ -2809,6 +2809,7 @@ int tty_put_char(struct tty_struct *tty, unsigned char ch)
 EXPORT_SYMBOL_GPL(tty_put_char);
 
 struct class *tty_class;
+EXPORT_SYMBOL(tty_class);
 
 /**
  *	tty_register_device - register a tty device
