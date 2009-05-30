@@ -18,22 +18,27 @@
  *
  * Written by:
  */
-#ifndef IEEE802154_DEV_H
-#define IEEE802154_DEV_H
+#ifndef IEEE802154_MAC802154_H
+#define IEEE802154_MAC802154_H
 
-#include <linux/skbuff.h>
-#include <net/ieee802154/phy.h>
-#include <net/ieee802154/const.h>
+/* FIXME: this can be merged with const.h ? */
+typedef enum {
+	PHY_BUSY = 0, /* cca */
+	PHY_BUSY_RX, /* state */
+	PHY_BUSY_TX, /* state */
+	PHY_FORCE_TRX_OFF,
+	PHY_IDLE, /* cca */
+	PHY_INVALID_PARAMETER, /* pib get/set */
+	PHY_RX_ON, /* state */
+	PHY_SUCCESS, /* ed */
+	PHY_TRX_OFF, /* cca, ed, state */
+	PHY_TX_ON, /* cca, ed, state */
+	PHY_UNSUPPORTED_ATTRIBUTE, /* pib get/set */
+	PHY_READ_ONLY, /* pib get/set */
 
-struct ieee802154_pib {
-	int type;
-	u32 val;
-};
-
-#define IEEE802154_PIB_CURCHAN	0 /* Current channel, u8 6.1.2 */
-#define IEEE802154_PIB_CHANSUPP	1 /* Channel mask, u32 6.1.2 */
-#define IEEE802154_PIB_TRPWR	2 /* Transmit power, u8 6.4.2  */
-#define IEEE802154_PIB_CCAMODE	3 /* CCA mode, u8 6.7.9 */
+	PHY_INVAL = -1, /* all */
+	PHY_ERROR = -2, /* all */
+} phy_status_t;
 
 struct ieee802154_dev {
 	const char *name;
@@ -43,11 +48,13 @@ struct ieee802154_dev {
 	u8	current_channel;
 	u32 flags; /* Flags for device to set */
 	struct device *parent;
+	struct net_device *netdev; /* mwpanX device */
 };
 
 /* Checksum is in hardware and is omitted from packet */
-#define IEEE802154_OPS_OMIT_CKSUM	(1 << 0)
+#define IEEE802154_FLAGS_OMIT_CKSUM	(1 << 0)
 
+struct sk_buff;
 
 struct ieee802154_ops {
 	struct module	*owner;
@@ -59,44 +66,14 @@ struct ieee802154_ops {
 	/* FIXME: PIB get/set ??? */
 };
 
-struct ieee802154_priv {
-	struct ieee802154_dev	hw;
-	struct ieee802154_ops	*ops;
-	struct net_device	*master;
-	struct list_head	slaves;
-	spinlock_t		slaves_lock;
-	/* This one is used for scanning and other
-	 * jobs not to be interfered with serial driver */
-	struct workqueue_struct	*dev_workqueue;
-	/* MAC BSN field */
-	u8 bsn;
-	/* MAC BSN field */
-	u8 dsn;
-};
-
-#define ieee802154_to_priv(_hw)	container_of(_hw, struct ieee802154_priv, hw)
-
 struct ieee802154_dev *ieee802154_alloc_device(void);
 int ieee802154_register_device(struct ieee802154_dev *dev, struct ieee802154_ops *ops);
 void ieee802154_unregister_device(struct ieee802154_dev *dev);
 void ieee802154_free_device(struct ieee802154_dev *dev);
 
-int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr);
-/* void ieee802154_del_slave(struct ieee802154_dev *hw, struct net_device *slave); */
-void ieee802154_drop_slaves(struct ieee802154_dev *hw);
+int __deprecated ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr);
 
 void ieee802154_rx(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi);
 void ieee802154_rx_irqsafe(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi);
-
-int ieee802154_pib_set(struct ieee802154_dev *hw, struct ieee802154_pib *pib);
-int ieee802154_pib_get(struct ieee802154_dev *hw, struct ieee802154_pib *pib);
-
-int ieee802154_slave_register_notifier(struct net_device *dev, struct notifier_block *nb);
-int ieee802154_slave_unregister_notifier(struct net_device *dev, struct notifier_block *nb);
-int ieee802154_slave_event(struct net_device *dev, int event, void *data);
-
-#define IEEE802154_NOTIFIER_BEACON		0x0
-
-void ieee802154_set_pan_id(struct net_device *dev, u16 panid);
 #endif
 

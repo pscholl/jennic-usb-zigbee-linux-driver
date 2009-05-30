@@ -24,12 +24,17 @@
  */
 #include <linux/net.h>
 #include <linux/module.h>
+#include <linux/sched.h>
 
-#include <net/ieee802154/beacon.h>
-#include <net/ieee802154/dev.h>
-#include <net/ieee802154/netdev.h>
+#include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/mac802154.h>
+#include <net/ieee802154/nl802154.h>
 #include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/nl.h>
+#include <net/ieee802154/netdevice.h>
+
+#include "mac802154.h"
+#include "beacon.h"
+
 /*
  * ED scan is periodic issuing of ed device function
  * on evry permitted channel, so it is virtually PHY-only scan */
@@ -50,7 +55,7 @@ struct scan_work {
 static int scan_ed(struct scan_work *work, int channel, u8 duration)
 {
 	int ret;
-	struct ieee802154_priv *hw = ieee802154_slave_get_hw(work->dev);
+	struct ieee802154_priv *hw = ieee802154_slave_get_priv(work->dev);
 	pr_debug("ed scan channel %d duration %d\n", channel, duration);
 	ret = hw->ops->ed(&hw->hw, &work->edl[channel]);
 	pr_debug("ed scan channel %d value %d\n", channel, work->edl[channel]);
@@ -94,6 +99,7 @@ static int scan_passive(struct scan_work *work, int channel, u8 duration)
 	kfree(data);
 	return PHY_SUCCESS;
 }
+
 /* Active scan is periodic submission of beacon request
  * and waiting for beacons which is useful for collecting LWPAN information */
 static int scan_active(struct scan_work *work, int channel, u8 duration)
@@ -105,6 +111,7 @@ static int scan_active(struct scan_work *work, int channel, u8 duration)
 		return PHY_ERROR;
 	return scan_passive(work, channel, duration);
 }
+
 static int scan_orphan(struct scan_work *work, int channel, u8 duration)
 {
 	pr_debug("orphan scan channel %d duration %d\n", channel, duration);
@@ -114,7 +121,7 @@ static int scan_orphan(struct scan_work *work, int channel, u8 duration)
 static void scanner(struct work_struct *work)
 {
 	struct scan_work *sw = container_of(work, struct scan_work, work);
-	struct ieee802154_priv *hw = ieee802154_slave_get_hw(sw->dev);
+	struct ieee802154_priv *hw = ieee802154_slave_get_priv(sw->dev);
 	int i;
 	phy_status_t ret;
 
@@ -147,9 +154,7 @@ exit_error:
 	return;
 }
 
-/**
- * @brief MLME-SAP.Scan request
- *
+/*
  * Alloc ed_detect list for ED scan.
  *
  * @param mac current mac pointer
@@ -160,7 +165,7 @@ exit_error:
  */
 int ieee802154_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
 {
-	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
+	struct ieee802154_priv *hw = ieee802154_slave_get_priv(dev);
 	struct scan_work *work;
 
 	pr_debug("%s()\n", __func__);
@@ -207,5 +212,4 @@ inval:
 			NULL/*, NULL */);
 	return -EINVAL;
 }
-EXPORT_SYMBOL(ieee802154_mlme_scan_req);
 

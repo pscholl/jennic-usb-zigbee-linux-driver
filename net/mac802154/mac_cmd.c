@@ -22,14 +22,17 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/netdevice.h>
+#include <linux/skbuff.h>
 #include <linux/if_arp.h>
-#include <linux/if_ether.h>
 #include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/mac802154.h>
 #include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/netdev.h>
-#include <net/ieee802154/nl.h>
-#include <net/ieee802154/beacon.h>
+#include <net/ieee802154/netdevice.h>
+#include <net/ieee802154/nl802154.h>
+
+#include "mac802154.h"
+#include "beacon.h"
+#include "mib.h"
 
 static int ieee802154_cmd_beacon_req(struct sk_buff *skb)
 {
@@ -57,7 +60,7 @@ static int ieee802154_cmd_beacon_req(struct sk_buff *skb)
 	 * We have no information in this command to proceed with.
 	 * we need to submit beacon as answer to this. */
 
-	return ieee802154_send_beacon(skb->dev, &saddr, ieee802154_dev_get_pan_id(skb->dev),
+	return ieee802154_send_beacon(skb->dev, &saddr, IEEE802154_MLME_OPS(skb->dev)->get_pan_id(skb->dev),
 			NULL, 0, flags, NULL);
 }
 
@@ -182,7 +185,6 @@ static int ieee802154_send_cmd(struct net_device *dev,
 {
 	struct sk_buff *skb;
 	int err;
-	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -195,7 +197,7 @@ static int ieee802154_send_cmd(struct net_device *dev,
 	skb_reset_network_header(skb);
 
 	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
-	MAC_CB(skb)->seq = hw->dsn;
+	MAC_CB(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, addr, saddr, len);
 	if (err < 0) {
 		kfree_skb(skb);
@@ -207,7 +209,6 @@ static int ieee802154_send_cmd(struct net_device *dev,
 
 	skb->dev = dev;
 	skb->protocol = htons(ETH_P_IEEE802154);
-	hw->dsn++;
 
 	return dev_queue_xmit(skb);
 }
@@ -295,7 +296,7 @@ static int ieee802154_mlme_start_req(struct net_device *dev, struct ieee802154_a
 {
 	BUG_ON(addr->addr_type != IEEE802154_ADDR_SHORT);
 
-	ieee802154_set_pan_id(dev, addr->pan_id);
+	ieee802154_dev_set_pan_id(dev, addr->pan_id);
 	ieee802154_dev_set_short_addr(dev, addr->short_addr);
 	ieee802154_dev_set_channel(dev, channel);
 
@@ -309,13 +310,7 @@ static int ieee802154_mlme_start_req(struct net_device *dev, struct ieee802154_a
 	return 0;
 }
 
-static u8 ieee802154_dev_get_dsn(struct net_device *dev)
-{
-	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
-	return hw->dsn++;
-}
-
-struct ieee802154_mlme_ops ieee802154_mlme = {
+struct ieee802154_mlme_ops mac802154_mlme = {
 	.assoc_req = ieee802154_mlme_assoc_req,
 	.assoc_resp = ieee802154_mlme_assoc_resp,
 	.disassoc_req = ieee802154_mlme_disassoc_req,
@@ -325,5 +320,6 @@ struct ieee802154_mlme_ops ieee802154_mlme = {
 	.get_pan_id = ieee802154_dev_get_pan_id,
 	.get_short_addr = ieee802154_dev_get_short_addr,
 	.get_dsn = ieee802154_dev_get_dsn,
+	.get_bsn = ieee802154_dev_get_bsn,
 };
 

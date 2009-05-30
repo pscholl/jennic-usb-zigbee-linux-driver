@@ -35,8 +35,9 @@
 #include <net/route.h>
 
 #include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/netdev.h>
-#include <net/ieee802154/phy.h>
+#include <net/ieee802154/netdevice.h>
+
+#include "af802154.h"
 
 #define DBG_DUMP(data, len) { \
 	int i; \
@@ -69,8 +70,8 @@ struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *a
 
 			for_each_netdev(net, tmp) {
 				if (tmp->type == ARPHRD_IEEE802154) {
-					if (IEEE802154_MLME_OPS(dev)->get_pan_id(dev) == addr->pan_id
-					  && IEEE802154_MLME_OPS(dev)->get_short_addr(dev) == addr->short_addr) {
+					if (IEEE802154_MLME_OPS(tmp)->get_pan_id(tmp) == addr->pan_id
+					  && IEEE802154_MLME_OPS(tmp)->get_short_addr(tmp) == addr->short_addr) {
 						dev = tmp;
 						dev_hold(dev);
 						break;

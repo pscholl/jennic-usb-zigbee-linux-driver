@@ -1,7 +1,5 @@
 /*
- * ZigBee socket interface
- *
- * Copyright 2007, 2008 Siemens AG
+ * Copyright 2007, 2008, 2009 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -33,13 +31,17 @@
 #include <net/sock.h>
 #include <net/tcp_states.h>
 #include <net/route.h>
-#include <net/ieee802154/dev.h>
-#include <net/ieee802154/netdev.h>
-#include <net/ieee802154/crc.h>
+
 #include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/mac802154.h>
+#include <net/ieee802154/netdevice.h>
 #include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/beacon.h>
-#include <net/ieee802154/beacon_hash.h>
+
+#include "mac802154.h"
+#include "beacon.h"
+#include "beacon_hash.h"
+#include "crc.h"
+#include "mib.h"
 
 struct ieee802154_netdev_priv {
 	struct list_head list;
@@ -51,6 +53,11 @@ struct ieee802154_netdev_priv {
 
 	u8 chan;
 
+	/* MAC BSN field */
+	u8 bsn;
+	/* MAC BSN field */
+	u8 dsn;
+
 	/* This one is used to provide notifications */
 	struct blocking_notifier_head events;
 };
@@ -60,7 +67,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ieee802154_netdev_priv *priv;
 	priv = netdev_priv(dev);
 
-	if (!(priv->hw->hw.flags & IEEE802154_OPS_OMIT_CKSUM)) {
+	if (!(priv->hw->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
 		u16 crc = ieee802154_crc(0, skb->data, skb->len);
 		u8 *data = skb_put(skb, 2);
 		data[0] = crc & 0xff;
@@ -70,7 +77,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	PHY_CB(skb)->chan = priv->chan;
 
 	skb->iif = dev->ifindex;
-	skb->dev = priv->hw->master;
+	skb->dev = priv->hw->hw.netdev;
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
@@ -334,12 +341,6 @@ static void ieee802154_netdev_setup(struct net_device *dev)
 	dev->watchdog_timeo	= 0;
 }
 
-static void ieee802154_init_seq(struct ieee802154_priv *priv)
-{
-	get_random_bytes(&priv->bsn, 1);
-	get_random_bytes(&priv->dsn, 1);
-}
-
 static const struct net_device_ops ieee802154_slave_ops = {
 	.ndo_open		= ieee802154_slave_open,
 	.ndo_stop		= ieee802154_slave_close,
@@ -365,25 +366,28 @@ int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 	}
 	priv = netdev_priv(dev);
 	priv->dev = dev;
-	priv->hw = ieee802154_to_priv(hw);
-	ieee802154_init_seq(priv->hw);
+	priv->hw = ipriv;
+
+	get_random_bytes(&priv->bsn, 1);
+	get_random_bytes(&priv->dsn, 1);
+
 	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	memcpy(dev->dev_addr, addr, dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 	dev->priv_flags = IFF_SLAVE_INACTIVE;
 	dev->netdev_ops = &ieee802154_slave_ops;
-	dev->ml_priv = &ieee802154_mlme;
+	dev->ml_priv = &mac802154_mlme;
 
-	priv->pan_id = IEEE802154_PANID_DEF;
-	priv->short_addr = IEEE802154_SHORT_ADDRESS_DEF;
+	priv->pan_id = IEEE802154_PANID_BROADCAST;
+	priv->short_addr = IEEE802154_ADDR_BROADCAST;
 
-	dev_hold(priv->hw->master);
+	dev_hold(ipriv->hw.netdev);
 
-	dev->needed_headroom = priv->hw->master->needed_headroom;
+	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
 
-	spin_lock(&ieee802154_to_priv(hw)->slaves_lock);
-	list_add_tail(&priv->list, &ieee802154_to_priv(hw)->slaves);
-	spin_unlock(&ieee802154_to_priv(hw)->slaves_lock);
+	spin_lock(&ipriv->slaves_lock);
+	list_add_tail(&priv->list, &ipriv->slaves);
+	spin_unlock(&ipriv->slaves_lock);
 	/*
 	 * If the name is a format string the caller wants us to do a
 	 * name allocation.
@@ -394,7 +398,7 @@ int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 			goto out;
 	}
 
-	SET_NETDEV_DEV(dev, &ipriv->master->dev);
+	SET_NETDEV_DEV(dev, &ipriv->hw.netdev->dev);
 
 	err = register_netdevice(dev);
 	if (err < 0)
@@ -409,7 +413,7 @@ EXPORT_SYMBOL(ieee802154_add_slave);
 static void __ieee802154_del_slave(struct ieee802154_netdev_priv *ndp)
 {
 	struct net_device *dev = ndp->dev;
-	dev_put(ndp->hw->master);
+	dev_put(ndp->hw->hw.netdev);
 	unregister_netdev(ndp->dev);
 
 	spin_lock(&ndp->hw->slaves_lock);
@@ -432,7 +436,6 @@ void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 	}
 	spin_unlock(&priv->slaves_lock);
 }
-EXPORT_SYMBOL(ieee802154_drop_slaves);
 
 static int ieee802154_send_ack(struct sk_buff *skb)
 {
@@ -443,13 +446,13 @@ static int ieee802154_send_ack(struct sk_buff *skb)
 	BUG_ON(!skb || !skb->dev);
 	BUG_ON(!MAC_CB_IS_ACKREQ(skb));
 
-	ackskb = alloc_skb(LL_ALLOCATED_SPACE(skb->dev) + IEEE802154_ACK_LEN, GFP_ATOMIC);
+	ackskb = alloc_skb(LL_ALLOCATED_SPACE(skb->dev) + 3, GFP_ATOMIC);
 
 	skb_reserve(ackskb, LL_RESERVED_SPACE(skb->dev));
 
 	skb_reset_network_header(ackskb);
 
-	data = skb_push(ackskb, IEEE802154_ACK_LEN);
+	data = skb_push(ackskb, 3);
 	data[0] = fc & 0xff;
 	data[1] = (fc >> 8) & 0xff;
 	data[2] = MAC_CB(skb)->seq;
@@ -718,7 +721,7 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 		goto out;
 	}
 
-	if (!(priv->hw.flags & IEEE802154_OPS_OMIT_CKSUM)) {
+	if (!(priv->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
 		if (skb->len < 2) {
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
@@ -729,9 +732,8 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 
 	pr_debug("%s() frame %d\n", __func__, MAC_CB_TYPE(skb));
 
-	rcu_read_lock();
-
-	list_for_each_entry_rcu(ndp, &priv->slaves, list)
+	spin_lock(&priv->slaves_lock);
+	list_for_each_entry(ndp, &priv->slaves, list)
 	{
 		if (prev) {
 			struct sk_buff *skb2 = skb_clone(skb, GFP_ATOMIC);
@@ -746,8 +748,8 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 		ieee802154_subif_frame(prev, skb);
 	else
 		kfree_skb(skb);
+	spin_unlock(&priv->slaves_lock);
 
-	rcu_read_unlock();
 	return;
 
 out:
@@ -798,71 +800,22 @@ void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 	priv->chan = val;
 }
 
-/* FIXME: come with better solution */
-struct ieee802154_priv *ieee802154_slave_get_hw(struct net_device *dev)
+u8 ieee802154_dev_get_dsn(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv;
-	priv = netdev_priv(dev);
-	return priv->hw;
+	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
+
+	return priv->dsn++;
 }
 
-int ieee802154_pib_set(struct ieee802154_dev *hw, struct ieee802154_pib *pib)
+u8 ieee802154_dev_get_bsn(struct net_device *dev)
 {
-	int ret;
-	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
-	BUG_ON(!hw);
-	BUG_ON(!pib);
-	switch (pib->type) {
-	case IEEE802154_PIB_CURCHAN:
-		/* Our internal mask is inverted
-		 * 0 = channel is available
-		 * 1 = channel is unavailable
-		 * this saves initialization */
-		if (hw->channel_mask & (1 << (pib->val - 1)))
-			return -EINVAL;
-		ret = priv->ops->set_channel(hw, pib->val);
-		if (ret == PHY_ERROR)
-			return -EINVAL; /* FIXME */
-		hw->current_channel =  pib->val;
-		break;
-	case IEEE802154_PIB_CHANSUPP:
-		hw->channel_mask = ~(pib->val);
-		break;
-	case IEEE802154_PIB_TRPWR:
-		/* TODO */
-		break;
-	case IEEE802154_PIB_CCAMODE:
-		/* TODO */
-		break;
-	default:
-		pr_debug("Unknown PIB type value\n");
-		return -ENOTSUPP;
-	}
-	return 0;
-}
+	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 
-int ieee802154_pib_get(struct ieee802154_dev *hw, struct ieee802154_pib *pib)
-{
-	BUG_ON(!hw);
-	BUG_ON(!pib);
-	switch (pib->type) {
-	case IEEE802154_PIB_CURCHAN:
-		pib->val = hw->current_channel;
-		break;
-	case IEEE802154_PIB_CHANSUPP:
-		pib->val = ~(hw->channel_mask);
-		break;
-	case IEEE802154_PIB_TRPWR:
-		pib->val = 0;
-		break;
-	case IEEE802154_PIB_CCAMODE:
-		pib->val = 0;
-		break;
-	default:
-		pr_debug("Unknown PIB type value\n");
-		return -ENOTSUPP;
-	}
-	return 0;
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
+
+	return priv->bsn++;
 }
 
 int ieee802154_slave_register_notifier(struct net_device *dev, struct notifier_block *nb)
@@ -870,24 +823,21 @@ int ieee802154_slave_register_notifier(struct net_device *dev, struct notifier_b
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 	return blocking_notifier_chain_register(&priv->events, nb);
 }
-EXPORT_SYMBOL(ieee802154_slave_register_notifier);
 int ieee802154_slave_unregister_notifier(struct net_device *dev, struct notifier_block *nb)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 	return blocking_notifier_chain_unregister(&priv->events, nb);
 }
-EXPORT_SYMBOL(ieee802154_slave_unregister_notifier);
 int ieee802154_slave_event(struct net_device *dev, int event, void *data)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 	return blocking_notifier_call_chain(&priv->events, event, data);
 }
-EXPORT_SYMBOL(ieee802154_slave_event);
 
-/* device should be locked before running */
-void ieee802154_set_pan_id(struct net_device *dev, u16 panid)
+struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
-	priv->pan_id = panid;
-}
+	BUG_ON (dev->type != ARPHRD_IEEE802154);
 
+	return priv->hw;
+}

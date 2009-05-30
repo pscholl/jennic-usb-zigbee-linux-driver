@@ -151,6 +151,8 @@ enum {
 
 
 #ifdef __KERNEL__
+struct net_device;
+
 int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 cap);
 int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status);
 int ieee802154_nl_disassoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 reason);

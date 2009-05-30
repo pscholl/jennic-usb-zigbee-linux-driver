@@ -22,16 +22,18 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/netdevice.h>
+#include <linux/slab.h>
 #include <linux/if_arp.h>
-#include <linux/if_ether.h>
 #include <linux/list.h>
 
 #include <net/ieee802154/af_ieee802154.h>
+#include <net/ieee802154/nl802154.h>
+#include <net/ieee802154/mac802154.h>
 #include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/netdev.h>
-#include <net/ieee802154/beacon.h>
-#include <net/ieee802154/nl.h>
+#include <net/ieee802154/netdevice.h>
+
+#include "mac802154.h"
+#include "beacon.h"
 
 /* Beacon frame format per specification is the followinf:
  * Standard MAC frame header:
@@ -130,7 +132,6 @@ int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr
 	int addr16_cnt;
 	int addr64_cnt;
 	struct ieee802154_addr addr;
-	struct ieee802154_priv *hw = ieee802154_slave_get_hw(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -143,7 +144,7 @@ int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr
 	skb_reset_network_header(skb);
 
 	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_BEACON;
-	MAC_CB(skb)->seq = hw->bsn;
+	MAC_CB(skb)->seq = IEEE802154_MLME_OPS(dev)->get_bsn(dev);
 
 	addr.addr_type = IEEE802154_ADDR_NONE;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &addr, saddr, len);
@@ -191,7 +192,6 @@ int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr
 
 	skb->dev = dev;
 	skb->protocol = htons(ETH_P_IEEE802154);
-	hw->bsn++; /* FIXME locking */
 
 	return dev_queue_xmit(skb);
 }
@@ -205,14 +205,13 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 	int offt = 0;
 	u8 gts_spec;
 	u8 pa_spec;
-	struct ieee802154_priv *hw = ieee802154_slave_get_hw(skb->dev);
 	struct ieee802154_pandsc *pd;
 	u16 sf = skb->data[0] + (skb->data[1] << 8);
 
 	pd = kzalloc(sizeof(struct ieee802154_pandsc), GFP_KERNEL);
 
 	/* Filling-up pre-parsed values */
-	pd->lqi = MAC_CB(skb)->phy.lqi;
+	pd->lqi = MAC_CB(skb)->lqi;
 	pd->sf = sf;
 	/* FIXME: make sure we do it right */
 	memcpy(&pd->addr, &MAC_CB(skb)->da, sizeof(struct ieee802154_addr));

@@ -1,9 +1,5 @@
 /*
- * ieee802154_phy.c
- *
- * Description: IEEE 802.15.4 PHY layer
- *
- * Copyright (C) 2007, 2008 Siemens AG
+ * Copyright (C) 2007, 2008, 2009 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -27,70 +23,11 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/workqueue.h>
+#include <linux/netdevice.h>
 
-#include <net/ieee802154/dev.h>
-#include <net/ieee802154/netdev.h>
-#include <net/ieee802154/nl.h>
+#include <net/ieee802154/mac802154.h>
 
-struct ieee802154_dev *ieee802154_alloc_device(void)
-{
-	struct ieee802154_priv *priv = kzalloc(sizeof(struct ieee802154_priv), GFP_KERNEL);
-	INIT_LIST_HEAD(&priv->slaves);
-	spin_lock_init(&priv->slaves_lock);
-	return &priv->hw;
-}
-EXPORT_SYMBOL(ieee802154_alloc_device);
-
-void ieee802154_free_device(struct ieee802154_dev *hw)
-{
-	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
-
-	BUG_ON(!list_empty(&priv->slaves));
-	BUG_ON(priv->master);
-
-	kfree(priv);
-}
-EXPORT_SYMBOL(ieee802154_free_device);
-
-int ieee802154_register_device(struct ieee802154_dev *dev, struct ieee802154_ops *ops)
-{
-	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
-	int rc;
-
-	if (!try_module_get(ops->owner))
-		return -EFAULT;
-
-	BUG_ON(!dev || !dev->name);
-	BUG_ON(!ops || !ops->tx || !ops->cca || !ops->ed || !ops->set_trx_state);
-
-	priv->ops = ops;
-	rc = ieee802154_register_netdev_master(priv);
-	if (rc < 0)
-		goto out;
-	priv->dev_workqueue = create_singlethread_workqueue(priv->master->name);
-	if (!priv->dev_workqueue)
-		goto out_wq;
-
-	return 0;
-
-out_wq:
-	ieee802154_unregister_netdev_master(priv);
-out:
-	return rc;
-}
-EXPORT_SYMBOL(ieee802154_register_device);
-
-void ieee802154_unregister_device(struct ieee802154_dev *dev)
-{
-	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
-
-	ieee802154_drop_slaves(dev);
-	ieee802154_unregister_netdev_master(priv);
-	flush_workqueue(priv->dev_workqueue);
-	destroy_workqueue(priv->dev_workqueue);
-	module_put(priv->ops->owner);
-}
-EXPORT_SYMBOL(ieee802154_unregister_device);
+#include "mac802154.h"
 
 static void __ieee802154_rx_prepare(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi)
 {
@@ -100,7 +37,7 @@ static void __ieee802154_rx_prepare(struct ieee802154_dev *dev, struct sk_buff *
 
 	PHY_CB(skb)->lqi = lqi;
 
-	skb->dev = priv->master;
+	skb->dev = priv->hw.netdev;
 
 	skb->iif = skb->dev->ifindex;
 
@@ -157,7 +94,3 @@ void ieee802154_rx_irqsafe(struct ieee802154_dev *dev, struct sk_buff *skb, u8 l
 	queue_work(priv->dev_workqueue, &work->work);
 }
 EXPORT_SYMBOL(ieee802154_rx_irqsafe);
-
-MODULE_DESCRIPTION("IEEE 802.15.4 implementation");
-MODULE_LICENSE("GPL v2");
-

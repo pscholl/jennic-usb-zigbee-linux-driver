@@ -31,7 +31,7 @@
 #include <linux/tty.h>
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
-#include <net/ieee802154/dev.h>
+#include <net/ieee802154/mac802154.h>
 
 
 /* NOTE: be sure to use here the same values as in the firmware */
@@ -804,7 +804,7 @@ ieee802154_tty_open(struct tty_struct *tty)
 	zbdev->dev->extra_tx_headroom	= 0;
 	zbdev->dev->channel_mask	= 0x7ff;
 	zbdev->dev->current_channel	= 11; /* it's 1st channel of 2.4 Ghz space */
-	zbdev->dev->flags		= IEEE802154_OPS_OMIT_CKSUM;
+	zbdev->dev->flags		= IEEE802154_FLAGS_OMIT_CKSUM;
 
 	minor = tty->index + tty->driver->minor_start;
 	zbdev->dev->parent = class_find_device(tty_class, NULL, &minor, dev_minor_match);
@@ -894,7 +894,6 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd
 {
 	struct zb_device *zbdev;
 	struct ifreq ifr;
-	struct ieee802154_priv *priv;
 	int err;
 	void __user *argp = (void __user *) arg;
 
@@ -911,10 +910,9 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd
 	switch (cmd) {
 	case PPPIOCGUNIT:
 		/* TODO: some error checking */
-		priv = ieee802154_to_priv(zbdev->dev);
-		BUG_ON(!priv->master);
+		BUG_ON(!zbdev->dev->netdev);
 		err = -EFAULT;
-		if (copy_to_user(argp, priv->master->name, strlen(priv->master->name)))
+		if (copy_to_user(argp, zbdev->dev->netdev->name, strlen(zbdev->dev->netdev->name)))
 			break;
 		err = 0;
 		break;

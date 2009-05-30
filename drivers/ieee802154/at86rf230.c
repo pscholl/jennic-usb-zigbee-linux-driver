@@ -32,7 +32,7 @@
 #include <linux/spi/at86rf230.h>
 #include <linux/rtnetlink.h> /* FIXME: hack for slave instantiation */
 
-#include <net/ieee802154/dev.h>
+#include <net/ieee802154/mac802154.h>
 
 struct at86rf230_local {
 	struct spi_device *spi;
@@ -619,7 +619,7 @@ static int at86rf230_register(struct at86rf230_local *lp)
 	lp->dev->extra_tx_headroom = 0;
 #endif
 	lp->dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
-	lp->dev->flags = IEEE802154_OPS_OMIT_CKSUM;
+	lp->dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
 
 	rc = ieee802154_register_device(lp->dev, &at86rf230_ops);
 	if (rc)

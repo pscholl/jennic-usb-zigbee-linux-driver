@@ -1,7 +1,7 @@
 /*
  * beacon.h
  *
- * Copyright (C) 2007, 2008 Siemens AG
+ * Copyright (C) 2007, 2008, 2009 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -24,10 +24,6 @@
 #ifndef IEEE802154_BEACON_H
 #define IEEE802154_BEACON_H
 
-#include <linux/skbuff.h>
-#include <linux/netdevice.h>
-#include "af_ieee802154.h"
-
 /* Per spec; optimizations are needed */
 struct ieee802154_pandsc {
 	struct list_head	list;
@@ -39,9 +35,6 @@ struct ieee802154_pandsc {
 /* FIXME: Aging of stored PAN descriptors is not decided yet,
  * because no PAN descriptor storage is implemented yet */
 	u32			timestamp;
-	bool			security;
-	u8			mac_sec;
-	bool			sec_fail;
 };
 
 int parse_beacon_frame(struct sk_buff *skb, u8 * buf,

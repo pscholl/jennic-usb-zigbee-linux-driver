@@ -57,13 +57,4 @@ struct sockaddr_ieee802154 {
 /* master device */
 #define IEEE802154_SIOC_ADD_SLAVE		(SIOCDEVPRIVATE + 0)
 
-#ifdef __KERNEL__
-#include <linux/skbuff.h>
-#include <linux/netdevice.h>
-extern struct proto ieee802154_raw_prot;
-extern struct proto ieee802154_dgram_prot;
-void ieee802154_raw_deliver(struct net_device *dev, struct sk_buff *skb);
-int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb);
-#endif
-
 #endif

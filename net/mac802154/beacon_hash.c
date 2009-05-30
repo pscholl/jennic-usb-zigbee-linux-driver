@@ -21,12 +21,13 @@
  * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
  */
 
+#include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
-#include <net/sock.h>
 
 #include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/beacon_hash.h>
+
+#include "beacon_hash.h"
 
 static struct hlist_head beacon_hash[IEEE802154_BEACON_HTABLE_SIZE];
 static DEFINE_RWLOCK(beacon_hash_lock);
@@ -61,7 +62,6 @@ struct beacon_node *ieee802154_beacon_find_pan(struct ieee802154_addr *coord_add
 	}
 	return NULL;
 }
-EXPORT_SYMBOL(ieee802154_beacon_find_pan);
 
 void ieee802154_beacon_hash_add(struct ieee802154_addr *coord_addr)
 {
@@ -71,7 +71,6 @@ void ieee802154_beacon_hash_add(struct ieee802154_addr *coord_addr)
 		write_unlock(&beacon_hash_lock);
 	}
 }
-EXPORT_SYMBOL(ieee802154_beacon_hash_add);
 
 void ieee802154_beacon_hash_del(struct ieee802154_addr *coord_addr)
 {
@@ -84,7 +83,6 @@ void ieee802154_beacon_hash_del(struct ieee802154_addr *coord_addr)
 	write_unlock(&beacon_hash_lock);
 	kfree(entry);
 }
-EXPORT_SYMBOL(ieee802154_beacon_hash_del);
 
 void ieee802154_beacon_hash_dump(void)
 {

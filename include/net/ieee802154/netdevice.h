@@ -1,7 +1,7 @@
 /*
- * IEEE802154.4 net device
+ * An interface between IEEE802.15.4 device and rest of the kernel.
  *
- * Copyright 2008 Siemens AG
+ * Copyright (C) 2007, 2008, 2009 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -16,42 +16,22 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
+ * Written by:
+ * Pavel Smolenskiy <pavel.smolenskiy@gmail.com>
+ * Maxim Gorbachyov <maxim.gorbachev@siemens.com>
+ * Maxim Osipov <maxim.osipov@siemens.com>
+ * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
  */
 
-#ifndef IEEE802154_NETDEV_H
-#define IEEE802154_NETDEV_H
-#include <linux/netdevice.h>
-#include <net/ieee802154/dev.h>
-#include <net/ieee802154/phy.h>
-#include <net/ieee802154/af_ieee802154.h>
+#ifndef IEEE802154_NETDEVICE_H
+#define IEEE802154_NETDEVICE_H
 
-int ieee802154_register_netdev_master(struct ieee802154_priv *hw);
-void ieee802154_unregister_netdev_master(struct ieee802154_priv *hw);
-
-/* FIXME: this header should be probably separated, as it contains both driver-specific and stack specific things */
-void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb);
-struct ieee802154_priv *ieee802154_slave_get_hw(struct net_device *dev);
-
-struct ieee802154_addr;
-struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *sa);
-
-/* FIXME: should be dropped in favour of MIB getting */
-u16 ieee802154_dev_get_pan_id(struct net_device *dev);
-u16 ieee802154_dev_get_short_addr(struct net_device *dev);
-void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val);
-void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val);
-void ieee802154_dev_set_channel(struct net_device *dev, u8 chan);
-
-struct ieee802154_phy_cb {
-	u8 lqi;
-	u8 chan;
-};
-
-#define PHY_CB(skb)	((struct ieee802154_phy_cb *)(skb)->cb)
-
-
+/*
+ * A control block of skb passed between the ARPHRD_IEEE802154 device
+ * and other stack parts.
+ */
 struct ieee802154_mac_cb {
-	struct ieee802154_phy_cb phy;
+	u8 lqi;
 	struct ieee802154_addr sa;
 	struct ieee802154_addr da;
 	u8 flags;
@@ -70,6 +50,14 @@ struct ieee802154_mac_cb {
 #define MAC_CB_IS_INTRAPAN(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN)
 #define MAC_CB_TYPE(skb)		(MAC_CB(skb)->flags & MAC_CB_FLAG_TYPEMASK)
 
+#define IEEE802154_MAC_SCAN_ED		0
+#define IEEE802154_MAC_SCAN_ACTIVE	1
+#define IEEE802154_MAC_SCAN_PASSIVE	2
+#define IEEE802154_MAC_SCAN_ORPHAN	3
+
+/*
+ * This should be located at net_device->ml_priv
+ */
 struct ieee802154_mlme_ops {
 	int (*assoc_req)(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap);
 	int (*assoc_resp)(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status);
@@ -86,11 +74,11 @@ struct ieee802154_mlme_ops {
 	u16 (*get_pan_id)(struct net_device *dev);
 	u16 (*get_short_addr)(struct net_device *dev);
 	u8 (*get_dsn)(struct net_device *dev);
+	u8 (*get_bsn)(struct net_device *dev);
 };
 
 #define IEEE802154_MLME_OPS(dev)	((struct ieee802154_mlme_ops *) dev->ml_priv)
 
-extern struct ieee802154_mlme_ops ieee802154_mlme;
-
 #endif
+
 
