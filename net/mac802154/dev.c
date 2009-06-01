@@ -837,7 +837,7 @@ int ieee802154_slave_event(struct net_device *dev, int event, void *data)
 struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
-	BUG_ON (dev->type != ARPHRD_IEEE802154);
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	return priv->hw;
 }
