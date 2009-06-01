@@ -26,6 +26,7 @@
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
 #include <linux/notifier.h>
 #include <linux/random.h>
+#include <linux/crc-itu-t.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -40,7 +41,6 @@
 #include "mac802154.h"
 #include "beacon.h"
 #include "beacon_hash.h"
-#include "crc.h"
 #include "mib.h"
 
 struct ieee802154_netdev_priv {
@@ -68,7 +68,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	priv = netdev_priv(dev);
 
 	if (!(priv->hw->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
-		u16 crc = ieee802154_crc(0, skb->data, skb->len);
+		u16 crc = bitrev16(crc_itu_t_bitreversed(0, skb->data, skb->len));
 		u8 *data = skb_put(skb, 2);
 		data[0] = crc & 0xff;
 		data[1] = crc >> 8;
