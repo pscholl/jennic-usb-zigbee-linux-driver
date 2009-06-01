@@ -174,17 +174,7 @@ int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr
 	/* FIXME pending address */
 	addr16_cnt = 0;
 	addr64_cnt = 0;
-#if 0
-	/* need more thinking about this */
-	list_for_each_entry(l, al->list, list) {
-		struct ieee802154_addr *s = container_of(l, struct list_head, list);
-		if (s->addr_type == IEEE802154_ADDR_LONG)
-			addr16_cnt++;
 
-		if (s->addr_type == IEEE802154_ADDR_SHORT)
-			addr64_cnt++;
-	}
-#endif
 	pa_spec = IEEE802154_BEACON_PA_LONG(addr64_cnt) | IEEE802154_BEACON_PA_SHORT(addr16_cnt);
 	memcpy(skb_put(skb, sizeof(pa_spec)), &pa_spec, sizeof(pa_spec));
 
