@@ -9,6 +9,17 @@ menuconfig IEEE802154_DRIVERS
 
 	  If you say N, all options in this submenu will be skipped and disabled.
 
+config IEEE802154_FAKEHARD
+	tristate "Fake LR-WPAN driver with several interconnected devices"
+	depends on  IEEE802154_DRIVERS
+	---help---
+	  Say Y here to enable the fake driver that serves as an example
+          of HardMAC device driver.
+
+          This driver can also be built as a module. To do so say M here.
+	  The module will be called 'fakehard'.
+
+
 if IEEE802154_DRIVERS && MAC802154
 config IEEE802154_FAKELB
 	tristate "Fake LR-WPAN driver with several interconnected devices"
