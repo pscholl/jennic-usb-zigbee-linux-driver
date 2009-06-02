@@ -208,7 +208,7 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dev);
 
-	err = register_netdevice(dev);
+	err = register_netdev(dev);
 	if (err < 0)
 		goto out;
 
