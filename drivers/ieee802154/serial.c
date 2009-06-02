@@ -885,12 +885,9 @@ static int
 ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct zb_device *zbdev;
-	struct ifreq ifr;
-	int err;
 	void __user *argp = (void __user *) arg;
 
 	pr_debug("cmd = 0x%x\n", cmd);
-	memset(&ifr, 0, sizeof(ifr));
 
 	zbdev = tty->disc_data;
 	if (NULL == zbdev) {
@@ -898,21 +895,19 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd
 		return -EINVAL;
 	}
 
-
 	switch (cmd) {
 	case PPPIOCGUNIT:
 		/* TODO: some error checking */
 		BUG_ON(!zbdev->dev->netdev);
-		err = -EFAULT;
 		if (copy_to_user(argp, zbdev->dev->netdev->name, strlen(zbdev->dev->netdev->name)))
-			break;
-		err = 0;
-		break;
+			return -EFAULT;
+		return 0;
+	case TCFLSH:
+		return tty_perform_flush(tty, arg);
 	default:
-		pr_debug("Unknown ioctl cmd: %u\n", cmd);
-		return -EINVAL;
+		/* Try the mode commands */
+		return tty_mode_ioctl(tty, file, cmd, arg);
 	}
-	return 0;
 }
 
 
