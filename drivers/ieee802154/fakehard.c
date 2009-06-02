@@ -28,6 +28,8 @@
 
 #include <net/ieee802154/af_ieee802154.h>
 #include <net/ieee802154/netdevice.h>
+#include <net/ieee802154/mac_def.h>
+#include <net/ieee802154/nl802154.h>
 
 static u16 fake_get_pan_id(struct net_device *dev)
 {
@@ -59,7 +61,8 @@ static u8 fake_get_bsn(struct net_device *dev)
 
 static int fake_assoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap)
 {
-	return 0;
+	/* We simply emulate it here */
+	return ieee802154_nl_assoc_confirm(dev, fake_get_short_addr(dev), IEEE802154_SUCCESS);
 }
 
 static int fake_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status)
@@ -69,7 +72,7 @@ static int fake_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr,
 
 static int fake_disassoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
 {
-	return 0;
+	return ieee802154_nl_disassoc_confirm(dev, IEEE802154_SUCCESS);
 }
 
 static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
@@ -82,7 +85,9 @@ static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
 
 static int fake_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
 {
-	return 0;
+	u8 edl[27] = {};
+	return ieee802154_nl_scan_confirm(dev, IEEE802154_SUCCESS, type, channels,
+			type == IEEE802154_MAC_SCAN_ED ? edl : NULL);
 }
 
 static struct ieee802154_mlme_ops fake_mlme = {
