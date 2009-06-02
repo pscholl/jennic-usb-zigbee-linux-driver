@@ -4,7 +4,7 @@
  * Provides interface between ZigBee stack and IEEE 802.15.4 compatible
  * firmware over serial line. Communication protocol is described below.
  *
- * Copyright (C) 2007, 2008 Siemens AG
+ * Copyright (C) 2007, 2008, 2009 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -801,7 +801,7 @@ ieee802154_tty_open(struct tty_struct *tty)
 
 	zbdev->dev->parent = tty_get_device(tty);
 
-	zbdev->tty = tty;
+	zbdev->tty = tty_kref_get(tty);
 	cleanup(zbdev);
 
 	tty->disc_data = zbdev;
@@ -830,6 +830,8 @@ ieee802154_tty_open(struct tty_struct *tty)
 
 out_free:
 	tty->disc_data = NULL;
+	tty_kref_put(tty);
+	zbdev->tty = NULL;
 
 	ieee802154_free_device(zbdev->dev);
 out_free_zb:
@@ -857,6 +859,7 @@ ieee802154_tty_close(struct tty_struct *tty)
 	}
 
 	tty->disc_data = NULL;
+	tty_kref_put(tty);
 	zbdev->tty = NULL;
 
 	ieee802154_unregister_device(zbdev->dev);
