@@ -3032,6 +3032,13 @@ static int dev_match_devt(struct device *dev, void *data)
 	return dev->devt == *devt;
 }
 
+/**
+ * 	tty_get_device - get a device corresponding to tty
+ * 	@tty: the struct that describes the tty device
+ *
+ * 	Returns a pointer to the struct device for this tty device
+ * 	(or NULL in case of error).
+ */
 struct device *tty_get_device(struct tty_struct *tty)
 {
 	dev_t devt = tty_devnum(tty);
