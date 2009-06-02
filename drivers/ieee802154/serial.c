@@ -759,12 +759,6 @@ static struct ieee802154_ops serial_ops = {
 	.set_channel	= ieee802154_serial_set_channel,
 };
 
-static int dev_minor_match(struct device *dev, void *data)
-{
-	int *minor = data;
-	return MINOR(dev->devt) == *minor;
-}
-
 /*
  * Called when a tty is put into ZB line discipline. Called in process context.
  * Returns 0 on success.
@@ -774,7 +768,6 @@ ieee802154_tty_open(struct tty_struct *tty)
 {
 	struct zb_device *zbdev = tty->disc_data;
 	int err;
-	int minor;
 
 	pr_debug("Openning ldisc\n");
 	if (!capable(CAP_NET_ADMIN))
@@ -806,8 +799,7 @@ ieee802154_tty_open(struct tty_struct *tty)
 	zbdev->dev->current_channel	= 11; /* it's 1st channel of 2.4 Ghz space */
 	zbdev->dev->flags		= IEEE802154_FLAGS_OMIT_CKSUM;
 
-	minor = tty->index + tty->driver->minor_start;
-	zbdev->dev->parent = class_find_device(tty_class, NULL, &minor, dev_minor_match);
+	zbdev->dev->parent = tty_get_device(tty);
 
 	zbdev->tty = tty;
 	cleanup(zbdev);
