@@ -806,7 +806,6 @@ ieee802154_tty_open(struct tty_struct *tty)
 
 	tty->disc_data = zbdev;
 	tty->receive_room = MAX_DATA_SIZE;
-	tty->low_latency = 1;
 
 	/* FIXME: why is this needed. Note don't use ldisc_ref here as the
 	   open path is before the ldisc is referencable */
