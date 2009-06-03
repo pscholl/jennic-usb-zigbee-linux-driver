@@ -116,7 +116,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 	lock_sock(sk);
 	if (!sk->sk_bound_dev_if)
-		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE802154_PHY);
+		dev = dev_getfirstbyhwtype(sock_net(sk), ARPHRD_IEEE802154);
 	else
 		dev = dev_get_by_index(sock_net(sk), sk->sk_bound_dev_if);
 	release_sock(sk);
