@@ -68,7 +68,7 @@
 #define IFF_MASTER_ARPMON 0x100		/* bonding master, ARP mon in use */
 #define IFF_WAN_HDLC	0x200		/* WAN HDLC device		*/
 
-#define IFF_IEEE802154_COORD 0x100	/* IEEE802.15.4 PAN coordinator */
+#define IFF_IEEE802154_COORD 0x400	/* IEEE802.15.4 PAN coordinator */
 
 #define IF_GET_IFACE	0x0001		/* for querying only */
 #define IF_GET_PROTO	0x0002
