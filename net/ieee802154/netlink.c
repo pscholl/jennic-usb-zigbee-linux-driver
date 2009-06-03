@@ -94,6 +94,11 @@ int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *ad
 
 	pr_debug("%s\n", __func__);
 
+	if (addr->addr_type != IEEE802154_ADDR_LONG) {
+		pr_err("%s: received non-long source address!\n", __func__);
+		return -EINVAL;
+	}
+
 	msg = ieee802154_nl_create(/* flags*/ 0, IEEE802154_ASSOCIATE_INDIC);
 	if (!msg)
 		return -ENOBUFS;
@@ -102,7 +107,6 @@ int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *ad
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
 	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
 
-	/* FIXME: check that we really received hw address */
 	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_SRC_HW_ADDR, addr->hwaddr);
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_CAPABILITY, cap);

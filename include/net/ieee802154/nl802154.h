@@ -1,5 +1,5 @@
 /*
- * ieee802154_nl.h
+ * nl802154.h
  *
  * Copyright (C) 2007, 2008 Siemens AG
  *
@@ -55,7 +55,7 @@ enum {
 	IEEE802154_ATTR_DEST_HW_ADDR,
 	IEEE802154_ATTR_DEST_PAN_ID,
 
-	IEEE802154_ATTR_CAPABILITY, /* FIXME: this is association */
+	IEEE802154_ATTR_CAPABILITY,
 	IEEE802154_ATTR_REASON,
 	IEEE802154_ATTR_SCAN_TYPE,
 	IEEE802154_ATTR_CHANNELS,
@@ -126,6 +126,7 @@ enum {
 
 #ifdef __KERNEL__
 struct net_device;
+struct ieee802154_addr;
 
 int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 cap);
 int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status);
