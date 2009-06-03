@@ -105,9 +105,9 @@ int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *ad
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN, dev->dev_addr);
 
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_SRC_HW_ADDR, addr->hwaddr);
+	NLA_PUT(msg, IEEE802154_ATTR_SRC_HW_ADDR, IEEE802154_ADDR_LEN, addr->hwaddr);
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_CAPABILITY, cap);
 
@@ -130,7 +130,7 @@ int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 statu
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN, dev->dev_addr);
 
 	NLA_PUT_U16(msg, IEEE802154_ATTR_SHORT_ADDR, short_addr);
 	NLA_PUT_U8(msg, IEEE802154_ATTR_STATUS, status);
@@ -154,10 +154,10 @@ int ieee802154_nl_disassoc_indic(struct net_device *dev, struct ieee802154_addr 
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN, dev->dev_addr);
 
 	if (addr->addr_type == IEEE802154_ADDR_LONG)
-		NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_SRC_HW_ADDR, addr->hwaddr);
+		NLA_PUT(msg, IEEE802154_ATTR_SRC_HW_ADDR, IEEE802154_ADDR_LEN, addr->hwaddr);
 	else
 		NLA_PUT_U16(msg, IEEE802154_ATTR_SRC_SHORT_ADDR, addr->short_addr);
 
@@ -182,7 +182,7 @@ int ieee802154_nl_disassoc_confirm(struct net_device *dev, u8 status)
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN, dev->dev_addr);
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_STATUS, status);
 
@@ -205,7 +205,7 @@ int ieee802154_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN, dev->dev_addr);
 	NLA_PUT_U16(msg, IEEE802154_ATTR_COORD_SHORT_ADDR, coord_addr);
 	NLA_PUT_U16(msg, IEEE802154_ATTR_COORD_PAN_ID, panid);
 
@@ -229,7 +229,7 @@ int ieee802154_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, 
 
 	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
-	NLA_PUT_HW_ADDR(msg, IEEE802154_ATTR_HW_ADDR, dev->dev_addr);
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN, dev->dev_addr);
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_STATUS, status);
 	NLA_PUT_U8(msg, IEEE802154_ATTR_SCAN_TYPE, scan_type);
@@ -285,7 +285,7 @@ static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 
 	if (info->attrs[IEEE802154_ATTR_COORD_HW_ADDR]) {
 		addr.addr_type = IEEE802154_ADDR_LONG;
-		NLA_GET_HW_ADDR(info->attrs[IEEE802154_ATTR_COORD_HW_ADDR], addr.hwaddr);
+		nla_memcpy(addr.hwaddr, info->attrs[IEEE802154_ATTR_COORD_HW_ADDR], IEEE802154_ADDR_LEN);
 	} else {
 		addr.addr_type = IEEE802154_ADDR_SHORT;
 		addr.short_addr = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR]);
@@ -316,7 +316,7 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 		return -ENODEV;
 
 	addr.addr_type = IEEE802154_ADDR_LONG;
-	NLA_GET_HW_ADDR(info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], addr.hwaddr);
+	nla_memcpy(addr.hwaddr, info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], IEEE802154_ADDR_LEN);
 	addr.pan_id = IEEE802154_MLME_OPS(dev)->get_pan_id(dev);
 
 
@@ -344,7 +344,7 @@ static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *in
 
 	if (info->attrs[IEEE802154_ATTR_DEST_HW_ADDR]) {
 		addr.addr_type = IEEE802154_ADDR_LONG;
-		NLA_GET_HW_ADDR(info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], addr.hwaddr);
+		nla_memcpy(addr.hwaddr, info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], IEEE802154_ADDR_LEN);
 	} else {
 		addr.addr_type = IEEE802154_ADDR_SHORT;
 		addr.short_addr = nla_get_u16(info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR]);
