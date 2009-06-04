@@ -60,7 +60,7 @@ static int ieee802154_cmd_beacon_req(struct sk_buff *skb)
 	 * We have no information in this command to proceed with.
 	 * we need to submit beacon as answer to this. */
 
-	return ieee802154_send_beacon(skb->dev, &saddr, IEEE802154_MLME_OPS(skb->dev)->get_pan_id(skb->dev),
+	return ieee802154_send_beacon(skb->dev, &saddr, ieee802154_mlme_ops(skb->dev)->get_pan_id(skb->dev),
 			NULL, 0, flags, NULL);
 }
 
@@ -197,7 +197,7 @@ static int ieee802154_send_cmd(struct net_device *dev,
 	skb_reset_network_header(skb);
 
 	mac_cb(skb)->flags = IEEE802154_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
-	mac_cb(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
+	mac_cb(skb)->seq = ieee802154_mlme_ops(dev)->get_dsn(dev);
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, addr, saddr, len);
 	if (err < 0) {
 		kfree_skb(skb);

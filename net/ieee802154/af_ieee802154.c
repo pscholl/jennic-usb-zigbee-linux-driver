@@ -70,8 +70,8 @@ struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *a
 
 			for_each_netdev(net, tmp) {
 				if (tmp->type == ARPHRD_IEEE802154) {
-					if (IEEE802154_MLME_OPS(tmp)->get_pan_id(tmp) == addr->pan_id
-					  && IEEE802154_MLME_OPS(tmp)->get_short_addr(tmp) == addr->short_addr) {
+					if (ieee802154_mlme_ops(tmp)->get_pan_id(tmp) == addr->pan_id
+					  && ieee802154_mlme_ops(tmp)->get_short_addr(tmp) == addr->short_addr) {
 						dev = tmp;
 						dev_hold(dev);
 						break;

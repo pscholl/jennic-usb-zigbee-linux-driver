@@ -25,6 +25,7 @@
 #include <linux/net.h>
 #include <linux/module.h>
 #include <linux/sched.h>
+#include <linux/netdevice.h>
 
 #include <net/ieee802154/af_ieee802154.h>
 #include <net/ieee802154/mac802154.h>

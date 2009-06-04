@@ -292,7 +292,7 @@ static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 	}
 	addr.pan_id = nla_get_u16(info->attrs[IEEE802154_ATTR_COORD_PAN_ID]);
 
-	ret = IEEE802154_MLME_OPS(dev)->assoc_req(dev, &addr,
+	ret = ieee802154_mlme_ops(dev)->assoc_req(dev, &addr,
 			nla_get_u8(info->attrs[IEEE802154_ATTR_CHANNEL]),
 			nla_get_u8(info->attrs[IEEE802154_ATTR_CAPABILITY]));
 
@@ -317,10 +317,10 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 
 	addr.addr_type = IEEE802154_ADDR_LONG;
 	nla_memcpy(addr.hwaddr, info->attrs[IEEE802154_ATTR_DEST_HW_ADDR], IEEE802154_ADDR_LEN);
-	addr.pan_id = IEEE802154_MLME_OPS(dev)->get_pan_id(dev);
+	addr.pan_id = ieee802154_mlme_ops(dev)->get_pan_id(dev);
 
 
-	ret = IEEE802154_MLME_OPS(dev)->assoc_resp(dev, &addr,
+	ret = ieee802154_mlme_ops(dev)->assoc_resp(dev, &addr,
 			nla_get_u16(info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR]),
 			nla_get_u8(info->attrs[IEEE802154_ATTR_STATUS]));
 
@@ -349,9 +349,9 @@ static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *in
 		addr.addr_type = IEEE802154_ADDR_SHORT;
 		addr.short_addr = nla_get_u16(info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR]);
 	}
-	addr.pan_id = IEEE802154_MLME_OPS(dev)->get_pan_id(dev);
+	addr.pan_id = ieee802154_mlme_ops(dev)->get_pan_id(dev);
 
-	ret = IEEE802154_MLME_OPS(dev)->disassoc_req(dev, &addr,
+	ret = ieee802154_mlme_ops(dev)->disassoc_req(dev, &addr,
 			nla_get_u8(info->attrs[IEEE802154_ATTR_REASON]));
 
 	dev_put(dev);
@@ -398,7 +398,7 @@ static int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 	blx = nla_get_u8(info->attrs[IEEE802154_ATTR_BAT_EXT]);
 	coord_realign = nla_get_u8(info->attrs[IEEE802154_ATTR_COORD_REALIGN]);
 
-	ret = IEEE802154_MLME_OPS(dev)->start_req(dev, &addr, channel, bcn_ord, sf_ord,
+	ret = ieee802154_mlme_ops(dev)->start_req(dev, &addr, channel, bcn_ord, sf_ord,
 		pan_coord, blx, coord_realign);
 
 	dev_put(dev);
@@ -426,7 +426,7 @@ static int ieee802154_scan_req(struct sk_buff *skb, struct genl_info *info)
 	channels = nla_get_u32(info->attrs[IEEE802154_ATTR_CHANNELS]);
 	duration = nla_get_u8(info->attrs[IEEE802154_ATTR_DURATION]);
 
-	ret = IEEE802154_MLME_OPS(dev)->scan_req(dev, type, channels, duration);
+	ret = ieee802154_mlme_ops(dev)->scan_req(dev, type, channels, duration);
 
 	dev_put(dev);
 	return ret;

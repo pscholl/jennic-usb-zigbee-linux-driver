@@ -144,7 +144,7 @@ int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr
 	skb_reset_network_header(skb);
 
 	mac_cb(skb)->flags = IEEE802154_FC_TYPE_BEACON;
-	mac_cb(skb)->seq = IEEE802154_MLME_OPS(dev)->get_bsn(dev);
+	mac_cb(skb)->seq = ieee802154_mlme_ops(dev)->get_bsn(dev);
 
 	addr.addr_type = IEEE802154_ADDR_NONE;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &addr, saddr, len);

@@ -81,7 +81,10 @@ struct ieee802154_mlme_ops {
 	u8 (*get_bsn)(struct net_device *dev);
 };
 
-#define IEEE802154_MLME_OPS(dev)	((struct ieee802154_mlme_ops *) dev->ml_priv)
+static inline struct ieee802154_mlme_ops *ieee802154_mlme_ops(struct net_device *dev)
+{
+	return dev->ml_priv;
+}
 
 #endif
 

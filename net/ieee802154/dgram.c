@@ -234,7 +234,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	skb_reset_network_header(skb);
 
 	mac_cb(skb)->flags = IEEE802154_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
-	mac_cb(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
+	mac_cb(skb)->seq = ieee802154_mlme_ops(dev)->get_dsn(dev);
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
 	if (err < 0) {
 		kfree_skb(skb);
@@ -331,8 +331,8 @@ int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 		  (ro->src_addr.addr_type == IEEE802154_ADDR_LONG &&
 		     !memcmp(ro->src_addr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN)) ||
 		  (ro->src_addr.addr_type == IEEE802154_ADDR_SHORT &&
-		     IEEE802154_MLME_OPS(dev)->get_pan_id(dev) == ro->src_addr.pan_id &&
-		     IEEE802154_MLME_OPS(dev)->get_short_addr(dev) == ro->src_addr.short_addr)) {
+		     ieee802154_mlme_ops(dev)->get_pan_id(dev) == ro->src_addr.pan_id &&
+		     ieee802154_mlme_ops(dev)->get_short_addr(dev) == ro->src_addr.short_addr)) {
 			if (prev) {
 				struct sk_buff *clone;
 				clone = skb_clone(skb, GFP_ATOMIC);
