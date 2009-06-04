@@ -49,10 +49,10 @@ static int ieee802154_cmd_beacon_req(struct sk_buff *skb)
 	if (!(skb->dev->priv_flags & IFF_IEEE802154_COORD))
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_NONE ||
-	    MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_SHORT ||
-	    MAC_CB(skb)->da.pan_id != IEEE802154_PANID_BROADCAST ||
-	    MAC_CB(skb)->da.short_addr != IEEE802154_ADDR_BROADCAST)
+	if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_NONE ||
+	    mac_cb(skb)->da.addr_type != IEEE802154_ADDR_SHORT ||
+	    mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST ||
+	    mac_cb(skb)->da.short_addr != IEEE802154_ADDR_BROADCAST)
 		return -EINVAL;
 
 
@@ -74,15 +74,15 @@ static int ieee802154_cmd_assoc_req(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
-	    MAC_CB(skb)->sa.pan_id != IEEE802154_PANID_BROADCAST)
+	if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
+	    mac_cb(skb)->sa.pan_id != IEEE802154_PANID_BROADCAST)
 		return -EINVAL;
 
 	/* FIXME: check that we allow incoming ASSOC requests by consulting MIB */
 
 	cap = skb->data[1];
 
-	return ieee802154_nl_assoc_indic(skb->dev, &MAC_CB(skb)->sa, cap);
+	return ieee802154_nl_assoc_indic(skb->dev, &mac_cb(skb)->sa, cap);
 }
 
 static int ieee802154_cmd_assoc_resp(struct sk_buff *skb)
@@ -96,9 +96,9 @@ static int ieee802154_cmd_assoc_resp(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
-	    MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
-	    !(MAC_CB(skb)->flags & MAC_CB_FLAG_INTRAPAN))
+	if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
+	    mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
+	    !(mac_cb(skb)->flags & MAC_CB_FLAG_INTRAPAN))
 		return -EINVAL;
 
 	/* FIXME: check that we requested association ? */
@@ -125,10 +125,10 @@ static int ieee802154_cmd_disassoc_notify(struct sk_buff *skb)
 	if (skb->pkt_type != PACKET_HOST)
 		return 0;
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
-	    (MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_LONG &&
-	     MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_SHORT) ||
-	    MAC_CB(skb)->sa.pan_id != MAC_CB(skb)->da.pan_id)
+	if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_LONG ||
+	    (mac_cb(skb)->da.addr_type != IEEE802154_ADDR_LONG &&
+	     mac_cb(skb)->da.addr_type != IEEE802154_ADDR_SHORT) ||
+	    mac_cb(skb)->sa.pan_id != mac_cb(skb)->da.pan_id)
 		return -EINVAL;
 
 	reason = skb->data[1];
@@ -137,7 +137,7 @@ static int ieee802154_cmd_disassoc_notify(struct sk_buff *skb)
 	/* FIXME: if we device, one should receive ->da and not ->sa */
 	/* FIXME: the status should also help */
 
-	return ieee802154_nl_disassoc_indic(skb->dev, &MAC_CB(skb)->sa, reason);
+	return ieee802154_nl_disassoc_indic(skb->dev, &mac_cb(skb)->sa, reason);
 }
 
 int ieee802154_process_cmd(struct net_device *dev, struct sk_buff *skb)
@@ -196,8 +196,8 @@ static int ieee802154_send_cmd(struct net_device *dev,
 
 	skb_reset_network_header(skb);
 
-	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
-	MAC_CB(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
+	mac_cb(skb)->flags = IEEE802154_FC_TYPE_MAC_CMD | MAC_CB_FLAG_ACKREQ;
+	mac_cb(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, addr, saddr, len);
 	if (err < 0) {
 		kfree_skb(skb);

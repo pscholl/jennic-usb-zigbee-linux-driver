@@ -163,7 +163,7 @@ static int ieee802154_header_create(struct sk_buff *skb, struct net_device *dev,
 
 	pos = 2;
 
-	head[pos++] = MAC_CB(skb)->seq; /* DSN/BSN */
+	head[pos++] = mac_cb(skb)->seq; /* DSN/BSN */
 
 	if (!daddr)
 		return -EINVAL;
@@ -455,7 +455,7 @@ static int ieee802154_send_ack(struct sk_buff *skb)
 	data = skb_push(ackskb, 3);
 	data[0] = fc & 0xff;
 	data[1] = (fc >> 8) & 0xff;
-	data[2] = MAC_CB(skb)->seq;
+	data[2] = mac_cb(skb)->seq;
 
 	skb_reset_mac_header(ackskb);
 
@@ -479,8 +479,8 @@ static int ieee802154_process_beacon(struct net_device *dev, struct sk_buff *skb
 		ret = NET_RX_DROP;
 		goto fail;
 	}
-	dev_dbg(&dev->dev, "got beacon from pan %d\n", MAC_CB(skb)->sa.pan_id);
-	ieee802154_beacon_hash_add(&MAC_CB(skb)->sa);
+	dev_dbg(&dev->dev, "got beacon from pan %d\n", mac_cb(skb)->sa.pan_id);
+	ieee802154_beacon_hash_add(&mac_cb(skb)->sa);
 	ieee802154_beacon_hash_dump();
 	ret = NET_RX_SUCCESS;
 fail:
@@ -490,7 +490,7 @@ fail:
 
 static int ieee802154_process_ack(struct net_device *dev, struct sk_buff *skb)
 {
-	pr_debug("got ACK for SEQ=%d\n", MAC_CB(skb)->seq);
+	pr_debug("got ACK for SEQ=%d\n", mac_cb(skb)->seq);
 
 	kfree_skb(skb);
 	return NET_RX_SUCCESS;
@@ -506,9 +506,9 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp, struct sk_
 	pr_debug("%s Getting packet via slave interface %s\n",
 				__func__, ndp->dev->name);
 
-	switch (MAC_CB(skb)->da.addr_type) {
+	switch (mac_cb(skb)->da.addr_type) {
 	case IEEE802154_ADDR_NONE:
-		if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_NONE)
+		if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_NONE)
 			/* FIXME: check if we are PAN coordinator :) */
 			skb->pkt_type = PACKET_OTHERHOST;
 		else
@@ -516,22 +516,22 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp, struct sk_
 			skb->pkt_type = PACKET_HOST;
 		break;
 	case IEEE802154_ADDR_LONG:
-		if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
+		if (mac_cb(skb)->da.pan_id != ndp->pan_id && mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
 			skb->pkt_type = PACKET_OTHERHOST;
-		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE802154_ADDR_LEN))
+		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE802154_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
-		else if (!memcmp(MAC_CB(skb)->da.hwaddr, ndp->dev->broadcast, IEEE802154_ADDR_LEN))
+		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->broadcast, IEEE802154_ADDR_LEN))
 			/* FIXME: is this correct? */
 			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
 		break;
 	case IEEE802154_ADDR_SHORT:
-		if (MAC_CB(skb)->da.pan_id != ndp->pan_id && MAC_CB(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
+		if (mac_cb(skb)->da.pan_id != ndp->pan_id && mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
 			skb->pkt_type = PACKET_OTHERHOST;
-		else if (MAC_CB(skb)->da.short_addr == ndp->short_addr)
+		else if (mac_cb(skb)->da.short_addr == ndp->short_addr)
 			skb->pkt_type = PACKET_HOST;
-		else if (MAC_CB(skb)->da.short_addr == IEEE802154_ADDR_BROADCAST)
+		else if (mac_cb(skb)->da.short_addr == IEEE802154_ADDR_BROADCAST)
 			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
@@ -622,22 +622,22 @@ static int parse_frame_start(struct sk_buff *skb)
 	}
 
 	IEEE802154_FETCH_U16(skb, fc);
-	IEEE802154_FETCH_U8(skb, MAC_CB(skb)->seq);
+	IEEE802154_FETCH_U8(skb, mac_cb(skb)->seq);
 
 	pr_debug("%s: %04x dsn%02x\n", __func__, fc, head[2]);
 
-	MAC_CB(skb)->flags = IEEE802154_FC_TYPE(fc);
+	mac_cb(skb)->flags = IEEE802154_FC_TYPE(fc);
 
 	if (fc & IEEE802154_FC_ACK_REQ) {
 		pr_debug("%s(): ACKNOWLEDGE required\n", __func__);
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_ACKREQ;
+		mac_cb(skb)->flags |= MAC_CB_FLAG_ACKREQ;
 	}
 
 	if (fc & IEEE802154_FC_SECEN)
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_SECEN;
+		mac_cb(skb)->flags |= MAC_CB_FLAG_SECEN;
 
 	if (fc & IEEE802154_FC_INTRA_PAN)
-		MAC_CB(skb)->flags |= MAC_CB_FLAG_INTRAPAN;
+		mac_cb(skb)->flags |= MAC_CB_FLAG_INTRAPAN;
 
 	/* TODO */
 	if (MAC_CB_IS_SECEN(skb)) {
@@ -645,57 +645,57 @@ static int parse_frame_start(struct sk_buff *skb)
 		return -EINVAL;
 	}
 
-	MAC_CB(skb)->sa.addr_type = IEEE802154_FC_SAMODE(fc);
-	if (MAC_CB(skb)->sa.addr_type == IEEE802154_ADDR_NONE)
+	mac_cb(skb)->sa.addr_type = IEEE802154_FC_SAMODE(fc);
+	if (mac_cb(skb)->sa.addr_type == IEEE802154_ADDR_NONE)
 		pr_debug("%s(): src addr_type is NONE\n", __func__);
 
-	MAC_CB(skb)->da.addr_type = IEEE802154_FC_DAMODE(fc);
-	if (MAC_CB(skb)->da.addr_type == IEEE802154_ADDR_NONE)
+	mac_cb(skb)->da.addr_type = IEEE802154_FC_DAMODE(fc);
+	if (mac_cb(skb)->da.addr_type == IEEE802154_ADDR_NONE)
 		pr_debug("%s(): dst addr_type is NONE\n", __func__);
 
 	if (IEEE802154_FC_TYPE(fc) == IEEE802154_FC_TYPE_ACK) {
 		/* ACK can only have NONE-type addresses */
-		if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_NONE ||
-		    MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_NONE)
+		if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_NONE ||
+		    mac_cb(skb)->da.addr_type != IEEE802154_ADDR_NONE)
 			return -EINVAL;
 	}
 
-	if (MAC_CB(skb)->da.addr_type != IEEE802154_ADDR_NONE) {
-		IEEE802154_FETCH_U16(skb, MAC_CB(skb)->da.pan_id);
+	if (mac_cb(skb)->da.addr_type != IEEE802154_ADDR_NONE) {
+		IEEE802154_FETCH_U16(skb, mac_cb(skb)->da.pan_id);
 
 		if (MAC_CB_IS_INTRAPAN(skb)) { /* ! panid compress */
 			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n", __func__);
-			MAC_CB(skb)->sa.pan_id = MAC_CB(skb)->da.pan_id;
+			mac_cb(skb)->sa.pan_id = mac_cb(skb)->da.pan_id;
 			pr_debug("%s(): src PAN address %04x\n",
-					__func__, MAC_CB(skb)->sa.pan_id);
+					__func__, mac_cb(skb)->sa.pan_id);
 		}
 
 		pr_debug("%s(): dst PAN address %04x\n",
-				__func__, MAC_CB(skb)->da.pan_id);
+				__func__, mac_cb(skb)->da.pan_id);
 
-		if (MAC_CB(skb)->da.addr_type == IEEE802154_ADDR_SHORT) {
-			IEEE802154_FETCH_U16(skb, MAC_CB(skb)->da.short_addr);
+		if (mac_cb(skb)->da.addr_type == IEEE802154_ADDR_SHORT) {
+			IEEE802154_FETCH_U16(skb, mac_cb(skb)->da.short_addr);
 			pr_debug("%s(): dst SHORT address %04x\n",
-					__func__, MAC_CB(skb)->da.short_addr);
+					__func__, mac_cb(skb)->da.short_addr);
 
 		} else {
-			IEEE802154_FETCH_U64(skb, MAC_CB(skb)->da.hwaddr);
+			IEEE802154_FETCH_U64(skb, mac_cb(skb)->da.hwaddr);
 			pr_debug("%s(): dst hardware addr\n", __func__);
 		}
 	}
 
-	if (MAC_CB(skb)->sa.addr_type != IEEE802154_ADDR_NONE) {
+	if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __func__);
 		if (!(MAC_CB_IS_INTRAPAN(skb))) { /* ! panid compress */
-			IEEE802154_FETCH_U16(skb, MAC_CB(skb)->sa.pan_id);
+			IEEE802154_FETCH_U16(skb, mac_cb(skb)->sa.pan_id);
 			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n", __func__);
 		}
 
-		if (MAC_CB(skb)->sa.addr_type == IEEE802154_ADDR_SHORT) {
-			IEEE802154_FETCH_U16(skb, MAC_CB(skb)->sa.short_addr);
+		if (mac_cb(skb)->sa.addr_type == IEEE802154_ADDR_SHORT) {
+			IEEE802154_FETCH_U16(skb, mac_cb(skb)->sa.short_addr);
 			pr_debug("%s(): src IEEE802154_ADDR_SHORT\n", __func__);
 		} else {
-			IEEE802154_FETCH_U64(skb, MAC_CB(skb)->sa.hwaddr);
+			IEEE802154_FETCH_U64(skb, mac_cb(skb)->sa.hwaddr);
 			pr_debug("%s(): src hardware addr\n", __func__);
 		}
 	}

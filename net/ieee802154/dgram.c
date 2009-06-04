@@ -233,8 +233,8 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 
 	skb_reset_network_header(skb);
 
-	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
-	MAC_CB(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
+	mac_cb(skb)->flags = IEEE802154_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
+	mac_cb(skb)->seq = IEEE802154_MLME_OPS(dev)->get_dsn(dev);
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
 	if (err < 0) {
 		kfree_skb(skb);

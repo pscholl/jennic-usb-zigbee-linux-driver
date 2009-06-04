@@ -143,8 +143,8 @@ int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr
 
 	skb_reset_network_header(skb);
 
-	MAC_CB(skb)->flags = IEEE802154_FC_TYPE_BEACON;
-	MAC_CB(skb)->seq = IEEE802154_MLME_OPS(dev)->get_bsn(dev);
+	mac_cb(skb)->flags = IEEE802154_FC_TYPE_BEACON;
+	mac_cb(skb)->seq = IEEE802154_MLME_OPS(dev)->get_bsn(dev);
 
 	addr.addr_type = IEEE802154_ADDR_NONE;
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &addr, saddr, len);
@@ -201,10 +201,10 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 	pd = kzalloc(sizeof(struct ieee802154_pandsc), GFP_KERNEL);
 
 	/* Filling-up pre-parsed values */
-	pd->lqi = MAC_CB(skb)->lqi;
+	pd->lqi = mac_cb(skb)->lqi;
 	pd->sf = sf;
 	/* FIXME: make sure we do it right */
-	memcpy(&pd->addr, &MAC_CB(skb)->da, sizeof(struct ieee802154_addr));
+	memcpy(&pd->addr, &mac_cb(skb)->da, sizeof(struct ieee802154_addr));
 
 	/* Supplying our nitifiers with data */
 	ieee802154_slave_event(skb->dev, IEEE802154_NOTIFIER_BEACON, pd);
