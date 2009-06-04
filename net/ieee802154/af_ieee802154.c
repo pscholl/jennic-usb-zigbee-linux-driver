@@ -341,7 +341,7 @@ err_dgram:
 out:
 	return rc;
 }
-static void af_ieee802154_remove(void)
+static void __exit af_ieee802154_remove(void)
 {
 	dev_remove_pack(&ieee802154_packet_type);
 	sock_unregister(PF_IEEE802154);
