@@ -24,7 +24,7 @@
 #ifdef __KERNEL__
 #include <linux/kernel.h>
 #include <net/netlink.h>
-#include <net/ieee802154/nl802154.h>
+#include <linux/nl802154.h>
 #else
 #include <netlink/netlink.h>
 #include <netlink/attr.h>

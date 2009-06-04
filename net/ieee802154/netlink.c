@@ -23,11 +23,11 @@
 
 #include <linux/kernel.h>
 #include <linux/if_arp.h>
+#include <linux/netdevice.h>
 #include <net/netlink.h>
 #include <net/genetlink.h>
-#include <linux/netdevice.h>
+#include <linux/nl802154.h>
 #include <net/ieee802154/af_ieee802154.h>
-#define IEEE802154_NL_WANT_POLICY
 #include <net/ieee802154/nl802154.h>
 #include <net/ieee802154/netdevice.h>
 
