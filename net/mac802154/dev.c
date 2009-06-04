@@ -157,8 +157,8 @@ static int ieee802154_header_create(struct sk_buff *skb, struct net_device *dev,
 	struct ieee802154_addr dev_addr;
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 
-	fc = MAC_CB_TYPE(skb);
-	if (MAC_CB_IS_ACKREQ(skb))
+	fc = mac_cb_type(skb);
+	if (mac_cb_is_ackreq(skb))
 		fc |= IEEE802154_FC_ACK_REQ;
 
 	pos = 2;
@@ -444,7 +444,7 @@ static int ieee802154_send_ack(struct sk_buff *skb)
 	struct sk_buff *ackskb;
 
 	BUG_ON(!skb || !skb->dev);
-	BUG_ON(!MAC_CB_IS_ACKREQ(skb));
+	BUG_ON(!mac_cb_is_ackreq(skb));
 
 	ackskb = alloc_skb(LL_ALLOCATED_SPACE(skb->dev) + 3, GFP_ATOMIC);
 
@@ -540,10 +540,10 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp, struct sk_
 
 	skb->dev = ndp->dev;
 
-	if (MAC_CB_IS_ACKREQ(skb))
+	if (mac_cb_is_ackreq(skb))
 		ieee802154_send_ack(skb);
 
-	switch (MAC_CB_TYPE(skb)) {
+	switch (mac_cb_type(skb)) {
 	case IEEE802154_FC_TYPE_BEACON:
 		return ieee802154_process_beacon(ndp->dev, skb);
 	case IEEE802154_FC_TYPE_ACK:
@@ -553,7 +553,7 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp, struct sk_
 	case IEEE802154_FC_TYPE_DATA:
 		return ieee802154_process_data(ndp->dev, skb);
 	default:
-		pr_warning("ieee802154: Bad frame received (type = %d)\n", MAC_CB_TYPE(skb));
+		pr_warning("ieee802154: Bad frame received (type = %d)\n", mac_cb_type(skb));
 		kfree_skb(skb);
 		return NET_RX_DROP;
 	}
@@ -640,7 +640,7 @@ static int parse_frame_start(struct sk_buff *skb)
 		mac_cb(skb)->flags |= MAC_CB_FLAG_INTRAPAN;
 
 	/* TODO */
-	if (MAC_CB_IS_SECEN(skb)) {
+	if (mac_cb_is_secen(skb)) {
 		pr_info("security support is not implemented\n");
 		return -EINVAL;
 	}
@@ -663,7 +663,7 @@ static int parse_frame_start(struct sk_buff *skb)
 	if (mac_cb(skb)->da.addr_type != IEEE802154_ADDR_NONE) {
 		IEEE802154_FETCH_U16(skb, mac_cb(skb)->da.pan_id);
 
-		if (MAC_CB_IS_INTRAPAN(skb)) { /* ! panid compress */
+		if (mac_cb_is_intrapan(skb)) { /* ! panid compress */
 			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n", __func__);
 			mac_cb(skb)->sa.pan_id = mac_cb(skb)->da.pan_id;
 			pr_debug("%s(): src PAN address %04x\n",
@@ -686,7 +686,7 @@ static int parse_frame_start(struct sk_buff *skb)
 
 	if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_NONE) {
 		pr_debug("%s(): got src non-NONE address\n", __func__);
-		if (!(MAC_CB_IS_INTRAPAN(skb))) { /* ! panid compress */
+		if (!(mac_cb_is_intrapan(skb))) { /* ! panid compress */
 			IEEE802154_FETCH_U16(skb, mac_cb(skb)->sa.pan_id);
 			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n", __func__);
 		}
@@ -730,7 +730,7 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 		skb_trim(skb, skb->len - 2); /* CRC */
 	}
 
-	pr_debug("%s() frame %d\n", __func__, MAC_CB_TYPE(skb));
+	pr_debug("%s() frame %d\n", __func__, mac_cb_type(skb));
 
 	spin_lock(&priv->slaves_lock);
 	list_for_each_entry(ndp, &priv->slaves, list)

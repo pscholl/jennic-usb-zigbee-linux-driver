@@ -49,10 +49,25 @@ static inline struct ieee802154_mac_cb *mac_cb(struct sk_buff *skb)
 #define MAC_CB_FLAG_SECEN		(1 << 4)
 #define MAC_CB_FLAG_INTRAPAN		(1 << 5)
 
-#define MAC_CB_IS_ACKREQ(skb)		(mac_cb(skb)->flags & MAC_CB_FLAG_ACKREQ)
-#define MAC_CB_IS_SECEN(skb)		(mac_cb(skb)->flags & MAC_CB_FLAG_SECEN)
-#define MAC_CB_IS_INTRAPAN(skb)		(mac_cb(skb)->flags & MAC_CB_FLAG_INTRAPAN)
-#define MAC_CB_TYPE(skb)		(mac_cb(skb)->flags & MAC_CB_FLAG_TYPEMASK)
+static inline int mac_cb_is_ackreq(struct sk_buff *skb)
+{
+	return mac_cb(skb)->flags & MAC_CB_FLAG_ACKREQ;
+}
+
+static inline int mac_cb_is_secen(struct sk_buff *skb)
+{
+	return mac_cb(skb)->flags & MAC_CB_FLAG_SECEN;
+}
+
+static inline int mac_cb_is_intrapan(struct sk_buff *skb)
+{
+	return mac_cb(skb)->flags & MAC_CB_FLAG_INTRAPAN;
+}
+
+static inline int mac_cb_type(struct sk_buff *skb)
+{
+	return mac_cb(skb)->flags & MAC_CB_FLAG_TYPEMASK;
+}
 
 #define IEEE802154_MAC_SCAN_ED		0
 #define IEEE802154_MAC_SCAN_ACTIVE	1
