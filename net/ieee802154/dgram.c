@@ -218,17 +218,17 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 
 	if (!dev) {
 		pr_debug("no dev\n");
-		return -ENXIO;
+		err = -ENXIO;
+		goto out;
 	}
 	mtu = dev->mtu;
 	pr_debug("name = %s, mtu = %u\n", dev->name, mtu);
 
 	skb = sock_alloc_send_skb(sk, LL_ALLOCATED_SPACE(dev) + size, msg->msg_flags & MSG_DONTWAIT,
 				  &err);
-	if (!skb) {
-		dev_put(dev);
-		return err;
-	}
+	if (!skb)
+		goto out_dev;
+
 	skb_reserve(skb, LL_RESERVED_SPACE(dev));
 
 	skb_reset_network_header(skb);
@@ -236,38 +236,39 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg
 	mac_cb(skb)->flags = IEEE802154_FC_TYPE_DATA | MAC_CB_FLAG_ACKREQ;
 	mac_cb(skb)->seq = ieee802154_mlme_ops(dev)->get_dsn(dev);
 	err = dev_hard_header(skb, dev, ETH_P_IEEE802154, &ro->dst_addr, ro->bound ? &ro->src_addr : NULL, size);
-	if (err < 0) {
-		kfree_skb(skb);
-		dev_put(dev);
-		return err;
-	}
+	if (err < 0)
+		goto out_skb;
 
 	skb_reset_mac_header(skb);
 
 	err = memcpy_fromiovec(skb_put(skb, size), msg->msg_iov, size);
-	if (err < 0) {
-		kfree_skb(skb);
-		dev_put(dev);
-		return err;
-	}
+	if (err < 0)
+		goto out_skb;
 
 	if (size > mtu) {
 		pr_debug("size = %u, mtu = %u\n", size, mtu);
-		return -EINVAL;
+		err = -EINVAL;
+		goto out_skb;
 	}
 
 	skb->dev = dev;
 	skb->sk  = sk;
 	skb->protocol = htons(ETH_P_IEEE802154);
 
-	err = dev_queue_xmit(skb);
-
 	dev_put(dev);
 
-	if (err)
-		return err;
+	err = dev_queue_xmit(skb);
+	if (err > 0)
+		err = net_xmit_errno(err);
 
-	return size;
+	return err ?: size;
+
+out_skb:
+	kfree_skb(skb);
+out_dev:
+	dev_put(dev);
+out:
+	return err;
 }
 
 static int dgram_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,

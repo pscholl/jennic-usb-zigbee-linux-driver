@@ -154,11 +154,13 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	skb->sk  = sk;
 	skb->protocol = htons(ETH_P_IEEE802154);
 
-	err = dev_queue_xmit(skb);
-
 	dev_put(dev);
 
-	return size;
+	err = dev_queue_xmit(skb);
+	if (err > 0)
+		err = net_xmit_errno(err);
+
+	return err ?: size;
 
 out_skb:
 	kfree_skb(skb);
