@@ -232,7 +232,6 @@ static int ieee802154_create(struct net *net, struct socket *sock, int protocol)
 	struct proto *proto;
 	const struct proto_ops *ops;
 
-	/* FIXME: init_net */
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
 
@@ -290,7 +289,7 @@ static int ieee802154_rcv(struct sk_buff *skb, struct net_device *dev,
 	if (!netif_running(dev))
 		return -ENODEV;
 	pr_debug("got frame, type %d, dev %p\n", dev->type, dev);
-	/* FIXME: init_net */
+
 	if (!net_eq(dev_net(dev), &init_net))
 		goto drop;
 
