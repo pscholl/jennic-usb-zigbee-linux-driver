@@ -74,7 +74,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		data[1] = crc >> 8;
 	}
 
-	PHY_CB(skb)->chan = priv->chan;
+	phy_cb(skb)->chan = priv->chan;
 
 	skb->iif = dev->ifindex;
 	skb->dev = priv->hw->hw.netdev;

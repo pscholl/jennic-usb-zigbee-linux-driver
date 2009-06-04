@@ -43,7 +43,11 @@ struct ieee802154_phy_cb {
 	u8 chan;
 };
 
-#define PHY_CB(skb)	((struct ieee802154_phy_cb *)(skb)->cb)
+static inline struct ieee802154_phy_cb *phy_cb(struct sk_buff *skb)
+{
+	return (struct ieee802154_phy_cb *)skb->cb;
+}
+
 
 extern struct ieee802154_mlme_ops mac802154_mlme;
 

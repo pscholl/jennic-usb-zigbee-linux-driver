@@ -35,7 +35,7 @@ static void __ieee802154_rx_prepare(struct ieee802154_dev *dev, struct sk_buff *
 
 	BUG_ON(!skb);
 
-	PHY_CB(skb)->lqi = lqi;
+	phy_cb(skb)->lqi = lqi;
 
 	skb->dev = priv->hw.netdev;
 

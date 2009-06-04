@@ -36,8 +36,8 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 	struct xmit_work *xw = container_of(work, struct xmit_work, work);
 	phy_status_t res;
 
-	if (xw->priv->hw.current_channel != PHY_CB(xw->skb)->chan) {
-		res = xw->priv->ops->set_channel(&xw->priv->hw, PHY_CB(xw->skb)->chan);
+	if (xw->priv->hw.current_channel != phy_cb(xw->skb)->chan) {
+		res = xw->priv->ops->set_channel(&xw->priv->hw, phy_cb(xw->skb)->chan);
 		if (res != PHY_SUCCESS) {
 			pr_debug("set_channel failed\n");
 			goto out;
