@@ -60,7 +60,8 @@ static int ieee802154_cmd_beacon_req(struct sk_buff *skb)
 	 * We have no information in this command to proceed with.
 	 * we need to submit beacon as answer to this. */
 
-	return ieee802154_send_beacon(skb->dev, &saddr, ieee802154_mlme_ops(skb->dev)->get_pan_id(skb->dev),
+	return ieee802154_send_beacon(skb->dev, &saddr,
+			ieee802154_mlme_ops(skb->dev)->get_pan_id(skb->dev),
 			NULL, 0, flags, NULL);
 }
 
@@ -78,7 +79,10 @@ static int ieee802154_cmd_assoc_req(struct sk_buff *skb)
 	    mac_cb(skb)->sa.pan_id != IEEE802154_PANID_BROADCAST)
 		return -EINVAL;
 
-	/* FIXME: check that we allow incoming ASSOC requests by consulting MIB */
+	/*
+	 * FIXME: check that we allow incoming ASSOC requests
+	 * by consulting MIB
+	 */
 
 	cap = skb->data[1];
 
@@ -105,10 +109,13 @@ static int ieee802154_cmd_assoc_resp(struct sk_buff *skb)
 
 	status = skb->data[3];
 	short_addr = skb->data[1] | (skb->data[2] << 8);
-	pr_info("Received ASSOC-RESP status %x, addr %hx\n", status, short_addr);
+	pr_info("Received ASSOC-RESP status %x, addr %hx\n", status,
+			short_addr);
 	if (status) {
-		ieee802154_dev_set_short_addr(skb->dev, IEEE802154_ADDR_BROADCAST);
-		ieee802154_dev_set_pan_id(skb->dev, IEEE802154_PANID_BROADCAST);
+		ieee802154_dev_set_short_addr(skb->dev,
+				IEEE802154_ADDR_BROADCAST);
+		ieee802154_dev_set_pan_id(skb->dev,
+				IEEE802154_PANID_BROADCAST);
 	} else
 		ieee802154_dev_set_short_addr(skb->dev, short_addr);
 
@@ -137,7 +144,8 @@ static int ieee802154_cmd_disassoc_notify(struct sk_buff *skb)
 	/* FIXME: if we device, one should receive ->da and not ->sa */
 	/* FIXME: the status should also help */
 
-	return ieee802154_nl_disassoc_indic(skb->dev, &mac_cb(skb)->sa, reason);
+	return ieee802154_nl_disassoc_indic(skb->dev, &mac_cb(skb)->sa,
+			reason);
 }
 
 int ieee802154_process_cmd(struct net_device *dev, struct sk_buff *skb)
@@ -300,7 +308,10 @@ static int ieee802154_mlme_start_req(struct net_device *dev, struct ieee802154_a
 	ieee802154_dev_set_short_addr(dev, addr->short_addr);
 	ieee802154_dev_set_channel(dev, channel);
 
-	/* FIXME: add validation for unused parameters to be sane for SoftMAC */
+	/*
+	 * FIXME: add validation for unused parameters to be sane
+	 * for SoftMAC
+	 */
 
 	if (pan_coord)
 		dev->priv_flags |= IFF_IEEE802154_COORD;

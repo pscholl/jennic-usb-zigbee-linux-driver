@@ -448,7 +448,10 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	pr_debug("%s %d\n", __func__/*, priv->cur_state*/, state);
 	might_sleep();
 
-	if (state != PHY_TRX_OFF && state != PHY_RX_ON && state != PHY_TX_ON && state != PHY_FORCE_TRX_OFF)
+	if (state != PHY_TRX_OFF &&
+	    state != PHY_RX_ON &&
+	    state != PHY_TX_ON &&
+	    state != PHY_FORCE_TRX_OFF)
 		return PHY_INVAL;
 
 	do {
@@ -625,7 +628,10 @@ static int at86rf230_register(struct at86rf230_local *lp)
 	if (rc)
 		goto err_register;
 
-	/* FIXME: remove this after we have proper support for slave instantiation from iz tool */
+	/*
+	 * FIXME: remove this after we have proper support for slave
+	 * instantiation from iz tool
+	 */
 	rtnl_lock();
 	rc = ieee802154_add_slave(lp->dev, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
 	rtnl_unlock();
@@ -650,7 +656,8 @@ static void at86rf230_unregister(struct at86rf230_local *lp)
 
 static void at86rf230_irqwork(struct work_struct *work)
 {
-	struct at86rf230_local *lp = container_of(work, struct at86rf230_local, irqwork);
+	struct at86rf230_local *lp =
+		container_of(work, struct at86rf230_local, irqwork);
 	u8 status = 0, val;
 	int rc;
 	unsigned long flags;
@@ -735,11 +742,13 @@ static int at86rf230_hw_init(struct at86rf230_local *lp)
 	if (rc)
 		return rc;
 
-	rc = at86rf230_write_subreg(lp, SR_CLKM_SHA_SEL, 0x00); /* CLKM changes are applied immediately */
+	/* CLKM changes are applied immediately */
+	rc = at86rf230_write_subreg(lp, SR_CLKM_SHA_SEL, 0x00);
 	if (rc)
 		return rc;
 
-	rc = at86rf230_write_subreg(lp, SR_CLKM_CTRL, 0x00); /* Turn CLKM Off */
+	/* Turn CLKM Off */
+	rc = at86rf230_write_subreg(lp, SR_CLKM_CTRL, 0x00);
 	if (rc)
 		return rc;
 
@@ -856,7 +865,8 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 		goto err_gpio_dir;
 
 	if (man_id_1 != 0x00 || man_id_0 != 0x1f) {
-		dev_err(&spi->dev, "Non-Atmel device found (MAN_ID %02x %02x)\n", man_id_1, man_id_0);
+		dev_err(&spi->dev, "Non-Atmel device found (MAN_ID"
+				"%02x %02x)\n", man_id_1, man_id_0);
 		rc = -EINVAL;
 		goto err_gpio_dir;
 	}
@@ -893,7 +903,8 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	if (rc)
 		goto err_gpio_dir;
 
-	rc = request_irq(spi->irq, at86rf230_isr, IRQF_SHARED, dev_name(&spi->dev), lp);
+	rc = request_irq(spi->irq, at86rf230_isr, IRQF_SHARED,
+			dev_name(&spi->dev), lp);
 	if (rc)
 		goto err_gpio_dir;
 

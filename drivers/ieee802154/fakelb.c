@@ -76,17 +76,22 @@ hw_state(struct ieee802154_dev *dev, phy_status_t state)
 	struct fake_dev_priv *priv = dev->priv;
 	pr_debug("%s %d %d\n", __func__, priv->cur_state, state);
 	might_sleep();
-	if (state != PHY_TRX_OFF && state != PHY_RX_ON && state != PHY_TX_ON && state != PHY_FORCE_TRX_OFF)
+	if (state != PHY_TRX_OFF &&
+	    state != PHY_RX_ON &&
+	    state != PHY_TX_ON &&
+	    state != PHY_FORCE_TRX_OFF)
 		return PHY_INVAL;
 	else if (state == PHY_FORCE_TRX_OFF) {
 		priv->cur_state = PHY_TRX_OFF;
 		return PHY_SUCCESS;
 	} else if (priv->cur_state == state)
 		return state;
-	else if ((state == PHY_TRX_OFF || state == PHY_RX_ON) && is_transmitting(dev)) {
+	else if ((state == PHY_TRX_OFF || state == PHY_RX_ON) &&
+			is_transmitting(dev)) {
 		priv->pend_state = state;
 		return PHY_BUSY_TX;
-	} else if ((state == PHY_TRX_OFF || state == PHY_TX_ON) && is_receiving(dev)) {
+	} else if ((state == PHY_TRX_OFF || state == PHY_TX_ON) &&
+			is_receiving(dev)) {
 		priv->pend_state = state;
 		return PHY_BUSY_RX;
 	} else {
@@ -129,7 +134,8 @@ hw_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	} else {
 		struct fake_dev_priv *dp;
 		list_for_each_entry(dp, &priv->fake->list, list)
-			if (dp != priv && dp->dev->current_channel == priv->dev->current_channel)
+			if (dp != priv &&
+			    dp->dev->current_channel == priv->dev->current_channel)
 				hw_deliver(dp, skb);
 	}
 	read_unlock_bh(&fake->lock);
@@ -272,11 +278,13 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 	if (err)
 		goto err_grp;
 
-	err = ieee802154fake_add_priv(&pdev->dev, priv, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
+	err = ieee802154fake_add_priv(&pdev->dev, priv,
+			"\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
 	if (err < 0)
 		goto err_slave;
 
-/*	err = ieee802154fake_add_priv(priv, "\x67\x45\x23\x01\x67\x45\x23\x01");
+/*	err = ieee802154fake_add_priv(priv,
+			"\x67\x45\x23\x01\x67\x45\x23\x01");
 	if (err < 0)
 		goto err_slave;*/
 
@@ -319,7 +327,8 @@ static struct platform_driver ieee802154fake_driver = {
 
 static __init int fake_init(void)
 {
-	ieee802154fake_dev = platform_device_register_simple("ieee802154fakelb", -1, NULL, 0);
+	ieee802154fake_dev = platform_device_register_simple(
+			"ieee802154fakelb", -1, NULL, 0);
 	return platform_driver_register(&ieee802154fake_driver);
 }
 

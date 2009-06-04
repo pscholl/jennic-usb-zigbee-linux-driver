@@ -39,8 +39,10 @@ static int beacon_hashfn(struct ieee802154_addr *coord_addr, u16 pan_addr)
 
 static void __beacon_add_node(struct ieee802154_addr *coord_addr, u16 pan_addr)
 {
-	struct beacon_node *node = kzalloc(sizeof(struct beacon_node), GFP_KERNEL);
-	struct hlist_head *list = &beacon_hash[beacon_hashfn(coord_addr, pan_addr)];
+	struct beacon_node *node =
+		kzalloc(sizeof(struct beacon_node), GFP_KERNEL);
+	struct hlist_head *list =
+		&beacon_hash[beacon_hashfn(coord_addr, pan_addr)];
 	memcpy(&node->coord_addr, coord_addr, sizeof(struct ieee802154_addr));
 	node->pan_addr = pan_addr;
 	INIT_HLIST_NODE(&node->list);
@@ -56,7 +58,8 @@ struct beacon_node *ieee802154_beacon_find_pan(struct ieee802154_addr *coord_add
 	if (hlist_empty(list))
 		return NULL;
 	hlist_for_each(tmp, list) {
-		struct beacon_node *entry = hlist_entry(tmp, struct beacon_node, list);
+		struct beacon_node *entry =
+			hlist_entry(tmp, struct beacon_node, list);
 		if (entry->pan_addr == pan_addr)
 			return entry;
 	}

@@ -148,12 +148,14 @@ _send_pending_data(struct zb_device *zbdev)
 	zbdev->status = PHY_INVAL;
 
 	/* Debug info */
-	printk(KERN_INFO "%lu %s, %d bytes:", jiffies, __func__, zbdev->pending_size);
+	printk(KERN_INFO "%lu %s, %d bytes:", jiffies, __func__,
+			zbdev->pending_size);
 	for (j = 0; j < zbdev->pending_size; ++j)
 		printk(KERN_CONT " 0x%02X", zbdev->pending_data[j]);
 	printk(KERN_CONT "\n");
 
-	if (tty->driver->ops->write(tty, zbdev->pending_data, zbdev->pending_size) != zbdev->pending_size) {
+	if (tty->driver->ops->write(tty, zbdev->pending_data,
+				zbdev->pending_size) != zbdev->pending_size) {
 		printk(KERN_ERR "%s: device write failed\n", __func__);
 		return -1;
 	}
@@ -164,7 +166,9 @@ _send_pending_data(struct zb_device *zbdev)
 static int
 send_cmd(struct zb_device *zbdev, u8 id)
 {
-	u8 len = 0, buf[4];	/* 4 because of 2 start bytes, id and optional extra */
+	u8 len = 0;
+	/* 4 because of 2 start bytes, id and optional extra */
+	u8 buf[4];
 
 	/* Check arguments */
 	BUG_ON(!zbdev);
@@ -203,7 +207,9 @@ send_cmd(struct zb_device *zbdev, u8 id)
 static int
 send_cmd2(struct zb_device *zbdev, u8 id, u8 extra)
 {
-	u8 len = 0, buf[4];	/* 4 because of 2 start bytes, id and optional extra */
+	u8 len = 0;
+	/* 4 because of 2 start bytes, id and optional extra */
+	u8 buf[4];
 
 	/* Check arguments */
 	BUG_ON(!zbdev);
@@ -314,14 +320,22 @@ is_command(unsigned char c)
 static int
 _match_pending_id(struct zb_device *zbdev)
 {
-	return ((CMD_OPEN == zbdev->pending_id && RESP_OPEN == zbdev->id) ||
-		(CMD_CLOSE == zbdev->pending_id && RESP_CLOSE == zbdev->id) ||
-		(CMD_SET_CHANNEL == zbdev->pending_id && RESP_SET_CHANNEL == zbdev->id) ||
-		(CMD_ED == zbdev->pending_id && RESP_ED == zbdev->id) ||
-		(CMD_CCA == zbdev->pending_id && RESP_CCA == zbdev->id) ||
-		(CMD_SET_STATE == zbdev->pending_id && RESP_SET_STATE == zbdev->id) ||
-		(DATA_XMIT_BLOCK == zbdev->pending_id && RESP_XMIT_BLOCK == zbdev->id) ||
-		(DATA_XMIT_STREAM == zbdev->pending_id && RESP_XMIT_STREAM == zbdev->id) ||
+	return ((CMD_OPEN == zbdev->pending_id &&
+			RESP_OPEN == zbdev->id) ||
+		(CMD_CLOSE == zbdev->pending_id &&
+			RESP_CLOSE == zbdev->id) ||
+		(CMD_SET_CHANNEL == zbdev->pending_id &&
+			RESP_SET_CHANNEL == zbdev->id) ||
+		(CMD_ED == zbdev->pending_id &&
+			RESP_ED == zbdev->id) ||
+		(CMD_CCA == zbdev->pending_id &&
+			RESP_CCA == zbdev->id) ||
+		(CMD_SET_STATE == zbdev->pending_id &&
+			RESP_SET_STATE == zbdev->id) ||
+		(DATA_XMIT_BLOCK == zbdev->pending_id &&
+			RESP_XMIT_BLOCK == zbdev->id) ||
+		(DATA_XMIT_STREAM == zbdev->pending_id &&
+			RESP_XMIT_STREAM == zbdev->id) ||
 		DATA_RECV_BLOCK == zbdev->id ||
 		DATA_RECV_STREAM == zbdev->id);
 }
@@ -392,7 +406,8 @@ process_command(struct zb_device *zbdev)
 			zbdev->status = PHY_BUSY_TX;
 			break;
 		default:
-			printk(KERN_ERR "%s: bad status received from firmware: %u\n",
+			printk(KERN_ERR
+				"%s: bad status received from firmware: %u\n",
 				__func__, zbdev->param1);
 			zbdev->status = PHY_ERROR;
 			break;
@@ -403,7 +418,8 @@ process_command(struct zb_device *zbdev)
 		zbdev->ed = zbdev->param2;
 		break;
 	case DATA_RECV_BLOCK:
-		pr_debug("Received block, lqi %02x, len %02x\n", zbdev->param1, zbdev->param2);
+		pr_debug("Received block, lqi %02x, len %02x\n",
+				zbdev->param1, zbdev->param2);
 		/* zbdev->param1 is LQ, zbdev->param2 is length */
 		serial_net_rx(zbdev);
 		break;
@@ -439,7 +455,8 @@ process_char(struct zb_device *zbdev, unsigned char c)
 			zbdev->state = STATE_WAIT_PARAM1;
 		} else {
 			cleanup(zbdev);
-			printk(KERN_ERR "%s, unexpected command id: %x\n", __func__, c);
+			printk(KERN_ERR "%s, unexpected command id: %x\n",
+					__func__, c);
 		}
 		break;
 
@@ -468,7 +485,10 @@ process_char(struct zb_device *zbdev, unsigned char c)
 		if (zbdev->index < sizeof(zbdev->data)) {
 			zbdev->data[zbdev->index] = c;
 			zbdev->index++;
-			/* Pending data is received, param2 is length for DATA_RECV_BLOCK */
+			/*
+			 * Pending data is received,
+			 * param2 is length for DATA_RECV_BLOCK
+			 */
 			if (zbdev->index == zbdev->param2) {
 				process_command(zbdev);
 				cleanup(zbdev);
@@ -492,7 +512,9 @@ process_char(struct zb_device *zbdev, unsigned char c)
 static int _open_dev(struct zb_device *zbdev)
 {
 	int retries;
-	u8 len = 0, buf[4];	/* 4 because of 2 start bytes, id and optional extra */
+	u8 len = 0;
+	/* 4 because of 2 start bytes, id and optional extra */
+	u8 buf[4];
 
 	/* Check arguments */
 	BUG_ON(!zbdev);
@@ -528,7 +550,8 @@ static int _open_dev(struct zb_device *zbdev)
 			return 0;
 
 		/* 3 second before retransmission */
-		wait_for_completion_interruptible_timeout(&zbdev->open_done, msecs_to_jiffies(1000));
+		wait_for_completion_interruptible_timeout(
+				&zbdev->open_done, msecs_to_jiffies(1000));
 		--retries;
 	}
 
@@ -577,7 +600,9 @@ ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 		goto out;
 	}
 
-	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
@@ -613,7 +638,9 @@ ieee802154_serial_ed(struct ieee802154_dev *dev, u8 *level)
 		goto out;
 	}
 
-	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0) {
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0) {
 		*level = zbdev->ed;
 		ret = zbdev->status;
 	} else
@@ -652,7 +679,9 @@ ieee802154_serial_cca(struct ieee802154_dev *dev)
 		goto out;
 	}
 
-	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
@@ -703,7 +732,9 @@ ieee802154_serial_set_state(struct ieee802154_dev *dev, phy_status_t state)
 		goto out;
 	}
 
-	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
@@ -735,7 +766,9 @@ ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 		goto out;
 	}
 
-	if (wait_event_interruptible_timeout(zbdev->wq, zbdev->status != PHY_INVAL, msecs_to_jiffies(1000)) > 0)
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0)
 		ret = zbdev->status;
 	else
 		ret = PHY_ERROR;
@@ -779,7 +812,8 @@ ieee802154_tty_open(struct tty_struct *tty)
 	/* Allocate device structure */
 	zbdev = kzalloc(sizeof(struct zb_device), GFP_KERNEL);
 	if (NULL == zbdev) {
-		printk(KERN_ERR "%s: can't allocate zb_device structure.\n", __func__);
+		printk(KERN_ERR "%s: can't allocate zb_device structure.\n",
+				__func__);
 		return -ENOMEM;
 	}
 	mutex_init(&zbdev->mutex);
@@ -795,8 +829,10 @@ ieee802154_tty_open(struct tty_struct *tty)
 	zbdev->dev->name		= "serialdev";
 	zbdev->dev->priv		= zbdev;
 	zbdev->dev->extra_tx_headroom	= 0;
+	/* only 2.4 GHz band */
 	zbdev->dev->channel_mask	= 0x7ff;
-	zbdev->dev->current_channel	= 11; /* it's 1st channel of 2.4 Ghz space */
+	/* it's 1st channel of 2.4 Ghz space */
+	zbdev->dev->current_channel	= 11;
 	zbdev->dev->flags		= IEEE802154_FLAGS_OMIT_CKSUM;
 
 	zbdev->dev->parent = tty_get_device(tty);
@@ -884,7 +920,8 @@ ieee802154_tty_hangup(struct tty_struct *tty)
  * Called in process context only. May be re-entered by multiple ioctl calling threads.
  */
 static int
-ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
+ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file,
+		unsigned int cmd, unsigned long arg)
 {
 	struct zb_device *zbdev;
 	void __user *argp = (void __user *) arg;
@@ -901,7 +938,8 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd
 	case PPPIOCGUNIT:
 		/* TODO: some error checking */
 		BUG_ON(!zbdev->dev->netdev);
-		if (copy_to_user(argp, zbdev->dev->netdev->name, strlen(zbdev->dev->netdev->name)))
+		if (copy_to_user(argp, zbdev->dev->netdev->name,
+					strlen(zbdev->dev->netdev->name)))
 			return -EFAULT;
 		return 0;
 	case TCFLSH:
@@ -918,13 +956,15 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd
  * as soft interrupt level or mainline.
  */
 static void
-ieee802154_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *cflags, int count)
+ieee802154_tty_receive(struct tty_struct *tty, const unsigned char *buf,
+		char *cflags, int count)
 {
 	struct zb_device *zbdev;
 	int i;
 
 	/* Debug info */
-	printk(KERN_INFO "%lu %s, received %d bytes:", jiffies, __func__, count);
+	printk(KERN_INFO "%lu %s, received %d bytes:", jiffies, __func__,
+			count);
 	for (i = 0; i < count; ++i)
 		printk(KERN_CONT " 0x%02X", buf[i]);
 	printk(KERN_CONT "\n");
@@ -932,7 +972,8 @@ ieee802154_tty_receive(struct tty_struct *tty, const unsigned char *buf, char *c
 	/* Actual processing */
 	zbdev = tty->disc_data;
 	if (NULL == zbdev) {
-		printk(KERN_ERR "%s(): record for tty is not found\n", __func__);
+		printk(KERN_ERR "%s(): record for tty is not found\n",
+				__func__);
 		return;
 	}
 	for (i = 0; i < count; ++i)
@@ -967,7 +1008,8 @@ static int __init ieee802154_serial_init(void)
 	printk(KERN_INFO "Initializing ZigBee TTY interface\n");
 
 	if (tty_register_ldisc(N_IEEE802154, &ieee802154_ldisc) != 0) {
-		printk(KERN_ERR "%s: line discipline register failed\n", __func__);
+		printk(KERN_ERR "%s: line discipline register failed\n",
+				__func__);
 		return -EINVAL;
 	}
 
@@ -977,7 +1019,8 @@ static int __init ieee802154_serial_init(void)
 static void __exit ieee802154_serial_cleanup(void)
 {
 	if (tty_unregister_ldisc(N_IEEE802154) != 0)
-		printk(KERN_CRIT "failed to unregister ZigBee line discipline.\n");
+		printk(KERN_CRIT
+			"failed to unregister ZigBee line discipline.\n");
 }
 
 module_init(ieee802154_serial_init);

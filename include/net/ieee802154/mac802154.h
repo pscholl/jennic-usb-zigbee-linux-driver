@@ -61,7 +61,8 @@ struct ieee802154_ops {
 	phy_status_t (*tx)(struct ieee802154_dev *dev, struct sk_buff *skb);
 	phy_status_t (*cca)(struct ieee802154_dev *dev);
 	phy_status_t (*ed)(struct ieee802154_dev *dev, u8 *level);
-	phy_status_t (*set_trx_state)(struct ieee802154_dev *dev, phy_status_t state);
+	phy_status_t (*set_trx_state)(struct ieee802154_dev *dev,
+			phy_status_t state);
 	phy_status_t (*set_channel)(struct ieee802154_dev *dev, int channel);
 	/* FIXME: PIB get/set ??? */
 };

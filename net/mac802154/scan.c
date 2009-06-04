@@ -141,16 +141,16 @@ static void scanner(struct work_struct *work)
 		sw->channels &= ~(1 << i);
 	}
 
-	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_SUCCESS, sw->type, sw->channels,
-			sw->edl/*, NULL */);
+	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_SUCCESS, sw->type,
+			sw->channels, sw->edl/*, NULL */);
 
 	kfree(sw);
 
 	return;
 
 exit_error:
-	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_INVALID_PARAMETER, sw->type, sw->channels,
-			NULL/*, NULL */);
+	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_INVALID_PARAMETER,
+			sw->type, sw->channels, NULL/*, NULL */);
 	kfree(sw);
 	return;
 }
@@ -209,8 +209,8 @@ int ieee802154_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 d
 	return 0;
 
 inval:
-	ieee802154_nl_scan_confirm(dev, IEEE802154_INVALID_PARAMETER, type, channels,
-			NULL/*, NULL */);
+	ieee802154_nl_scan_confirm(dev, IEEE802154_INVALID_PARAMETER, type,
+			channels, NULL/*, NULL */);
 	return -EINVAL;
 }
 

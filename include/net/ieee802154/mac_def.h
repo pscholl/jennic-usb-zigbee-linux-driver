@@ -49,10 +49,10 @@
 #define IEEE802154_FC_DAMODE_MASK	(3 << IEEE802154_FC_DAMODE_SHIFT)
 
 #define IEEE802154_FC_SAMODE(x)		\
-		(((x) & IEEE802154_FC_SAMODE_MASK) >> IEEE802154_FC_SAMODE_SHIFT)
+	(((x) & IEEE802154_FC_SAMODE_MASK) >> IEEE802154_FC_SAMODE_SHIFT)
 
 #define IEEE802154_FC_DAMODE(x)		\
-		(((x) & IEEE802154_FC_DAMODE_MASK) >> IEEE802154_FC_DAMODE_SHIFT)
+	(((x) & IEEE802154_FC_DAMODE_MASK) >> IEEE802154_FC_DAMODE_SHIFT)
 
 
 /* MAC's Command Frames Identifiers */
@@ -71,8 +71,9 @@
  */
 enum {
 	/*
-	 * The requested operation was completed successfully. For a transmission
-	 * request, this value indicates a successful transmission.
+	 * The requested operation was completed successfully.
+	 * For a transmission request, this value indicates
+	 * a successful transmission.
 	 */
 	IEEE802154_SUCCESS = 0x0,
 

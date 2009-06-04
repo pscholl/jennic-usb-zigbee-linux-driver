@@ -62,7 +62,8 @@ static u8 fake_get_bsn(struct net_device *dev)
 static int fake_assoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap)
 {
 	/* We simply emulate it here */
-	return ieee802154_nl_assoc_confirm(dev, fake_get_short_addr(dev), IEEE802154_SUCCESS);
+	return ieee802154_nl_assoc_confirm(dev, fake_get_short_addr(dev),
+			IEEE802154_SUCCESS);
 }
 
 static int fake_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status)
@@ -86,7 +87,8 @@ static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
 static int fake_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
 {
 	u8 edl[27] = {};
-	return ieee802154_nl_scan_confirm(dev, IEEE802154_SUCCESS, type, channels,
+	return ieee802154_nl_scan_confirm(dev, IEEE802154_SUCCESS, type,
+			channels,
 			type == IEEE802154_MAC_SCAN_ED ? edl : NULL);
 }
 
@@ -132,7 +134,8 @@ static int ieee802154_fake_xmit(struct sk_buff *skb, struct net_device *dev)
 
 static int ieee802154_fake_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
-	struct sockaddr_ieee802154 *sa = (struct sockaddr_ieee802154 *)&ifr->ifr_addr;
+	struct sockaddr_ieee802154 *sa =
+		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
 	u16 pan_id, short_addr;
 
 	switch (cmd) {
@@ -140,7 +143,8 @@ static int ieee802154_fake_ioctl(struct net_device *dev, struct ifreq *ifr, int 
 		/* FIXME: fixed here, get from device IRL */
 		pan_id = fake_get_pan_id(dev);
 		short_addr = fake_get_short_addr(dev);
-		if (pan_id == IEEE802154_PANID_BROADCAST || short_addr == IEEE802154_ADDR_BROADCAST)
+		if (pan_id == IEEE802154_PANID_BROADCAST ||
+		    short_addr == IEEE802154_ADDR_BROADCAST)
 			return -EADDRNOTAVAIL;
 
 		sa->family = AF_IEEE802154;
@@ -182,13 +186,15 @@ static void ieee802154_fake_setup(struct net_device *dev)
 
 static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 {
-	struct net_device *dev = alloc_netdev(0, "hardwpan%d", ieee802154_fake_setup);
+	struct net_device *dev =
+		alloc_netdev(0, "hardwpan%d", ieee802154_fake_setup);
 	int err;
 
 	if (!dev)
 		return -ENOMEM;
 
-	memcpy(dev->dev_addr, "\xba\xbe\xca\xfe\xde\xad\xbe\xef", dev->addr_len);
+	memcpy(dev->dev_addr, "\xba\xbe\xca\xfe\xde\xad\xbe\xef",
+			dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 
 	dev->netdev_ops = &fake_ops;
@@ -242,7 +248,8 @@ static struct platform_driver ieee802154fake_driver = {
 
 static __init int fake_init(void)
 {
-	ieee802154fake_dev = platform_device_register_simple("ieee802154hardmac", -1, NULL, 0);
+	ieee802154fake_dev = platform_device_register_simple(
+			"ieee802154hardmac", -1, NULL, 0);
 	return platform_driver_register(&ieee802154fake_driver);
 }
 

@@ -74,7 +74,8 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		goto out;
 	}
 
-	if (dev->type != ARPHRD_IEEE802154_PHY && dev->type != ARPHRD_IEEE802154) {
+	if (dev->type != ARPHRD_IEEE802154_PHY &&
+	    dev->type != ARPHRD_IEEE802154) {
 		err = -ENODEV;
 		goto out_put;
 	}
@@ -136,8 +137,8 @@ static int raw_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		goto out_dev;
 	}
 
-	skb = sock_alloc_send_skb(sk, LL_ALLOCATED_SPACE(dev) + size, msg->msg_flags & MSG_DONTWAIT,
-				  &err);
+	skb = sock_alloc_send_skb(sk, LL_ALLOCATED_SPACE(dev) + size,
+			msg->msg_flags & MSG_DONTWAIT, &err);
 	if (!skb)
 		goto out_dev;
 
@@ -223,7 +224,8 @@ void ieee802154_raw_deliver(struct net_device *dev, struct sk_buff *skb)
 	read_lock(&raw_lock);
 	sk_for_each(sk, node, &raw_head) {
 		bh_lock_sock(sk);
-		if (!sk->sk_bound_dev_if || sk->sk_bound_dev_if == dev->ifindex) {
+		if (!sk->sk_bound_dev_if ||
+		    sk->sk_bound_dev_if == dev->ifindex) {
 
 			struct sk_buff *clone;
 

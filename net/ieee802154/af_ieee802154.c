@@ -41,7 +41,7 @@
 
 #define DBG_DUMP(data, len) { \
 	int i; \
-	pr_debug("file %s: function: %s: data: len %d:\n", __FILE__, __func__, len); \
+	pr_debug("function: %s: data: len %d:\n", __func__, len); \
 	for (i = 0; i < len; i++) {\
 		pr_debug("%02x: %02x\n", i, (data)[i]); \
 	} \
@@ -54,6 +54,7 @@ struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *a
 {
 	struct net_device *dev = NULL;
 	struct net_device *tmp;
+	u16 pan_id, short_addr;
 
 	switch (addr->addr_type) {
 	case IEEE802154_ADDR_LONG:
@@ -75,8 +76,11 @@ struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *a
 			if (tmp->type != ARPHRD_IEEE802154)
 				continue;
 
-			if (ieee802154_mlme_ops(tmp)->get_pan_id(tmp) == addr->pan_id &&
-			    ieee802154_mlme_ops(tmp)->get_short_addr(tmp) == addr->short_addr) {
+			pan_id = ieee802154_mlme_ops(tmp)->get_pan_id(tmp);
+			short_addr = ieee802154_mlme_ops(tmp)->get_short_addr(tmp);
+
+			if (pan_id == addr->pan_id &&
+			    short_addr == addr->short_addr) {
 				dev = tmp;
 				dev_hold(dev);
 				break;
@@ -86,7 +90,8 @@ struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *a
 		rtnl_unlock();
 		break;
 	default:
-		pr_warning("Unsupported ieee802154 address type: %d\n", addr->addr_type);
+		pr_warning("Unsupported ieee802154 address type: %d\n",
+				addr->addr_type);
 		break;
 	}
 
@@ -144,7 +149,8 @@ static int ieee802154_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsig
 
 	dev_load(sock_net(sk), ifr.ifr_name);
 	dev = dev_get_by_name(sock_net(sk), ifr.ifr_name);
-	if (dev->type == ARPHRD_IEEE802154 || dev->type == ARPHRD_IEEE802154_PHY)
+	if (dev->type == ARPHRD_IEEE802154 ||
+	    dev->type == ARPHRD_IEEE802154_PHY)
 		ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, cmd);
 
 	if (!ret && copy_to_user(arg, &ifr, sizeof(struct ifreq)))
@@ -165,7 +171,8 @@ static int ieee802154_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned
 		return sock_get_timestampns(sk, (struct timespec __user *)arg);
 	case SIOCGIFADDR:
 	case SIOCSIFADDR:
-		return ieee802154_dev_ioctl(sk, (struct ifreq __user *)arg, cmd);
+		return ieee802154_dev_ioctl(sk, (struct ifreq __user *)arg,
+				cmd);
 	default:
 		if (!sk->sk_prot->ioctl)
 			return -ENOIOCTLCMD;

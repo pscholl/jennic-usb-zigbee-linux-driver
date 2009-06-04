@@ -109,10 +109,12 @@ static int ieee802154_slave_close(struct net_device *dev)
 static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
-	struct sockaddr_ieee802154 *sa = (struct sockaddr_ieee802154 *)&ifr->ifr_addr;
+	struct sockaddr_ieee802154 *sa =
+		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
 	switch (cmd) {
 	case SIOCGIFADDR:
-		if (priv->pan_id == IEEE802154_PANID_BROADCAST || priv->short_addr == IEEE802154_ADDR_BROADCAST)
+		if (priv->pan_id == IEEE802154_PANID_BROADCAST ||
+		    priv->short_addr == IEEE802154_ADDR_BROADCAST)
 			return -EADDRNOTAVAIL;
 
 		sa->family = AF_IEEE802154;
@@ -121,9 +123,13 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int
 		sa->addr.short_addr = priv->short_addr;
 		return 0;
 	case SIOCSIFADDR:
-		dev_warn(&dev->dev, "Using DEBUGing ioctl SIOCSIFADDR isn't recommened!\n");
-		if (sa->family != AF_IEEE802154 || sa->addr.addr_type != IEEE802154_ADDR_SHORT ||
-			sa->addr.pan_id == IEEE802154_PANID_BROADCAST || sa->addr.short_addr == IEEE802154_ADDR_BROADCAST || sa->addr.short_addr == IEEE802154_ADDR_UNDEF)
+		dev_warn(&dev->dev,
+			"Using DEBUGing ioctl SIOCSIFADDR isn't recommened!\n");
+		if (sa->family != AF_IEEE802154 ||
+		    sa->addr.addr_type != IEEE802154_ADDR_SHORT ||
+		    sa->addr.pan_id == IEEE802154_PANID_BROADCAST ||
+		    sa->addr.short_addr == IEEE802154_ADDR_BROADCAST ||
+		    sa->addr.short_addr == IEEE802154_ADDR_UNDEF)
 			return -EINVAL;
 
 		priv->pan_id = sa->addr.pan_id;
@@ -169,9 +175,12 @@ static int ieee802154_header_create(struct sk_buff *skb, struct net_device *dev,
 		return -EINVAL;
 
 	if (!saddr) {
-		if (priv->short_addr == IEEE802154_ADDR_BROADCAST || priv->short_addr == IEEE802154_ADDR_UNDEF || priv->pan_id == IEEE802154_PANID_BROADCAST) {
+		if (priv->short_addr == IEEE802154_ADDR_BROADCAST ||
+		    priv->short_addr == IEEE802154_ADDR_UNDEF ||
+		    priv->pan_id == IEEE802154_PANID_BROADCAST) {
 			dev_addr.addr_type = IEEE802154_ADDR_LONG;
-			memcpy(dev_addr.hwaddr, dev->dev_addr, IEEE802154_ADDR_LEN);
+			memcpy(dev_addr.hwaddr, dev->dev_addr,
+					IEEE802154_ADDR_LEN);
 		} else {
 			dev_addr.addr_type = IEEE802154_ADDR_SHORT;
 			dev_addr.short_addr = priv->short_addr;
@@ -199,8 +208,10 @@ static int ieee802154_header_create(struct sk_buff *skb, struct net_device *dev,
 	if (saddr->addr_type != IEEE802154_ADDR_NONE) {
 		fc |= (saddr->addr_type << IEEE802154_FC_SAMODE_SHIFT);
 
-		if ((saddr->pan_id == daddr->pan_id) && (saddr->pan_id != IEEE802154_PANID_BROADCAST))
-			fc |= IEEE802154_FC_INTRA_PAN; /* PANID compression/ intra PAN */
+		if ((saddr->pan_id == daddr->pan_id) &&
+		    (saddr->pan_id != IEEE802154_PANID_BROADCAST))
+			/* PANID compression/ intra PAN */
+			fc |= IEEE802154_FC_INTRA_PAN;
 		else {
 			head[pos++] = saddr->pan_id & 0xff;
 			head[pos++] = saddr->pan_id >> 8;
@@ -516,18 +527,22 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp, struct sk_
 			skb->pkt_type = PACKET_HOST;
 		break;
 	case IEEE802154_ADDR_LONG:
-		if (mac_cb(skb)->da.pan_id != ndp->pan_id && mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
+		if (mac_cb(skb)->da.pan_id != ndp->pan_id &&
+		    mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
 			skb->pkt_type = PACKET_OTHERHOST;
-		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->dev_addr, IEEE802154_ADDR_LEN))
+		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->dev_addr,
+					IEEE802154_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
-		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->broadcast, IEEE802154_ADDR_LEN))
+		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->broadcast,
+					IEEE802154_ADDR_LEN))
 			/* FIXME: is this correct? */
 			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
 		break;
 	case IEEE802154_ADDR_SHORT:
-		if (mac_cb(skb)->da.pan_id != ndp->pan_id && mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
+		if (mac_cb(skb)->da.pan_id != ndp->pan_id &&
+		    mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
 			skb->pkt_type = PACKET_OTHERHOST;
 		else if (mac_cb(skb)->da.short_addr == ndp->short_addr)
 			skb->pkt_type = PACKET_HOST;
@@ -553,7 +568,8 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp, struct sk_
 	case IEEE802154_FC_TYPE_DATA:
 		return ieee802154_process_data(ndp->dev, skb);
 	default:
-		pr_warning("ieee802154: Bad frame received (type = %d)\n", mac_cb_type(skb));
+		pr_warning("ieee802154: Bad frame received (type = %d)\n",
+				mac_cb_type(skb));
 		kfree_skb(skb);
 		return NET_RX_DROP;
 	}
@@ -664,7 +680,8 @@ static int parse_frame_start(struct sk_buff *skb)
 		IEEE802154_FETCH_U16(skb, mac_cb(skb)->da.pan_id);
 
 		if (mac_cb_is_intrapan(skb)) { /* ! panid compress */
-			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n", __func__);
+			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n",
+					__func__);
 			mac_cb(skb)->sa.pan_id = mac_cb(skb)->da.pan_id;
 			pr_debug("%s(): src PAN address %04x\n",
 					__func__, mac_cb(skb)->sa.pan_id);
@@ -688,12 +705,14 @@ static int parse_frame_start(struct sk_buff *skb)
 		pr_debug("%s(): got src non-NONE address\n", __func__);
 		if (!(mac_cb_is_intrapan(skb))) { /* ! panid compress */
 			IEEE802154_FETCH_U16(skb, mac_cb(skb)->sa.pan_id);
-			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n", __func__);
+			pr_debug("%s(): src IEEE802154_FC_INTRA_PAN\n",
+					__func__);
 		}
 
 		if (mac_cb(skb)->sa.addr_type == IEEE802154_ADDR_SHORT) {
 			IEEE802154_FETCH_U16(skb, mac_cb(skb)->sa.short_addr);
-			pr_debug("%s(): src IEEE802154_ADDR_SHORT\n", __func__);
+			pr_debug("%s(): src IEEE802154_ADDR_SHORT\n",
+					__func__);
 		} else {
 			IEEE802154_FETCH_U64(skb, mac_cb(skb)->sa.hwaddr);
 			pr_debug("%s(): src hardware addr\n", __func__);

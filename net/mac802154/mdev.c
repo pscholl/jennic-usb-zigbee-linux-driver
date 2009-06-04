@@ -37,7 +37,8 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 	phy_status_t res;
 
 	if (xw->priv->hw.current_channel != phy_cb(xw->skb)->chan) {
-		res = xw->priv->ops->set_channel(&xw->priv->hw, phy_cb(xw->skb)->chan);
+		res = xw->priv->ops->set_channel(&xw->priv->hw,
+				phy_cb(xw->skb)->chan);
 		if (res != PHY_SUCCESS) {
 			pr_debug("set_channel failed\n");
 			goto out;
@@ -125,7 +126,8 @@ static int ieee802154_master_ioctl(struct net_device *dev, struct ifreq *ifr, in
 	case IEEE802154_SIOC_ADD_SLAVE:
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
-		return ieee802154_add_slave(&priv->hw, (u8 *) &ifr->ifr_hwaddr.sa_data);
+		return ieee802154_add_slave(&priv->hw,
+				(u8 *) &ifr->ifr_hwaddr.sa_data);
 	}
 	return -ENOIOCTLCMD;
 }
@@ -143,8 +145,8 @@ static void ieee802154_netdev_setup_master(struct net_device *dev)
 	dev->watchdog_timeo	= 0;
 }
 static ssize_t ieee802154_netdev_show(const struct device *dev,
-			   struct device_attribute *attr, char *buf,
-			   ssize_t (*format)(const struct net_device *, char *))
+		   struct device_attribute *attr, char *buf,
+		   ssize_t (*format)(const struct net_device *, char *))
 {
 	struct net_device *netdev = to_net_dev(dev);
 	ssize_t ret = -EINVAL;
@@ -215,7 +217,8 @@ struct ieee802154_dev *ieee802154_alloc_device(void)
 	dev = alloc_netdev(sizeof(struct ieee802154_priv),
 			"mwpan%d", ieee802154_netdev_setup_master);
 	if (!dev) {
-		printk(KERN_ERR "Failure to initialize master IEEE802154 device\n");
+		printk(KERN_ERR
+			"Failure to initialize master IEEE802154 device\n");
 		return NULL;
 	}
 	priv = netdev_priv(dev);
@@ -247,13 +250,15 @@ int ieee802154_register_device(struct ieee802154_dev *dev, struct ieee802154_ops
 		return -EFAULT;
 
 	BUG_ON(!dev || !dev->name);
-	BUG_ON(!ops || !ops->tx || !ops->cca || !ops->ed || !ops->set_trx_state);
+	BUG_ON(!ops || !ops->tx || !ops->cca || !ops->ed ||
+			!ops->set_trx_state);
 
 	priv->ops = ops;
 	rc = ieee802154_register_netdev_master(priv);
 	if (rc < 0)
 		goto out;
-	priv->dev_workqueue = create_singlethread_workqueue(priv->hw.netdev->name);
+	priv->dev_workqueue =
+		create_singlethread_workqueue(priv->hw.netdev->name);
 	if (!priv->dev_workqueue)
 		goto out_wq;
 
