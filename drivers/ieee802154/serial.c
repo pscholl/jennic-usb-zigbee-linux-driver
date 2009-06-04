@@ -314,16 +314,16 @@ is_command(unsigned char c)
 static int
 _match_pending_id(struct zb_device *zbdev)
 {
-	return ((CMD_OPEN == zbdev->pending_id && RESP_OPEN == zbdev->id)
-		|| (CMD_CLOSE == zbdev->pending_id && RESP_CLOSE == zbdev->id)
-		|| (CMD_SET_CHANNEL == zbdev->pending_id && RESP_SET_CHANNEL == zbdev->id)
-		|| (CMD_ED == zbdev->pending_id && RESP_ED == zbdev->id)
-		|| (CMD_CCA == zbdev->pending_id && RESP_CCA == zbdev->id)
-		|| (CMD_SET_STATE == zbdev->pending_id && RESP_SET_STATE == zbdev->id)
-		|| (DATA_XMIT_BLOCK == zbdev->pending_id && RESP_XMIT_BLOCK == zbdev->id)
-		|| (DATA_XMIT_STREAM == zbdev->pending_id && RESP_XMIT_STREAM == zbdev->id)
-		|| DATA_RECV_BLOCK == zbdev->id
-		|| DATA_RECV_STREAM == zbdev->id);
+	return ((CMD_OPEN == zbdev->pending_id && RESP_OPEN == zbdev->id) ||
+		(CMD_CLOSE == zbdev->pending_id && RESP_CLOSE == zbdev->id) ||
+		(CMD_SET_CHANNEL == zbdev->pending_id && RESP_SET_CHANNEL == zbdev->id) ||
+		(CMD_ED == zbdev->pending_id && RESP_ED == zbdev->id) ||
+		(CMD_CCA == zbdev->pending_id && RESP_CCA == zbdev->id) ||
+		(CMD_SET_STATE == zbdev->pending_id && RESP_SET_STATE == zbdev->id) ||
+		(DATA_XMIT_BLOCK == zbdev->pending_id && RESP_XMIT_BLOCK == zbdev->id) ||
+		(DATA_XMIT_STREAM == zbdev->pending_id && RESP_XMIT_STREAM == zbdev->id) ||
+		DATA_RECV_BLOCK == zbdev->id ||
+		DATA_RECV_STREAM == zbdev->id);
 }
 
 static void serial_net_rx(struct zb_device *zbdev)

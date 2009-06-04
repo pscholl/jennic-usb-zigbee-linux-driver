@@ -273,10 +273,10 @@ static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 	struct ieee802154_addr addr;
 	int ret = -EINVAL;
 
-	if (!info->attrs[IEEE802154_ATTR_CHANNEL]
-	 || !info->attrs[IEEE802154_ATTR_COORD_PAN_ID]
-	 || (!info->attrs[IEEE802154_ATTR_COORD_HW_ADDR] && !info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR])
-	 || !info->attrs[IEEE802154_ATTR_CAPABILITY])
+	if (!info->attrs[IEEE802154_ATTR_CHANNEL] ||
+	    !info->attrs[IEEE802154_ATTR_COORD_PAN_ID] ||
+	   (!info->attrs[IEEE802154_ATTR_COORD_HW_ADDR] && !info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR]) ||
+	    !info->attrs[IEEE802154_ATTR_CAPABILITY])
 		return -EINVAL;
 
 	dev = ieee802154_nl_get_dev(info);
@@ -306,9 +306,9 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 	struct ieee802154_addr addr;
 	int ret = -EINVAL;
 
-	if (!info->attrs[IEEE802154_ATTR_STATUS]
-	 || !info->attrs[IEEE802154_ATTR_DEST_HW_ADDR]
-	 || !info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR])
+	if (!info->attrs[IEEE802154_ATTR_STATUS] ||
+	    !info->attrs[IEEE802154_ATTR_DEST_HW_ADDR] ||
+	    !info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR])
 		return -EINVAL;
 
 	dev = ieee802154_nl_get_dev(info);
@@ -334,8 +334,8 @@ static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *in
 	struct ieee802154_addr addr;
 	int ret = -EINVAL;
 
-	if ((!info->attrs[IEEE802154_ATTR_DEST_HW_ADDR] && !info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR])
-	 || !info->attrs[IEEE802154_ATTR_REASON])
+	if ((!info->attrs[IEEE802154_ATTR_DEST_HW_ADDR] && !info->attrs[IEEE802154_ATTR_DEST_SHORT_ADDR]) ||
+	    !info->attrs[IEEE802154_ATTR_REASON])
 		return -EINVAL;
 
 	dev = ieee802154_nl_get_dev(info);
@@ -372,14 +372,14 @@ static int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 	int pan_coord, blx, coord_realign;
 	int ret;
 
-	if (!info->attrs[IEEE802154_ATTR_COORD_PAN_ID]
-	 || !info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR]
-	 || !info->attrs[IEEE802154_ATTR_CHANNEL]
-	 || !info->attrs[IEEE802154_ATTR_BCN_ORD]
-	 || !info->attrs[IEEE802154_ATTR_SF_ORD]
-	 || !info->attrs[IEEE802154_ATTR_PAN_COORD]
-	 || !info->attrs[IEEE802154_ATTR_BAT_EXT]
-	 || !info->attrs[IEEE802154_ATTR_COORD_REALIGN]
+	if (!info->attrs[IEEE802154_ATTR_COORD_PAN_ID] ||
+	    !info->attrs[IEEE802154_ATTR_COORD_SHORT_ADDR] ||
+	    !info->attrs[IEEE802154_ATTR_CHANNEL] ||
+	    !info->attrs[IEEE802154_ATTR_BCN_ORD] ||
+	    !info->attrs[IEEE802154_ATTR_SF_ORD] ||
+	    !info->attrs[IEEE802154_ATTR_PAN_COORD] ||
+	    !info->attrs[IEEE802154_ATTR_BAT_EXT] ||
+	    !info->attrs[IEEE802154_ATTR_COORD_REALIGN]
 	 )
 		return -EINVAL;
 
@@ -413,9 +413,9 @@ static int ieee802154_scan_req(struct sk_buff *skb, struct genl_info *info)
 	u32 channels;
 	u8 duration;
 
-	if (!info->attrs[IEEE802154_ATTR_SCAN_TYPE]
-	 || !info->attrs[IEEE802154_ATTR_CHANNELS]
-	 || !info->attrs[IEEE802154_ATTR_DURATION])
+	if (!info->attrs[IEEE802154_ATTR_SCAN_TYPE] ||
+	    !info->attrs[IEEE802154_ATTR_CHANNELS] ||
+	    !info->attrs[IEEE802154_ATTR_DURATION])
 		return -EINVAL;
 
 	dev = ieee802154_nl_get_dev(info);

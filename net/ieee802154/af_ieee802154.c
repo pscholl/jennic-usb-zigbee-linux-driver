@@ -64,9 +64,9 @@ struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *a
 		rtnl_unlock();
 		break;
 	case IEEE802154_ADDR_SHORT:
-		if (addr->pan_id == 0xffff
-		  || addr->short_addr == IEEE802154_ADDR_UNDEF
-		  || addr->short_addr == 0xffff)
+		if (addr->pan_id == 0xffff ||
+		    addr->short_addr == IEEE802154_ADDR_UNDEF ||
+		    addr->short_addr == 0xffff)
 			break;
 
 		rtnl_lock();
@@ -75,8 +75,8 @@ struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *a
 			if (tmp->type != ARPHRD_IEEE802154)
 				continue;
 
-			if (ieee802154_mlme_ops(tmp)->get_pan_id(tmp) == addr->pan_id
-			  && ieee802154_mlme_ops(tmp)->get_short_addr(tmp) == addr->short_addr) {
+			if (ieee802154_mlme_ops(tmp)->get_pan_id(tmp) == addr->pan_id &&
+			    ieee802154_mlme_ops(tmp)->get_short_addr(tmp) == addr->short_addr) {
 				dev = tmp;
 				dev_hold(dev);
 				break;
