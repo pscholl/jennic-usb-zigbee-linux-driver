@@ -83,15 +83,6 @@ out:
 	return -ENOBUFS;
 }
 
-static int ieee802154_nl_put_failure(struct sk_buff *msg)
-{
-	/* XXX: nlh is right at the start of msg */
-	void *hdr = genlmsg_data(NLMSG_DATA(msg->data));
-	genlmsg_cancel(msg, hdr);
-	nlmsg_free(msg);
-	return -ENOBUFS;
-}
-
 int ieee802154_nl_assoc_indic(struct net_device *dev,
 		struct ieee802154_addr *addr, u8 cap)
 {
@@ -121,7 +112,8 @@ int ieee802154_nl_assoc_indic(struct net_device *dev,
 	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	return ieee802154_nl_put_failure(msg);
+	nlmsg_free(msg);
+	return -ENOBUFS;
 }
 EXPORT_SYMBOL(ieee802154_nl_assoc_indic);
 
@@ -147,7 +139,8 @@ int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr,
 	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	return ieee802154_nl_put_failure(msg);
+	nlmsg_free(msg);
+	return -ENOBUFS;
 }
 EXPORT_SYMBOL(ieee802154_nl_assoc_confirm);
 
@@ -179,7 +172,8 @@ int ieee802154_nl_disassoc_indic(struct net_device *dev,
 	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	return ieee802154_nl_put_failure(msg);
+	nlmsg_free(msg);
+	return -ENOBUFS;
 }
 EXPORT_SYMBOL(ieee802154_nl_disassoc_indic);
 
@@ -203,7 +197,8 @@ int ieee802154_nl_disassoc_confirm(struct net_device *dev, u8 status)
 	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	return ieee802154_nl_put_failure(msg);
+	nlmsg_free(msg);
+	return -ENOBUFS;
 }
 EXPORT_SYMBOL(ieee802154_nl_disassoc_confirm);
 
@@ -228,7 +223,8 @@ int ieee802154_nl_beacon_indic(struct net_device *dev,
 	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	return ieee802154_nl_put_failure(msg);
+	nlmsg_free(msg);
+	return -ENOBUFS;
 }
 EXPORT_SYMBOL(ieee802154_nl_beacon_indic);
 
@@ -259,7 +255,8 @@ int ieee802154_nl_scan_confirm(struct net_device *dev,
 	return ieee802154_nl_finish(msg);
 
 nla_put_failure:
-	return ieee802154_nl_put_failure(msg);
+	nlmsg_free(msg);
+	return -ENOBUFS;
 }
 EXPORT_SYMBOL(ieee802154_nl_scan_confirm);
 
