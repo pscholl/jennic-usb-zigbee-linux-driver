@@ -67,7 +67,8 @@ out:
 	kfree(xw);
 }
 
-static int ieee802154_master_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static int ieee802154_master_hard_start_xmit(struct sk_buff *skb,
+		struct net_device *dev)
 {
 	struct ieee802154_priv *priv = netdev_priv(dev);
 	struct xmit_work *work;
@@ -119,7 +120,8 @@ static int ieee802154_master_close(struct net_device *dev)
 	priv->ops->set_trx_state(&priv->hw, PHY_FORCE_TRX_OFF);
 	return 0;
 }
-static int ieee802154_master_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+static int ieee802154_master_ioctl(struct net_device *dev, struct ifreq *ifr,
+		int cmd)
 {
 	struct ieee802154_priv *priv = netdev_priv(dev);
 	switch (cmd) {
@@ -241,7 +243,8 @@ void ieee802154_free_device(struct ieee802154_dev *hw)
 }
 EXPORT_SYMBOL(ieee802154_free_device);
 
-int ieee802154_register_device(struct ieee802154_dev *dev, struct ieee802154_ops *ops)
+int ieee802154_register_device(struct ieee802154_dev *dev,
+		struct ieee802154_ops *ops)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 	int rc;

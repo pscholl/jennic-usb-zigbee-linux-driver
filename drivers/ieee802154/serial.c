@@ -917,7 +917,8 @@ ieee802154_tty_hangup(struct tty_struct *tty)
 }
 
 /*
- * Called in process context only. May be re-entered by multiple ioctl calling threads.
+ * Called in process context only. May be re-entered
+ * by multiple ioctl calling threads.
  */
 static int
 ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file,

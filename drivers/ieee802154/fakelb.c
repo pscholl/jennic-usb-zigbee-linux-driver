@@ -152,7 +152,8 @@ static struct ieee802154_ops fake_ops = {
 	.set_channel = hw_channel,
 };
 
-static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake, const u8 *macaddr)
+static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake,
+		const u8 *macaddr)
 {
 	struct fake_dev_priv *priv;
 	int err = -ENOMEM;

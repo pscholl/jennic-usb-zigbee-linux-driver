@@ -106,7 +106,8 @@ static int ieee802154_slave_close(struct net_device *dev)
 }
 
 
-static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
+		int cmd)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 	struct sockaddr_ieee802154 *sa =
@@ -150,7 +151,8 @@ static int ieee802154_slave_mac_addr(struct net_device *dev, void *p)
 	return 0;
 }
 
-static int ieee802154_header_create(struct sk_buff *skb, struct net_device *dev,
+static int ieee802154_header_create(struct sk_buff *skb,
+			   struct net_device *dev,
 			   unsigned short type, const void *_daddr,
 			   const void *_saddr, unsigned len)
 {
@@ -234,7 +236,8 @@ static int ieee802154_header_create(struct sk_buff *skb, struct net_device *dev,
 	return pos;
 }
 
-static int ieee802154_header_parse(const struct sk_buff *skb, unsigned char *haddr)
+static int ieee802154_header_parse(const struct sk_buff *skb,
+		unsigned char *haddr)
 {
 	const u8 *hdr = skb_mac_header(skb), *tail = skb_tail_pointer(skb);
 	struct ieee802154_addr *addr = (struct ieee802154_addr *)haddr;
@@ -478,7 +481,8 @@ static int ieee802154_send_ack(struct sk_buff *skb)
 	return dev_queue_xmit(ackskb);
 }
 
-static int ieee802154_process_beacon(struct net_device *dev, struct sk_buff *skb)
+static int ieee802154_process_beacon(struct net_device *dev,
+		struct sk_buff *skb)
 {
 	int flags;
 	int ret;
@@ -512,7 +516,8 @@ static int ieee802154_process_data(struct net_device *dev, struct sk_buff *skb)
 	return netif_rx(skb);
 }
 
-static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp, struct sk_buff *skb)
+static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp,
+		struct sk_buff *skb)
 {
 	pr_debug("%s Getting packet via slave interface %s\n",
 				__func__, ndp->dev->name);
@@ -837,12 +842,14 @@ u8 ieee802154_dev_get_bsn(struct net_device *dev)
 	return priv->bsn++;
 }
 
-int ieee802154_slave_register_notifier(struct net_device *dev, struct notifier_block *nb)
+int ieee802154_slave_register_notifier(struct net_device *dev,
+		struct notifier_block *nb)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 	return blocking_notifier_chain_register(&priv->events, nb);
 }
-int ieee802154_slave_unregister_notifier(struct net_device *dev, struct notifier_block *nb)
+int ieee802154_slave_unregister_notifier(struct net_device *dev,
+		struct notifier_block *nb)
 {
 	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
 	return blocking_notifier_chain_unregister(&priv->events, nb);

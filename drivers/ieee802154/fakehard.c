@@ -59,19 +59,22 @@ static u8 fake_get_bsn(struct net_device *dev)
 	return 0x00; /* BSN are implemented in HW, so return just 0 */
 }
 
-static int fake_assoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap)
+static int fake_assoc_req(struct net_device *dev,
+		struct ieee802154_addr *addr, u8 channel, u8 cap)
 {
 	/* We simply emulate it here */
 	return ieee802154_nl_assoc_confirm(dev, fake_get_short_addr(dev),
 			IEEE802154_SUCCESS);
 }
 
-static int fake_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status)
+static int fake_assoc_resp(struct net_device *dev,
+		struct ieee802154_addr *addr, u16 short_addr, u8 status)
 {
 	return 0;
 }
 
-static int fake_disassoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
+static int fake_disassoc_req(struct net_device *dev,
+		struct ieee802154_addr *addr, u8 reason)
 {
 	return ieee802154_nl_disassoc_confirm(dev, IEEE802154_SUCCESS);
 }
@@ -84,7 +87,8 @@ static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
 	return 0;
 }
 
-static int fake_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
+static int fake_scan_req(struct net_device *dev, u8 type, u32 channels,
+		u8 duration)
 {
 	u8 edl[27] = {};
 	return ieee802154_nl_scan_confirm(dev, IEEE802154_SUCCESS, type,
@@ -132,7 +136,8 @@ static int ieee802154_fake_xmit(struct sk_buff *skb, struct net_device *dev)
 }
 
 
-static int ieee802154_fake_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+static int ieee802154_fake_ioctl(struct net_device *dev, struct ifreq *ifr,
+		int cmd)
 {
 	struct sockaddr_ieee802154 *sa =
 		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;

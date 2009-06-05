@@ -234,7 +234,8 @@ int ieee802154_send_beacon_req(struct net_device *dev)
 }
 
 
-static int ieee802154_mlme_assoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 channel, u8 cap)
+static int ieee802154_mlme_assoc_req(struct net_device *dev,
+		struct ieee802154_addr *addr, u8 channel, u8 cap)
 {
 	struct ieee802154_addr saddr;
 	u8 buf[2];
@@ -255,7 +256,8 @@ static int ieee802154_mlme_assoc_req(struct net_device *dev, struct ieee802154_a
 	return ieee802154_send_cmd(dev, addr, &saddr, buf, pos);
 }
 
-static int ieee802154_mlme_assoc_resp(struct net_device *dev, struct ieee802154_addr *addr, u16 short_addr, u8 status)
+static int ieee802154_mlme_assoc_resp(struct net_device *dev,
+		struct ieee802154_addr *addr, u16 short_addr, u8 status)
 {
 	struct ieee802154_addr saddr;
 	u8 buf[4];
@@ -273,7 +275,8 @@ static int ieee802154_mlme_assoc_resp(struct net_device *dev, struct ieee802154_
 	return ieee802154_send_cmd(dev, addr, &saddr, buf, pos);
 }
 
-static int ieee802154_mlme_disassoc_req(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
+static int ieee802154_mlme_disassoc_req(struct net_device *dev,
+		struct ieee802154_addr *addr, u8 reason)
 {
 	struct ieee802154_addr saddr;
 	u8 buf[2];
@@ -297,7 +300,8 @@ static int ieee802154_mlme_disassoc_req(struct net_device *dev, struct ieee80215
 	return ret;
 }
 
-static int ieee802154_mlme_start_req(struct net_device *dev, struct ieee802154_addr *addr,
+static int ieee802154_mlme_start_req(struct net_device *dev,
+				struct ieee802154_addr *addr,
 				u8 channel,
 				u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
 				u8 coord_realign)

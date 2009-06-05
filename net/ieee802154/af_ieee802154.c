@@ -50,7 +50,8 @@
 /*
  * Utility function for families
  */
-struct net_device *ieee802154_get_dev(struct net *net, struct ieee802154_addr *addr)
+struct net_device *ieee802154_get_dev(struct net *net,
+		struct ieee802154_addr *addr)
 {
 	struct net_device *dev = NULL;
 	struct net_device *tmp;
@@ -108,14 +109,16 @@ static int ieee802154_sock_release(struct socket *sock)
 	}
 	return 0;
 }
-static int ieee802154_sock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg, size_t len)
+static int ieee802154_sock_sendmsg(struct kiocb *iocb, struct socket *sock,
+		struct msghdr *msg, size_t len)
 {
 	struct sock *sk = sock->sk;
 
 	return sk->sk_prot->sendmsg(iocb, sk, msg, len);
 }
 
-static int ieee802154_sock_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
+static int ieee802154_sock_bind(struct socket *sock, struct sockaddr *uaddr,
+		int addr_len)
 {
 	struct sock *sk = sock->sk;
 
@@ -136,7 +139,8 @@ static int ieee802154_sock_connect(struct socket *sock, struct sockaddr *uaddr,
 	return sk->sk_prot->connect(sk, uaddr, addr_len);
 }
 
-static int ieee802154_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsigned int cmd)
+static int ieee802154_dev_ioctl(struct sock *sk, struct ifreq __user *arg,
+		unsigned int cmd)
 {
 	struct ifreq ifr;
 	int ret = -EINVAL;
@@ -160,7 +164,8 @@ static int ieee802154_dev_ioctl(struct sock *sk, struct ifreq __user *arg, unsig
 	return ret;
 }
 
-static int ieee802154_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
+static int ieee802154_sock_ioctl(struct socket *sock, unsigned int cmd,
+		unsigned long arg)
 {
 	struct sock *sk = sock->sk;
 
@@ -235,7 +240,8 @@ static const struct proto_ops ieee802154_dgram_ops = {
  * Create a socket. Initialise the socket, blank the addresses
  * set the state.
  */
-static int ieee802154_create(struct net *net, struct socket *sock, int protocol)
+static int ieee802154_create(struct net *net, struct socket *sock,
+		int protocol)
 {
 	struct sock *sk;
 	int rc;

@@ -164,7 +164,8 @@ exit_error:
  * @param duration scan duration, see ieee802.15.4-2003.pdf, page 145.
  * @return 0 if request is ok, errno otherwise.
  */
-int ieee802154_mlme_scan_req(struct net_device *dev, u8 type, u32 channels, u8 duration)
+int ieee802154_mlme_scan_req(struct net_device *dev,
+		u8 type, u32 channels, u8 duration)
 {
 	struct ieee802154_priv *hw = ieee802154_slave_get_priv(dev);
 	struct scan_work *work;

@@ -92,7 +92,8 @@ static int ieee802154_nl_put_failure(struct sk_buff *msg)
 	return -ENOBUFS;
 }
 
-int ieee802154_nl_assoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 cap)
+int ieee802154_nl_assoc_indic(struct net_device *dev,
+		struct ieee802154_addr *addr, u8 cap)
 {
 	struct sk_buff *msg;
 
@@ -124,7 +125,8 @@ nla_put_failure:
 }
 EXPORT_SYMBOL(ieee802154_nl_assoc_indic);
 
-int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr, u8 status)
+int ieee802154_nl_assoc_confirm(struct net_device *dev, u16 short_addr,
+		u8 status)
 {
 	struct sk_buff *msg;
 
@@ -149,7 +151,8 @@ nla_put_failure:
 }
 EXPORT_SYMBOL(ieee802154_nl_assoc_confirm);
 
-int ieee802154_nl_disassoc_indic(struct net_device *dev, struct ieee802154_addr *addr, u8 reason)
+int ieee802154_nl_disassoc_indic(struct net_device *dev,
+		struct ieee802154_addr *addr, u8 reason)
 {
 	struct sk_buff *msg;
 
@@ -204,7 +207,8 @@ nla_put_failure:
 }
 EXPORT_SYMBOL(ieee802154_nl_disassoc_confirm);
 
-int ieee802154_nl_beacon_indic(struct net_device *dev, u16 panid, u16 coord_addr) /* TODO */
+int ieee802154_nl_beacon_indic(struct net_device *dev,
+		u16 panid, u16 coord_addr)
 {
 	struct sk_buff *msg;
 
@@ -228,7 +232,8 @@ nla_put_failure:
 }
 EXPORT_SYMBOL(ieee802154_nl_beacon_indic);
 
-int ieee802154_nl_scan_confirm(struct net_device *dev, u8 status, u8 scan_type, u32 unscanned,
+int ieee802154_nl_scan_confirm(struct net_device *dev,
+		u8 status, u8 scan_type, u32 unscanned,
 		u8 *edl/* , struct list_head *pan_desc_list */)
 {
 	struct sk_buff *msg;
@@ -282,7 +287,8 @@ static struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
 	return dev;
 }
 
-static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
+static int ieee802154_associate_req(struct sk_buff *skb,
+		struct genl_info *info)
 {
 	struct net_device *dev;
 	struct ieee802154_addr addr;
@@ -319,7 +325,8 @@ static int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 	return ret;
 }
 
-static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info)
+static int ieee802154_associate_resp(struct sk_buff *skb,
+		struct genl_info *info)
 {
 	struct net_device *dev;
 	struct ieee802154_addr addr;
@@ -348,7 +355,8 @@ static int ieee802154_associate_resp(struct sk_buff *skb, struct genl_info *info
 	return ret;
 }
 
-static int ieee802154_disassociate_req(struct sk_buff *skb, struct genl_info *info)
+static int ieee802154_disassociate_req(struct sk_buff *skb,
+		struct genl_info *info)
 {
 	struct net_device *dev;
 	struct ieee802154_addr addr;

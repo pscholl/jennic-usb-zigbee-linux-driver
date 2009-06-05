@@ -68,13 +68,16 @@ struct ieee802154_ops {
 };
 
 struct ieee802154_dev *ieee802154_alloc_device(void);
-int ieee802154_register_device(struct ieee802154_dev *dev, struct ieee802154_ops *ops);
+int ieee802154_register_device(struct ieee802154_dev *dev,
+		struct ieee802154_ops *ops);
 void ieee802154_unregister_device(struct ieee802154_dev *dev);
 void ieee802154_free_device(struct ieee802154_dev *dev);
 
-int __deprecated ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr);
+int __deprecated ieee802154_add_slave(struct ieee802154_dev *hw,
+		const u8 *addr);
 
 void ieee802154_rx(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi);
-void ieee802154_rx_irqsafe(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi);
+void ieee802154_rx_irqsafe(struct ieee802154_dev *dev, struct sk_buff *skb,
+		u8 lqi);
 #endif
 

@@ -40,7 +40,8 @@ struct ieee802154_pandsc {
 int parse_beacon_frame(struct sk_buff *skb, u8 * buf,
 		int *flags, struct list_head *al);
 
-int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr,
+int ieee802154_send_beacon(struct net_device *dev,
+		struct ieee802154_addr *saddr,
 		u16 pan_id, const u8 *buf, int len,
 		int flags, struct list_head *al);
 

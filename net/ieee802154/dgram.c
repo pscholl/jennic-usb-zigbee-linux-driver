@@ -319,8 +319,8 @@ static int dgram_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	return NET_RX_SUCCESS;
 }
 
-static inline int ieee802154_match_sock(u8 *hw_addr, u16 pan_id, u16 short_addr,
-		struct dgram_sock *ro)
+static inline int ieee802154_match_sock(u8 *hw_addr, u16 pan_id,
+		u16 short_addr, struct dgram_sock *ro)
 {
 	if (!ro->bound)
 		return 1;

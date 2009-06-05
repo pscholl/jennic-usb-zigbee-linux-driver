@@ -49,8 +49,8 @@ static void __beacon_add_node(struct ieee802154_addr *coord_addr, u16 pan_addr)
 	hlist_add_head(&node->list, list);
 }
 
-struct beacon_node *ieee802154_beacon_find_pan(struct ieee802154_addr *coord_addr,
-						u16 pan_addr)
+struct beacon_node *ieee802154_beacon_find_pan(
+		struct ieee802154_addr *coord_addr, u16 pan_addr)
 {
 	struct hlist_head *list;
 	struct hlist_node *tmp;

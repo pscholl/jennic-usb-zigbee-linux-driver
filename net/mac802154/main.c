@@ -29,7 +29,8 @@
 
 #include "mac802154.h"
 
-static void __ieee802154_rx_prepare(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi)
+static void __ieee802154_rx_prepare(struct ieee802154_dev *dev,
+		struct sk_buff *skb, u8 lqi)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 
@@ -77,7 +78,8 @@ static void ieee802154_rx_worker(struct work_struct *work)
 	kfree(rw);
 }
 
-void ieee802154_rx_irqsafe(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi)
+void ieee802154_rx_irqsafe(struct ieee802154_dev *dev,
+		struct sk_buff *skb, u8 lqi)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 	struct rx_work *work = kzalloc(sizeof(struct rx_work), GFP_ATOMIC);

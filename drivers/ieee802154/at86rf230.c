@@ -269,7 +269,8 @@ __at86rf230_write(struct at86rf230_local *lp, u8 addr, u8 data)
 }
 
 static int
-__at86rf230_read_subreg(struct at86rf230_local *lp, u8 addr, u8 mask, int shift, u8* data)
+__at86rf230_read_subreg(struct at86rf230_local *lp,
+		u8 addr, u8 mask, int shift, u8* data)
 {
 	u8 *buf = lp->buf;
 	int status;
@@ -301,7 +302,8 @@ __at86rf230_read_subreg(struct at86rf230_local *lp, u8 addr, u8 mask, int shift,
 }
 
 static int
-at86rf230_read_subreg(struct at86rf230_local *lp, u8 addr, u8 mask, int shift, u8* data)
+at86rf230_read_subreg(struct at86rf230_local *lp,
+		u8 addr, u8 mask, int shift, u8* data)
 {
 	int status;
 
@@ -313,7 +315,8 @@ at86rf230_read_subreg(struct at86rf230_local *lp, u8 addr, u8 mask, int shift, u
 }
 
 static int
-at86rf230_write_subreg(struct at86rf230_local *lp, u8 addr, u8 mask, int shift, u8 data)
+at86rf230_write_subreg(struct at86rf230_local *lp,
+		u8 addr, u8 mask, int shift, u8 data)
 {
 	int status;
 	u8 val;

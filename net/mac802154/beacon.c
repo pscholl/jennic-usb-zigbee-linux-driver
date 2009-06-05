@@ -111,7 +111,8 @@ struct ieee802154_address_list {
  * TODO:
  * For a beacon frame, the sequence number field shall specify a BSN.
  * Each coordinator shall store its current
- * BSN value in the MAC PIB attribute macBSN and initialize it to a random value.
+ * BSN value in the MAC PIB attribute macBSN and initialize it to
+ * a random value.
  * The algorithm for choosing a random number is out of the scope
  * of this standard. The coordinator shall copy the value of the macBSN
  * attribute into the sequence number field of a beacon frame,
@@ -120,7 +121,8 @@ struct ieee802154_address_list {
 */
 
 
-int ieee802154_send_beacon(struct net_device *dev, struct ieee802154_addr *saddr,
+int ieee802154_send_beacon(struct net_device *dev,
+		struct ieee802154_addr *saddr,
 		u16 pan_id, const u8 *buf, int len,
 		int flags, struct list_head *al)
 {
