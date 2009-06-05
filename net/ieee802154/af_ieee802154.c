@@ -78,7 +78,8 @@ struct net_device *ieee802154_get_dev(struct net *net,
 				continue;
 
 			pan_id = ieee802154_mlme_ops(tmp)->get_pan_id(tmp);
-			short_addr = ieee802154_mlme_ops(tmp)->get_short_addr(tmp);
+			short_addr =
+				ieee802154_mlme_ops(tmp)->get_short_addr(tmp);
 
 			if (pan_id == addr->pan_id &&
 			    short_addr == addr->short_addr) {

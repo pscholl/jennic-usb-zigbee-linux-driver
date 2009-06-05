@@ -34,9 +34,10 @@
 #define IEEE802154_FC_TYPE_SHIFT		0
 #define IEEE802154_FC_TYPE_MASK		((1 << 3) - 1)
 #define IEEE802154_FC_TYPE(x)		((x & IEEE802154_FC_TYPE_MASK) >> IEEE802154_FC_TYPE_SHIFT)
-#define IEEE802154_FC_SET_TYPE(v, x)	do {v = (((v) & ~IEEE802154_FC_TYPE_MASK) | \
-						(((x) << IEEE802154_FC_TYPE_SHIFT) \
-						& IEEE802154_FC_TYPE_MASK)); } while (0)
+#define IEEE802154_FC_SET_TYPE(v, x)	do {	\
+	v = (((v) & ~IEEE802154_FC_TYPE_MASK) | \
+	    (((x) << IEEE802154_FC_TYPE_SHIFT) & IEEE802154_FC_TYPE_MASK)); \
+	} while (0)
 
 #define IEEE802154_FC_SECEN		(1 << 3)
 #define IEEE802154_FC_FRPEND		(1 << 4)

@@ -78,7 +78,7 @@ void ieee802154_beacon_hash_add(struct ieee802154_addr *coord_addr)
 void ieee802154_beacon_hash_del(struct ieee802154_addr *coord_addr)
 {
 	struct beacon_node *entry = ieee802154_beacon_find_pan(coord_addr,
-								coord_addr->pan_id);
+							coord_addr->pan_id);
 	if (!entry)
 		return;
 	write_lock(&beacon_hash_lock);
