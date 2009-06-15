@@ -48,8 +48,8 @@ struct ieee802154_netdev_priv {
 	struct ieee802154_priv *hw;
 	struct net_device *dev;
 
-	__le16 pan_id;
-	__le16 short_addr;
+	u16 pan_id;
+	u16 short_addr;
 
 	u8 chan;
 
