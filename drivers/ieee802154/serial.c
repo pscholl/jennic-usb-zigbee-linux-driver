@@ -631,7 +631,6 @@ ieee802154_serial_ed(struct ieee802154_dev *dev, u8 *level)
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
 
-#if 0
 	if (send_cmd(zbdev, CMD_ED) != 0) {
 		ret = PHY_ERROR;
 		goto out;
@@ -645,12 +644,7 @@ ieee802154_serial_ed(struct ieee802154_dev *dev, u8 *level)
 	} else
 		ret = PHY_ERROR;
 out:
-#else
-	/* Lets suppose we have energy on all channels
-	 * till we fix something regarding hardware or driver */
-	*level = 0xbe;
-	ret = PHY_SUCCESS;
-#endif
+
 	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n", __func__);
 	return ret;
