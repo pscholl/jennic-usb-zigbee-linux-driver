@@ -45,6 +45,7 @@ config CRC_T10DIF
 
 config CRC_ITU_T
 	tristate "CRC ITU-T V.41 functions"
+	select BITREVERSE
 	help
 	  This option is provided for the case where no in-kernel-tree
 	  modules require CRC ITU-T V.41 functions, but a module built outside
