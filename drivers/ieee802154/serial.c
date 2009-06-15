@@ -22,7 +22,7 @@
  * Written by:
  * Maxim Gorbachyov <maxim.gorbachev@siemens.com>
  * Maxim Osipov <maxim.osipov@siemens.com>
- * Sergey Lapin <sergey.lapin@siemens.com>
+ * Sergey Lapin <slapin@ossfans.org>
  */
 
 #include <linux/module.h>
