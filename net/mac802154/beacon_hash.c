@@ -97,7 +97,7 @@ void ieee802154_beacon_hash_dump(void)
 		struct beacon_node *entry;
 		hlist_for_each(tmp, &beacon_hash[i]) {
 			entry = hlist_entry(tmp, struct beacon_node, list);
-			pr_debug("PAN: %d\n", entry->pan_addr);
+			pr_debug("PAN: %04x\n", entry->pan_addr);
 		}
 	}
 	read_unlock(&beacon_hash_lock);

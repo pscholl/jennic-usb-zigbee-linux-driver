@@ -494,7 +494,7 @@ static int ieee802154_process_beacon(struct net_device *dev,
 		ret = NET_RX_DROP;
 		goto fail;
 	}
-	dev_dbg(&dev->dev, "got beacon from pan %d\n", mac_cb(skb)->sa.pan_id);
+	dev_dbg(&dev->dev, "got beacon from pan %04x\n", mac_cb(skb)->sa.pan_id);
 	ieee802154_beacon_hash_add(&mac_cb(skb)->sa);
 	ieee802154_beacon_hash_dump();
 	ret = NET_RX_SUCCESS;
