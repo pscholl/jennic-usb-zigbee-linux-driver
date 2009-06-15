@@ -148,11 +148,11 @@ _send_pending_data(struct zb_device *zbdev)
 	zbdev->status = PHY_INVAL;
 
 	/* Debug info */
-	printk(KERN_INFO "%lu %s, %d bytes:", jiffies, __func__,
+	printk(KERN_INFO "%s, %d bytes\n", __func__,
 			zbdev->pending_size);
-	for (j = 0; j < zbdev->pending_size; ++j)
-		printk(KERN_CONT " 0x%02X", zbdev->pending_data[j]);
-	printk(KERN_CONT "\n");
+#ifdef DEBUG
+	print_hex_dump_bytes("send_pending_data ", DUMP_PREFIX_NONE, zbdev->pending_data, zbdev->pending_size);
+#endif
 
 	if (tty->driver->ops->write(tty, zbdev->pending_data,
 				zbdev->pending_size) != zbdev->pending_size) {
@@ -435,7 +435,6 @@ static void
 process_char(struct zb_device *zbdev, unsigned char c)
 {
 	/* Data processing */
-	pr_debug("Char: %d (0x%02x)\n", c, c);
 	switch (zbdev->state) {
 	case STATE_WAIT_START1:
 		if (START_BYTE1 == c)
@@ -964,11 +963,11 @@ ieee802154_tty_receive(struct tty_struct *tty, const unsigned char *buf,
 	int i;
 
 	/* Debug info */
-	printk(KERN_INFO "%lu %s, received %d bytes:", jiffies, __func__,
+	printk(KERN_INFO "%s, received %d bytes\n", __func__,
 			count);
-	for (i = 0; i < count; ++i)
-		printk(KERN_CONT " 0x%02X", buf[i]);
-	printk(KERN_CONT "\n");
+#ifdef DEBUG
+	print_hex_dump_bytes("ieee802154_tty_receive ", DUMP_PREFIX_NONE, buf, count);
+#endif
 
 	/* Actual processing */
 	zbdev = tty->disc_data;
