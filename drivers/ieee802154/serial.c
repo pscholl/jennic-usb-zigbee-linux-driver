@@ -574,7 +574,7 @@ ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 	struct zb_device *zbdev;
 	phy_status_t ret;
 
-	pr_debug("%s\n", __func__);
+	pr_debug("%s %d\n", __func__, channel);
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
