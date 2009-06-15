@@ -137,7 +137,6 @@ static int ieee802154_master_ioctl(struct net_device *dev, struct ifreq *ifr,
 static void ieee802154_netdev_setup_master(struct net_device *dev)
 {
 	dev->addr_len		= 0;
-	memset(dev->broadcast, 0xff, dev->addr_len);
 	dev->features		= NETIF_F_NO_CSUM;
 	dev->hard_header_len	= 0;
 	dev->mtu		= 127;
