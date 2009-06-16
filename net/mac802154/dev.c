@@ -577,7 +577,7 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp,
 
 	skb->dev = ndp->dev;
 
-	if (mac_cb_is_ackreq(skb))
+	if (skb->pkt_type == PACKET_HOST && mac_cb_is_ackreq(skb))
 		ieee802154_send_ack(skb);
 
 	switch (mac_cb_type(skb)) {
