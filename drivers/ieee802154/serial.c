@@ -137,7 +137,6 @@ static int _open_dev(struct zb_device *zbdev);
 static int
 _send_pending_data(struct zb_device *zbdev)
 {
-	unsigned int j;
 	struct tty_struct *tty;
 
 	BUG_ON(!zbdev);
