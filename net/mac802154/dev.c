@@ -427,9 +427,14 @@ out:
 }
 EXPORT_SYMBOL(ieee802154_add_slave);
 
-static void ieee802154_del_slave(struct ieee802154_netdev_priv *ndp)
+void ieee802154_del_slave(struct net_device *dev)
 {
+	struct ieee802154_netdev_priv *ndp;
 	ASSERT_RTNL();
+
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
+
+	ndp = netdev_priv(dev);
 
 	mutex_lock(&ndp->hw->slaves_mtx);
 	list_del_rcu(&ndp->list);
@@ -440,6 +445,7 @@ static void ieee802154_del_slave(struct ieee802154_netdev_priv *ndp)
 	synchronize_rcu();
 	unregister_netdev(ndp->dev);
 }
+EXPORT_SYMBOL(ieee802154_del_slave);
 
 /*
  * This is for hw unregistration only, as it doesn't do RCU locking
