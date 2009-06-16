@@ -19,6 +19,7 @@
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
+#include <net/route.h>
 
 #include <net/ieee802154/af_ieee802154.h>
 #include <net/ieee802154/mac802154.h>
@@ -226,7 +227,8 @@ struct ieee802154_dev *ieee802154_alloc_device(void)
 	priv->hw.netdev = dev;
 
 	INIT_LIST_HEAD(&priv->slaves);
-	spin_lock_init(&priv->slaves_lock);
+	mutex_init(&priv->slaves_mtx);
+
 	return &priv->hw;
 }
 EXPORT_SYMBOL(ieee802154_alloc_device);
@@ -277,10 +279,16 @@ void ieee802154_unregister_device(struct ieee802154_dev *dev)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 
-	ieee802154_drop_slaves(dev);
-	unregister_netdev(priv->hw.netdev);
 	flush_workqueue(priv->dev_workqueue);
 	destroy_workqueue(priv->dev_workqueue);
+
+	rtnl_lock();
+
+	ieee802154_drop_slaves(dev);
+	unregister_netdevice(priv->hw.netdev);
+
+	rtnl_unlock();
+
 	module_put(priv->ops->owner);
 }
 EXPORT_SYMBOL(ieee802154_unregister_device);

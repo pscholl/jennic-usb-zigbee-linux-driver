@@ -353,6 +353,7 @@ static void ieee802154_netdev_setup(struct net_device *dev)
 	dev->type		= ARPHRD_IEEE802154;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
+	dev->destructor		= free_netdev;
 }
 
 static const struct net_device_ops ieee802154_slave_ops = {
@@ -399,9 +400,6 @@ int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 
 	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
 
-	spin_lock(&ipriv->slaves_lock);
-	list_add_tail(&priv->list, &ipriv->slaves);
-	spin_unlock(&ipriv->slaves_lock);
 	/*
 	 * If the name is a format string the caller wants us to do a
 	 * name allocation.
@@ -418,37 +416,50 @@ int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 	if (err < 0)
 		goto out;
 
+	mutex_lock(&ipriv->slaves_mtx);
+	list_add_tail_rcu(&priv->list, &ipriv->slaves);
+	mutex_unlock(&ipriv->slaves_mtx);
+
 	return dev->ifindex;
 out:
+	free_netdev(dev);
 	return err;
 }
 EXPORT_SYMBOL(ieee802154_add_slave);
 
-static void __ieee802154_del_slave(struct ieee802154_netdev_priv *ndp)
+static void ieee802154_del_slave(struct ieee802154_netdev_priv *ndp)
 {
-	struct net_device *dev = ndp->dev;
+	ASSERT_RTNL();
+
+	mutex_lock(&ndp->hw->slaves_mtx);
+	list_del_rcu(&ndp->list);
+	mutex_unlock(&ndp->hw->slaves_mtx);
+
 	dev_put(ndp->hw->hw.netdev);
+
+	synchronize_rcu();
 	unregister_netdev(ndp->dev);
-
-	spin_lock(&ndp->hw->slaves_lock);
-	list_del(&ndp->list);
-	spin_unlock(&ndp->hw->slaves_lock);
-
-	free_netdev(dev);
 }
 
+/*
+ * This is for hw unregistration only, as it doesn't do RCU locking
+ */
 void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
 	struct ieee802154_netdev_priv *ndp, *next;
 
-	spin_lock(&priv->slaves_lock);
+	ASSERT_RTNL();
+
 	list_for_each_entry_safe(ndp, next, &priv->slaves, list) {
-		spin_unlock(&priv->slaves_lock);
-		__ieee802154_del_slave(ndp);
-		spin_lock(&priv->slaves_lock);
+		mutex_lock(&ndp->hw->slaves_mtx);
+		list_del(&ndp->list);
+		mutex_unlock(&ndp->hw->slaves_mtx);
+
+		dev_put(ndp->hw->hw.netdev);
+
+		unregister_netdevice(ndp->dev);
 	}
-	spin_unlock(&priv->slaves_lock);
 }
 
 static int ieee802154_send_ack(struct sk_buff *skb)
@@ -762,8 +773,8 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 
 	pr_debug("%s() frame %d\n", __func__, mac_cb_type(skb));
 
-	spin_lock(&priv->slaves_lock);
-	list_for_each_entry(ndp, &priv->slaves, list)
+	rcu_read_lock();
+	list_for_each_entry_rcu(ndp, &priv->slaves, list)
 	{
 		if (prev) {
 			struct sk_buff *skb2 = skb_clone(skb, GFP_ATOMIC);
@@ -774,16 +785,15 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 		prev = ndp;
 	}
 
-	if (prev)
+	if (prev) {
 		ieee802154_subif_frame(prev, skb);
-	else
-		kfree_skb(skb);
-	spin_unlock(&priv->slaves_lock);
+		skb = NULL;
+	}
 
-	return;
+	rcu_read_unlock();
 
 out:
-	kfree_skb(skb);
+	dev_kfree_skb(skb);
 	return;
 }
 

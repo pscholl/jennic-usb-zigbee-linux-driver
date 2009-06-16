@@ -25,8 +25,15 @@
 struct ieee802154_priv {
 	struct ieee802154_dev	hw;
 	struct ieee802154_ops	*ops;
+	/* As in mac80211 slaves list is modified:
+	 * 1) under the RTNL
+	 * 2) protected by slaves_mtx;
+	 * 3) in an RCU manner
+	 *
+	 * So atomic readers can use any of this protection methods
+	 */
 	struct list_head	slaves;
-	spinlock_t		slaves_lock;
+	struct mutex		slaves_mtx;
 	/* This one is used for scanning and other
 	 * jobs not to be interfered with serial driver */
 	struct workqueue_struct	*dev_workqueue;
