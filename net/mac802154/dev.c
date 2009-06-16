@@ -739,12 +739,6 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 	BUILD_BUG_ON(sizeof(struct ieee802154_mac_cb) > sizeof(skb->cb));
 	pr_debug("%s()\n", __func__);
 
-	ret = parse_frame_start(skb); /* 3 bytes pulled after this */
-	if (ret) {
-		pr_debug("%s(): Got invalid frame\n", __func__);
-		goto out;
-	}
-
 	if (!(priv->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
 		u16 crc;
 
@@ -758,6 +752,12 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 			goto out;
 		}
 		skb_trim(skb, skb->len - 2); /* CRC */
+	}
+
+	ret = parse_frame_start(skb); /* 3 bytes pulled after this */
+	if (ret) {
+		pr_debug("%s(): Got invalid frame\n", __func__);
+		goto out;
 	}
 
 	pr_debug("%s() frame %d\n", __func__, mac_cb_type(skb));
