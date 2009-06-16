@@ -746,11 +746,17 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 	}
 
 	if (!(priv->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
+		u16 crc;
+
 		if (skb->len < 2) {
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
 		}
-		/* FIXME: check CRC if necessary */
+		crc = crc_itu_t_bitreversed(0, skb->data, skb->len);
+		if (crc) {
+			pr_debug("%s(): CRC mismatch\n", __func__);
+			goto out;
+		}
 		skb_trim(skb, skb->len - 2); /* CRC */
 	}
 
