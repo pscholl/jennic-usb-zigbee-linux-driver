@@ -274,12 +274,13 @@ static int ieee802154_nl_fill_iface(struct sk_buff *msg, u32 pid,
 	if (!hdr)
 		goto out;
 
-	NLA_PUT_STRING(	msg, IEEE802154_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
 	NLA_PUT_U16(msg, IEEE802154_ATTR_DEV_TYPE, dev->type);
-	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN,
-			dev->dev_addr);
+
 	if (dev->type == ARPHRD_IEEE802154) {
+		NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN,
+			dev->dev_addr);
 		NLA_PUT_U16(msg, IEEE802154_ATTR_SHORT_ADDR,
 			ieee802154_mlme_ops(dev)->get_short_addr(dev));
 		NLA_PUT_U16(msg, IEEE802154_ATTR_PAN_ID,
