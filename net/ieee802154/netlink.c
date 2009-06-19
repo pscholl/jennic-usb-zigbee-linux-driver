@@ -272,7 +272,7 @@ static int ieee802154_nl_fill_iface(struct sk_buff *msg, u32 pid,
 	hdr = genlmsg_put(msg, 0, seq, &ieee802154_coordinator_family, flags,
 		IEEE802154_LIST_IFACE);
 	if (!hdr)
-		goto out_free;
+		goto out;
 
 	NLA_PUT_STRING(	msg, IEEE802154_ATTR_DEV_NAME, dev->name);
 	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
@@ -289,8 +289,7 @@ static int ieee802154_nl_fill_iface(struct sk_buff *msg, u32 pid,
 
 nla_put_failure:
 	genlmsg_cancel(msg, hdr);
-out_free:
-	nlmsg_free(msg);
+out:
 	return -EMSGSIZE;
 }
 
@@ -504,6 +503,7 @@ static int ieee802154_list_iface(struct sk_buff *skb,
 	   PAN Id, short address */
         struct sk_buff *msg;
 	struct net_device *dev = NULL;
+	int rc = -ENOBUFS;
 
 	pr_debug("%s\n", __func__);
 
@@ -519,21 +519,30 @@ static int ieee802154_list_iface(struct sk_buff *skb,
 	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX])
 		dev = dev_get_by_index(&init_net,
 			nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
-	if (!dev)
-		return -ENODEV;
-
-	if (dev->type != ARPHRD_IEEE802154 &&
-		dev->type != ARPHRD_IEEE802154_PHY) {
-		dev_put(dev);
-		return -EINVAL;
+	if (!dev) {
+		rc = -ENODEV;
+		goto out_free;
 	}
 
-	ieee802154_nl_fill_iface(msg, info->snd_pid, info->snd_seq, 0, dev);
+	if (dev->type != ARPHRD_IEEE802154 &&
+	    dev->type != ARPHRD_IEEE802154_PHY) {
+		rc = -EINVAL;
+		goto out_dev;
+	}
+
+	rc = ieee802154_nl_fill_iface(msg, info->snd_pid, info->snd_seq, 0, dev);
+	if (rc)
+		goto out_dev;
+
 	dev_put(dev);
 
 	return genlmsg_unicast(msg, info->snd_pid);
- out_err:
-        return -ENOBUFS;
+out_dev:
+	dev_put(dev);
+out_free:
+	nlmsg_free(msg);
+out_err:
+        return rc;
 
 }
 
