@@ -306,7 +306,7 @@ static struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
 		dev = dev_get_by_name(&init_net, name);
 	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX])
 		dev = dev_get_by_index(&init_net,
-			nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
+				nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
 	else
 		return NULL;
 
@@ -497,7 +497,7 @@ static int ieee802154_scan_req(struct sk_buff *skb, struct genl_info *info)
 	return ret;
 }
 
-static int ieee802154_get_iface_req(struct sk_buff *skb,
+static int ieee802154_list_iface(struct sk_buff *skb,
 	struct genl_info *info)
 {
 	/* Request for interface name, index, type, IEEE address,
@@ -537,7 +537,7 @@ static int ieee802154_get_iface_req(struct sk_buff *skb,
 
 }
 
-static int ieee802154_dump_iface_req(struct sk_buff *skb,
+static int ieee802154_dump_iface(struct sk_buff *skb,
 	struct netlink_callback *cb)
 {
         struct net *net = sock_net(skb->sk);
@@ -563,44 +563,30 @@ cont:
         return skb->len;
 }
 
+#define IEEE802154_OP(_cmd, _func)			\
+	{						\
+		.cmd	= _cmd,				\
+		.policy	= ieee802154_policy,		\
+		.doit	= _func,			\
+		.dumpit	= NULL,				\
+		.flags	= GENL_ADMIN_PERM,		\
+	}
+
+#define IEEE802154_DUMP(_cmd, _func, _dump)		\
+	{						\
+		.cmd	= _cmd,				\
+		.policy	= ieee802154_policy,		\
+		.doit	= _func,			\
+		.dumpit	= _dump,			\
+	}
+
 static struct genl_ops ieee802154_coordinator_ops[] = {
-	{
-		.cmd = IEEE802154_ASSOCIATE_REQ,
-		.doit = ieee802154_associate_req,
-		.policy = ieee802154_policy,
-		.flags = GENL_ADMIN_PERM,
-	},
-	{
-		.cmd = IEEE802154_ASSOCIATE_RESP,
-		.doit = ieee802154_associate_resp,
-		.policy = ieee802154_policy,
-		.flags = GENL_ADMIN_PERM,
-	},
-	{
-		.cmd = IEEE802154_DISASSOCIATE_REQ,
-		.doit = ieee802154_disassociate_req,
-		.policy = ieee802154_policy,
-		.flags = GENL_ADMIN_PERM,
-	},
-	{
-		.cmd = IEEE802154_SCAN_REQ,
-		.doit = ieee802154_scan_req,
-		.policy = ieee802154_policy,
-		.flags = GENL_ADMIN_PERM,
-	},
-	{
-		.cmd = IEEE802154_START_REQ,
-		.doit = ieee802154_start_req,
-		.policy = ieee802154_policy,
-		.flags = GENL_ADMIN_PERM,
-	},
-	{
-		.cmd = IEEE802154_LIST_IFACE,
-		.doit = ieee802154_get_iface_req,
-		.dumpit = ieee802154_dump_iface_req,
-		.policy = ieee802154_policy,
-		.flags = 0,
-	},
+	IEEE802154_OP(IEEE802154_ASSOCIATE_REQ, ieee802154_associate_req),
+	IEEE802154_OP(IEEE802154_ASSOCIATE_RESP, ieee802154_associate_resp),
+	IEEE802154_OP(IEEE802154_DISASSOCIATE_REQ, ieee802154_disassociate_req),
+	IEEE802154_OP(IEEE802154_SCAN_REQ, ieee802154_scan_req),
+	IEEE802154_OP(IEEE802154_START_REQ, ieee802154_start_req),
+	IEEE802154_DUMP(IEEE802154_LIST_IFACE, ieee802154_list_iface, ieee802154_dump_iface),
 };
 
 static int __init ieee802154_nl_init(void)
