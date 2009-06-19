@@ -561,16 +561,23 @@ static int ieee802154_dump_iface(struct sk_buff *skb,
 	pr_debug("%s\n", __func__);
 
         idx = 0;
+	rtnl_lock();
         for_each_netdev(net, dev) {
-                if (idx < s_idx || ((dev->type != ARPHRD_IEEE802154) &&
-				(dev->type != ARPHRD_IEEE802154_PHY)))
-                        goto cont;
+		if (++idx <= s_idx)
+			continue;
+
+                if (dev->type != ARPHRD_IEEE802154 &&
+		     dev->type != ARPHRD_IEEE802154_PHY)
+			continue;
+
 		if (ieee802154_nl_fill_iface(skb, NETLINK_CB(cb->skb).pid,
-			cb->nlh->nlmsg_seq, NLM_F_MULTI, dev) <= 0)
-                        break;
-cont:
-                idx++;
+				cb->nlh->nlmsg_seq, NLM_F_MULTI, dev) < 0) {
+			idx --;
+			break;
+		}
+
         }
+	rtnl_unlock();
         cb->args[0] = idx;
 
         return skb->len;
