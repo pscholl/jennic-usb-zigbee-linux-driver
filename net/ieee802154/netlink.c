@@ -576,6 +576,35 @@ cont:
         return skb->len;
 }
 
+void nl802154_unregister_ops(struct genl_ops *ops, int size)
+{
+	int i;
+
+	for (i = 0; i < size; i++)
+		genl_register_ops(&ieee802154_coordinator_family, &ops[i]);
+}
+EXPORT_SYMBOL(nl802154_unregister_ops);
+
+int nl802154_register_ops(struct genl_ops *ops, int size)
+{
+	int i;
+	int rc;
+
+	for (i = 0; i < size; i++) {
+		rc = genl_register_ops(&ieee802154_coordinator_family, &ops[i]);
+		if (rc)
+			goto fail;
+	}
+
+	return 0;
+
+fail:
+	nl802154_unregister_ops(ops, i);
+
+	return rc;
+}
+EXPORT_SYMBOL(nl802154_register_ops);
+
 #define IEEE802154_OP(_cmd, _func)			\
 	{						\
 		.cmd	= _cmd,				\
@@ -605,7 +634,6 @@ static struct genl_ops ieee802154_coordinator_ops[] = {
 static int __init ieee802154_nl_init(void)
 {
 	int rc;
-	int i;
 
 	rc = genl_register_family(&ieee802154_coordinator_family);
 	if (rc)
@@ -622,12 +650,10 @@ static int __init ieee802154_nl_init(void)
 		goto fail;
 
 
-	for (i = 0; i < ARRAY_SIZE(ieee802154_coordinator_ops); i++) {
-		rc = genl_register_ops(&ieee802154_coordinator_family,
-				&ieee802154_coordinator_ops[i]);
-		if (rc)
-			goto fail;
-	}
+	rc = nl802154_register_ops(ieee802154_coordinator_ops,
+			ARRAY_SIZE(ieee802154_coordinator_ops));
+	if (rc)
+		goto fail;
 
 	return 0;
 
@@ -639,6 +665,12 @@ module_init(ieee802154_nl_init);
 
 static void __exit ieee802154_nl_exit(void)
 {
+	/*
+	 * This unregister is strictly not necessary here, as all 
+	 * ops and mc groups will be unregistered by family unregister
+	 */
+	nl802154_unregister_ops(ieee802154_coordinator_ops,
+			ARRAY_SIZE(ieee802154_coordinator_ops));
 	genl_unregister_family(&ieee802154_coordinator_family);
 }
 module_exit(ieee802154_nl_exit);

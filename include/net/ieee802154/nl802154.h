@@ -38,4 +38,8 @@ int ieee802154_nl_scan_confirm(struct net_device *dev,
 int ieee802154_nl_beacon_indic(struct net_device *dev, u16 panid,
 		u16 coord_addr);
 
+struct genl_ops;
+int nl802154_register_ops(struct genl_ops *ops, int size);
+void nl802154_unregister_ops(struct genl_ops *ops, int size);
+
 #endif
