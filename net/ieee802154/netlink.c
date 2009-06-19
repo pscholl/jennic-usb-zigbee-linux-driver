@@ -505,15 +505,15 @@ static int ieee802154_list_iface(struct sk_buff *skb,
 {
 	/* Request for interface name, index, type, IEEE address,
 	   PAN Id, short address */
-        struct sk_buff *msg;
+	struct sk_buff *msg;
 	struct net_device *dev = NULL;
 	int rc = -ENOBUFS;
 
 	pr_debug("%s\n", __func__);
 
-        msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
-        if (!msg)
-                goto out_err;
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	if (!msg)
+		goto out_err;
 
 	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
 		char name[IFNAMSIZ + 1];
@@ -546,27 +546,27 @@ out_dev:
 out_free:
 	nlmsg_free(msg);
 out_err:
-        return rc;
+	return rc;
 
 }
 
 static int ieee802154_dump_iface(struct sk_buff *skb,
 	struct netlink_callback *cb)
 {
-        struct net *net = sock_net(skb->sk);
-        struct net_device *dev;
-        int idx;
-        int s_idx = cb->args[0];
+	struct net *net = sock_net(skb->sk);
+	struct net_device *dev;
+	int idx;
+	int s_idx = cb->args[0];
 
 	pr_debug("%s\n", __func__);
 
-        idx = 0;
+	idx = 0;
 	rtnl_lock();
-        for_each_netdev(net, dev) {
+	for_each_netdev(net, dev) {
 		if (++idx <= s_idx)
 			continue;
 
-                if (dev->type != ARPHRD_IEEE802154 &&
+		if (dev->type != ARPHRD_IEEE802154 &&
 		     dev->type != ARPHRD_IEEE802154_PHY)
 			continue;
 
@@ -576,11 +576,11 @@ static int ieee802154_dump_iface(struct sk_buff *skb,
 			break;
 		}
 
-        }
+	}
 	rtnl_unlock();
-        cb->args[0] = idx;
+	cb->args[0] = idx;
 
-        return skb->len;
+	return skb->len;
 }
 
 void nl802154_unregister_ops(struct genl_ops *ops, int size)
