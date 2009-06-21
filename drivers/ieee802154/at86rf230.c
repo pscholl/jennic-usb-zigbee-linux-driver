@@ -631,20 +631,8 @@ static int at86rf230_register(struct at86rf230_local *lp)
 	if (rc)
 		goto err_register;
 
-	/*
-	 * FIXME: remove this after we have proper support for slave
-	 * instantiation from iz tool
-	 */
-	rtnl_lock();
-	rc = ieee802154_add_slave(lp->dev, "\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
-	rtnl_unlock();
-	if (rc < 0)
-		goto err_slave;
-
 	return 0;
 
-err_slave:
-	ieee802154_unregister_device(lp->dev);
 err_register:
 	ieee802154_free_device(lp->dev);
 err_alloc:
