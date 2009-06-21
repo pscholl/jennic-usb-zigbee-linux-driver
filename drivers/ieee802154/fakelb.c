@@ -175,11 +175,6 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake,
 	err = ieee802154_register_device(priv->dev, &fake_ops);
 	if (err)
 		goto err_reg;
-	rtnl_lock();
-	err = ieee802154_add_slave(priv->dev, macaddr);
-	rtnl_unlock();
-	if (err < 0)
-		goto err_slave;
 
 	write_lock_bh(&fake->lock);
 	list_add_tail(&priv->list, &fake->list);
@@ -187,8 +182,6 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake,
 
 	return 0;
 
-err_slave:
-	ieee802154_unregister_device(priv->dev);
 err_reg:
 	ieee802154_free_device(priv->dev);
 err_alloc_dev:
