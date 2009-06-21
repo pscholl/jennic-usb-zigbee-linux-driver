@@ -364,60 +364,6 @@ static void ieee802154_netdev_setup(struct net_device *dev)
 	dev->ml_priv		= &mac802154_mlme;
 }
 
-
-static int ieee802154_slave_link(struct net_device *dev,
-		struct ieee802154_priv *ipriv)
-{
-	struct ieee802154_netdev_priv *priv;
-	int err;
-
-	priv = netdev_priv(dev);
-	priv->dev = dev;
-	priv->hw = ipriv;
-
-	get_random_bytes(&priv->bsn, 1);
-	get_random_bytes(&priv->dsn, 1);
-
-	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
-	priv->pan_id = IEEE802154_PANID_BROADCAST;
-	priv->short_addr = IEEE802154_ADDR_BROADCAST;
-
-	dev_hold(ipriv->hw.netdev);
-
-	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
-
-	SET_NETDEV_DEV(dev, &ipriv->hw.netdev->dev);
-
-	err = register_netdevice(dev);
-	if (err < 0)
-		return err;
-
-	mutex_lock(&ipriv->slaves_mtx);
-	list_add_tail_rcu(&priv->list, &ipriv->slaves);
-	mutex_unlock(&ipriv->slaves_mtx);
-
-	return 0;
-}
-
-static void ieee802154_del_slave(struct net_device *dev)
-{
-	struct ieee802154_netdev_priv *ndp;
-	ASSERT_RTNL();
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	ndp = netdev_priv(dev);
-
-	mutex_lock(&ndp->hw->slaves_mtx);
-	list_del_rcu(&ndp->list);
-	mutex_unlock(&ndp->hw->slaves_mtx);
-
-	dev_put(ndp->hw->hw.netdev);
-
-	synchronize_rcu();
-	unregister_netdevice(ndp->dev);
-}
-
 /*
  * This is for hw unregistration only, as it doesn't do RCU locking
  */
@@ -457,6 +403,9 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 					   struct nlattr *data[])
 {
 	struct net_device *mdev;
+	struct ieee802154_netdev_priv *priv;
+	struct ieee802154_priv *ipriv;
+	int err;
 
 	if (!tb[IFLA_LINK])
 		return -EOPNOTSUPP;
@@ -468,7 +417,53 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	if (mdev->type != ARPHRD_IEEE802154_PHY)
 		return -EINVAL;
 
-	return ieee802154_slave_link(dev, netdev_priv(mdev));
+	ipriv = netdev_priv(mdev);
+
+	priv = netdev_priv(dev);
+	priv->dev = dev;
+	priv->hw = ipriv;
+
+	get_random_bytes(&priv->bsn, 1);
+	get_random_bytes(&priv->dsn, 1);
+
+	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
+	priv->pan_id = IEEE802154_PANID_BROADCAST;
+	priv->short_addr = IEEE802154_ADDR_BROADCAST;
+
+	dev_hold(ipriv->hw.netdev);
+
+	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
+
+	SET_NETDEV_DEV(dev, &ipriv->hw.netdev->dev);
+
+	err = register_netdevice(dev);
+	if (err < 0)
+		return err;
+
+	mutex_lock(&ipriv->slaves_mtx);
+	list_add_tail_rcu(&priv->list, &ipriv->slaves);
+	mutex_unlock(&ipriv->slaves_mtx);
+
+	return 0;
+}
+
+static void ieee802154_netdev_dellink(struct net_device *dev)
+{
+	struct ieee802154_netdev_priv *ndp;
+	ASSERT_RTNL();
+
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
+
+	ndp = netdev_priv(dev);
+
+	mutex_lock(&ndp->hw->slaves_mtx);
+	list_del_rcu(&ndp->list);
+	mutex_unlock(&ndp->hw->slaves_mtx);
+
+	dev_put(ndp->hw->hw.netdev);
+
+	synchronize_rcu();
+	unregister_netdevice(ndp->dev);
 }
 
 static struct rtnl_link_ops wpan_link_ops __read_mostly = {
@@ -477,7 +472,7 @@ static struct rtnl_link_ops wpan_link_ops __read_mostly = {
 	.setup		= ieee802154_netdev_setup,
 	.validate	= ieee802154_netdev_validate,
 	.newlink	= ieee802154_netdev_newlink,
-	.dellink	= ieee802154_del_slave,
+	.dellink	= ieee802154_netdev_dellink,
 };
 
 static int ieee802154_send_ack(struct sk_buff *skb)
