@@ -121,19 +121,6 @@ static int ieee802154_master_close(struct net_device *dev)
 	priv->ops->set_trx_state(&priv->hw, PHY_FORCE_TRX_OFF);
 	return 0;
 }
-static int ieee802154_master_ioctl(struct net_device *dev, struct ifreq *ifr,
-		int cmd)
-{
-	struct ieee802154_priv *priv = netdev_priv(dev);
-	switch (cmd) {
-	case IEEE802154_SIOC_ADD_SLAVE:
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
-		return ieee802154_add_slave(&priv->hw,
-				(u8 *) &ifr->ifr_hwaddr.sa_data);
-	}
-	return -ENOIOCTLCMD;
-}
 
 static void ieee802154_netdev_setup_master(struct net_device *dev)
 {
@@ -193,7 +180,6 @@ static const struct net_device_ops ieee802154_master_ops = {
 	.ndo_open		= ieee802154_master_open,
 	.ndo_stop		= ieee802154_master_close,
 	.ndo_start_xmit		= ieee802154_master_hard_start_xmit,
-	.ndo_do_ioctl		= ieee802154_master_ioctl,
 };
 
 static int ieee802154_register_netdev_master(struct ieee802154_priv *priv)
