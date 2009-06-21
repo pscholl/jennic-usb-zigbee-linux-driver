@@ -399,45 +399,7 @@ static int ieee802154_slave_link(struct net_device *dev,
 	return 0;
 }
 
-int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
-{
-	struct net_device *dev;
-	struct ieee802154_priv *ipriv = ieee802154_to_priv(hw);
-	int err;
-
-	ASSERT_RTNL();
-
-	dev = alloc_netdev(sizeof(struct ieee802154_netdev_priv),
-			"wpan%d", ieee802154_netdev_setup);
-	if (!dev) {
-		printk(KERN_ERR "Failure to initialize IEEE802154 device\n");
-		return -ENOMEM;
-	}
-	memcpy(dev->dev_addr, addr, dev->addr_len);
-	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
-
-	/*
-	 * If the name is a format string the caller wants us to do a
-	 * name allocation.
-	 */
-	if (strchr(dev->name, '%')) {
-		err = dev_alloc_name(dev, dev->name);
-		if (err < 0)
-			goto out;
-	}
-
-	err = ieee802154_slave_link(dev, ipriv);
-	if (err)
-		goto out;
-
-	return dev->ifindex;
-out:
-	free_netdev(dev);
-	return err;
-}
-EXPORT_SYMBOL(ieee802154_add_slave);
-
-void ieee802154_del_slave(struct net_device *dev)
+static void ieee802154_del_slave(struct net_device *dev)
 {
 	struct ieee802154_netdev_priv *ndp;
 	ASSERT_RTNL();
@@ -455,7 +417,6 @@ void ieee802154_del_slave(struct net_device *dev)
 	synchronize_rcu();
 	unregister_netdevice(ndp->dev);
 }
-EXPORT_SYMBOL(ieee802154_del_slave);
 
 /*
  * This is for hw unregistration only, as it doesn't do RCU locking
