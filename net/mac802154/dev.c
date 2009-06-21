@@ -23,6 +23,7 @@
 #include <linux/capability.h>
 #include <linux/module.h>
 #include <linux/if_arp.h>
+#include <linux/if_link.h>
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
 #include <linux/notifier.h>
 #include <linux/random.h>
@@ -32,6 +33,7 @@
 #include <net/sock.h>
 #include <net/tcp_states.h>
 #include <net/route.h>
+#include <net/rtnetlink.h>
 
 #include <net/ieee802154/af_ieee802154.h>
 #include <net/ieee802154/mac802154.h>
@@ -335,6 +337,14 @@ static struct header_ops ieee802154_header_ops = {
 	.parse		= ieee802154_header_parse,
 };
 
+static const struct net_device_ops ieee802154_slave_ops = {
+	.ndo_open		= ieee802154_slave_open,
+	.ndo_stop		= ieee802154_slave_close,
+	.ndo_start_xmit		= ieee802154_net_xmit,
+	.ndo_do_ioctl		= ieee802154_slave_ioctl,
+	.ndo_set_mac_address	= ieee802154_slave_mac_addr,
+};
+
 static void ieee802154_netdev_setup(struct net_device *dev)
 {
 	dev->addr_len		= IEEE802154_ADDR_LEN;
@@ -348,21 +358,50 @@ static void ieee802154_netdev_setup(struct net_device *dev)
 	dev->type		= ARPHRD_IEEE802154;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
+
 	dev->destructor		= free_netdev;
+	dev->netdev_ops		= &ieee802154_slave_ops;
+	dev->ml_priv		= &mac802154_mlme;
 }
 
-static const struct net_device_ops ieee802154_slave_ops = {
-	.ndo_open		= ieee802154_slave_open,
-	.ndo_stop		= ieee802154_slave_close,
-	.ndo_start_xmit		= ieee802154_net_xmit,
-	.ndo_do_ioctl		= ieee802154_slave_ioctl,
-	.ndo_set_mac_address	= ieee802154_slave_mac_addr,
-};
+
+static int ieee802154_slave_link(struct net_device *dev,
+		struct ieee802154_priv *ipriv)
+{
+	struct ieee802154_netdev_priv *priv;
+	int err;
+
+	priv = netdev_priv(dev);
+	priv->dev = dev;
+	priv->hw = ipriv;
+
+	get_random_bytes(&priv->bsn, 1);
+	get_random_bytes(&priv->dsn, 1);
+
+	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
+	priv->pan_id = IEEE802154_PANID_BROADCAST;
+	priv->short_addr = IEEE802154_ADDR_BROADCAST;
+
+	dev_hold(ipriv->hw.netdev);
+
+	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
+
+	SET_NETDEV_DEV(dev, &ipriv->hw.netdev->dev);
+
+	err = register_netdevice(dev);
+	if (err < 0)
+		return err;
+
+	mutex_lock(&ipriv->slaves_mtx);
+	list_add_tail_rcu(&priv->list, &ipriv->slaves);
+	mutex_unlock(&ipriv->slaves_mtx);
+
+	return 0;
+}
 
 int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 {
 	struct net_device *dev;
-	struct ieee802154_netdev_priv *priv;
 	struct ieee802154_priv *ipriv = ieee802154_to_priv(hw);
 	int err;
 
@@ -374,25 +413,8 @@ int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 		printk(KERN_ERR "Failure to initialize IEEE802154 device\n");
 		return -ENOMEM;
 	}
-	priv = netdev_priv(dev);
-	priv->dev = dev;
-	priv->hw = ipriv;
-
-	get_random_bytes(&priv->bsn, 1);
-	get_random_bytes(&priv->dsn, 1);
-
-	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	memcpy(dev->dev_addr, addr, dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
-	dev->netdev_ops = &ieee802154_slave_ops;
-	dev->ml_priv = &mac802154_mlme;
-
-	priv->pan_id = IEEE802154_PANID_BROADCAST;
-	priv->short_addr = IEEE802154_ADDR_BROADCAST;
-
-	dev_hold(ipriv->hw.netdev);
-
-	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
 
 	/*
 	 * If the name is a format string the caller wants us to do a
@@ -404,15 +426,9 @@ int ieee802154_add_slave(struct ieee802154_dev *hw, const u8 *addr)
 			goto out;
 	}
 
-	SET_NETDEV_DEV(dev, &ipriv->hw.netdev->dev);
-
-	err = register_netdevice(dev);
-	if (err < 0)
+	err = ieee802154_slave_link(dev, ipriv);
+	if (err)
 		goto out;
-
-	mutex_lock(&ipriv->slaves_mtx);
-	list_add_tail_rcu(&priv->list, &ipriv->slaves);
-	mutex_unlock(&ipriv->slaves_mtx);
 
 	return dev->ifindex;
 out:
@@ -461,6 +477,47 @@ void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 		unregister_netdevice(ndp->dev);
 	}
 }
+
+static int ieee802154_netdev_validate(struct nlattr *tb[],
+		struct nlattr *data[])
+{
+	if (tb[IFLA_ADDRESS])
+		if (nla_len(tb[IFLA_ADDRESS]) != IEEE802154_ADDR_LEN)
+			return -EINVAL;
+
+	if (tb[IFLA_BROADCAST])
+		return -EINVAL;
+
+	return 0;
+}
+
+static int ieee802154_netdev_newlink(struct net_device *dev,
+					   struct nlattr *tb[],
+					   struct nlattr *data[])
+{
+	struct net_device *mdev;
+
+	if (!tb[IFLA_LINK])
+		return -EOPNOTSUPP;
+
+	mdev = __dev_get_by_index(dev_net(dev), nla_get_u32(tb[IFLA_LINK]));
+	if (!mdev)
+		return -ENODEV;
+
+	if (mdev->type != ARPHRD_IEEE802154_PHY)
+		return -EINVAL;
+
+	return ieee802154_slave_link(dev, netdev_priv(mdev));
+}
+
+static struct rtnl_link_ops wpan_link_ops __read_mostly = {
+	.kind		= "wpan",
+	.priv_size	= sizeof(struct ieee802154_netdev_priv),
+	.setup		= ieee802154_netdev_setup,
+	.validate	= ieee802154_netdev_validate,
+	.newlink	= ieee802154_netdev_newlink,
+	.dellink	= ieee802154_del_slave,
+};
 
 static int ieee802154_send_ack(struct sk_buff *skb)
 {
@@ -883,3 +940,18 @@ struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev)
 
 	return priv->hw;
 }
+
+static int __init ieee802154_dev_init(void)
+{
+	return rtnl_link_register(&wpan_link_ops);
+}
+module_init(ieee802154_dev_init);
+
+static void __exit ieee802154_dev_exit(void)
+{
+	rtnl_link_unregister(&wpan_link_ops);
+}
+module_exit(ieee802154_dev_exit);
+
+MODULE_ALIAS_RTNL_LINK("wpan");
+
