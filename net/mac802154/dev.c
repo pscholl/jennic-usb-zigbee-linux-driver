@@ -437,7 +437,7 @@ void ieee802154_del_slave(struct net_device *dev)
 	dev_put(ndp->hw->hw.netdev);
 
 	synchronize_rcu();
-	unregister_netdev(ndp->dev);
+	unregister_netdevice(ndp->dev);
 }
 EXPORT_SYMBOL(ieee802154_del_slave);
 
