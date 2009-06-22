@@ -28,6 +28,7 @@
 #include <linux/notifier.h>
 #include <linux/random.h>
 #include <linux/crc-itu-t.h>
+#include <linux/mac802154.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
 #include <net/sock.h>
@@ -466,6 +467,31 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 	unregister_netdevice(ndp->dev);
 }
 
+static size_t ieee802154_netdev_get_size(const struct net_device *dev)
+{
+	return  nla_total_size(2) +	/* IFLA_WPAN_PAN_ID */
+		nla_total_size(2) +	/* IFLA_WPAN_SHORT_ADDR */
+		nla_total_size(2) +	/* IFLA_WPAN_COORD_SHORT_ADDR */
+		nla_total_size(8);	/* IFLA_WPAN_COORD_EXT_ADDR */
+}
+
+static int ieee802154_netdev_fill_info(struct sk_buff *skb,
+					const struct net_device *dev)
+{
+	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+
+	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, priv->chan);
+	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, priv->pan_id);
+	NLA_PUT_U16(skb, IFLA_WPAN_SHORT_ADDR, priv->short_addr);
+	/* TODO: IFLA_WPAN_COORD_SHORT_ADDR */
+	/* TODO: IFLA_WPAN_COORD_EXT_ADDR */
+
+	return 0;
+
+nla_put_failure:
+	return -EMSGSIZE;
+}
+
 static struct rtnl_link_ops wpan_link_ops __read_mostly = {
 	.kind		= "wpan",
 	.priv_size	= sizeof(struct ieee802154_netdev_priv),
@@ -473,6 +499,8 @@ static struct rtnl_link_ops wpan_link_ops __read_mostly = {
 	.validate	= ieee802154_netdev_validate,
 	.newlink	= ieee802154_netdev_newlink,
 	.dellink	= ieee802154_netdev_dellink,
+	.get_size	= ieee802154_netdev_get_size,
+	.fill_info	= ieee802154_netdev_fill_info,
 };
 
 static int ieee802154_send_ack(struct sk_buff *skb)
