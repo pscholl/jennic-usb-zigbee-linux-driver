@@ -152,8 +152,7 @@ static struct ieee802154_ops fake_ops = {
 	.set_channel = hw_channel,
 };
 
-static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake,
-		const u8 *macaddr)
+static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 {
 	struct fake_dev_priv *priv;
 	int err = -ENOMEM;
@@ -207,36 +206,9 @@ adddev_store(struct device *dev, struct device_attribute *attr,
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct fake_priv *priv = platform_get_drvdata(pdev);
-	char hw[8] = {};
-	int i, j, ch, err;
+	int err;
 
-	for (i = 0, j = 0; i < 16 && j < n; j++) {
-		ch = buf[j];
-		switch (buf[j]) {
-		default:
-			return -EINVAL;
-		case '0'...'9':
-			ch -= '0';
-			break;
-		case 'A'...'F':
-			ch -= 'A' - 10;
-			break;
-		case 'a'...'f':
-			ch -= 'a' - 10;
-			break;
-		case ':':
-		case '.':
-			continue;
-		}
-		if (i % 2)
-			hw[i/2] = (hw[i/2] & 0xf0) | ch;
-		else
-			hw[i/2] = ch << 4;
-		i++;
-	}
-	if (i != 16)
-		return -EINVAL;
-	err = ieee802154fake_add_priv(dev, priv, hw);
+	err = ieee802154fake_add_priv(dev, priv);
 	if (err)
 		return err;
 	return n;
@@ -272,15 +244,9 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 	if (err)
 		goto err_grp;
 
-	err = ieee802154fake_add_priv(&pdev->dev, priv,
-			"\xde\xad\xbe\xaf\xca\xfe\xba\xbe");
+	err = ieee802154fake_add_priv(&pdev->dev, priv);
 	if (err < 0)
 		goto err_slave;
-
-/*	err = ieee802154fake_add_priv(priv,
-			"\x67\x45\x23\x01\x67\x45\x23\x01");
-	if (err < 0)
-		goto err_slave;*/
 
 	platform_set_drvdata(pdev, priv);
 	dev_info(&pdev->dev, "Added ieee802154 hardware\n");
