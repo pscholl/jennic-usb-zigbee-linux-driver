@@ -245,19 +245,24 @@ int ieee802154_register_device(struct ieee802154_dev *dev,
 	BUG_ON(!ops->set_trx_state);
 
 	priv->ops = ops;
-	rc = ieee802154_register_netdev_master(priv);
-	if (rc < 0)
-		goto out;
+
 	priv->dev_workqueue =
 		create_singlethread_workqueue(priv->hw.netdev->name);
-	if (!priv->dev_workqueue)
+	if (!priv->dev_workqueue) {
+		rc = -ENOMEM;
+		goto out_put;
+	}
+
+	rc = ieee802154_register_netdev_master(priv);
+	if (rc < 0)
 		goto out_wq;
 
 	return 0;
 
 out_wq:
-	unregister_netdev(priv->hw.netdev);
-out:
+	destroy_workqueue(priv->dev_workqueue);
+out_put:
+	module_put(ops->owner);
 	return rc;
 }
 EXPORT_SYMBOL(ieee802154_register_device);
