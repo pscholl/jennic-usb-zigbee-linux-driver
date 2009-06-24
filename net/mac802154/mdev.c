@@ -238,8 +238,11 @@ int ieee802154_register_device(struct ieee802154_dev *dev,
 		return -EFAULT;
 
 	BUG_ON(!dev);
-	BUG_ON(!ops || !ops->tx || !ops->cca || !ops->ed ||
-			!ops->set_trx_state);
+	BUG_ON(!ops);
+	BUG_ON(!ops->tx);
+	BUG_ON(!ops->cca);
+	BUG_ON(!ops->ed);
+	BUG_ON(!ops->set_trx_state);
 
 	priv->ops = ops;
 	rc = ieee802154_register_netdev_master(priv);
