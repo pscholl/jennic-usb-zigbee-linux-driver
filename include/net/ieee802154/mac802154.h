@@ -21,7 +21,6 @@
 #ifndef IEEE802154_MAC802154_H
 #define IEEE802154_MAC802154_H
 
-/* FIXME: this can be merged with const.h ? */
 typedef enum {
 	PHY_BUSY = 0, /* cca */
 	PHY_BUSY_RX, /* state */
