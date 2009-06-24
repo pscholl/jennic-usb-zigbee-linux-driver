@@ -192,9 +192,7 @@ static int ieee802154_register_netdev_master(struct ieee802154_priv *priv)
 
 	dev->sysfs_groups[1] = &pmib_group;
 
-	register_netdev(dev);
-
-	return 0;
+	return register_netdev(dev);
 }
 
 struct ieee802154_dev *ieee802154_alloc_device(void)
