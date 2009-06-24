@@ -237,7 +237,7 @@ int ieee802154_register_device(struct ieee802154_dev *dev,
 	if (!try_module_get(ops->owner))
 		return -EFAULT;
 
-	BUG_ON(!dev || !dev->name);
+	BUG_ON(!dev);
 	BUG_ON(!ops || !ops->tx || !ops->cca || !ops->ed ||
 			!ops->set_trx_state);
 

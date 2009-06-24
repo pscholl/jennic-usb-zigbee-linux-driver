@@ -40,7 +40,6 @@ typedef enum {
 } phy_status_t;
 
 struct ieee802154_dev {
-	const char *name;
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
 	void	*priv;		/* driver-specific data */
 	u32	channel_mask;

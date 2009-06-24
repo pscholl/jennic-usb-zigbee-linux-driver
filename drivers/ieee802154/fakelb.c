@@ -166,7 +166,6 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 	priv->dev = ieee802154_alloc_device();
 	if (!priv->dev)
 		goto err_alloc_dev;
-	priv->dev->name = "IEEE 802.15.4 fake";
 	priv->dev->priv = priv;
 	priv->dev->parent = dev;
 	priv->fake = fake;

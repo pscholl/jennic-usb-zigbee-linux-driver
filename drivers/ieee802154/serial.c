@@ -818,7 +818,6 @@ ieee802154_tty_open(struct tty_struct *tty)
 		goto out_free_zb;
 	}
 
-	zbdev->dev->name		= "serialdev";
 	zbdev->dev->priv		= zbdev;
 	zbdev->dev->extra_tx_headroom	= 0;
 	/* only 2.4 GHz band */

@@ -616,7 +616,6 @@ static int at86rf230_register(struct at86rf230_local *lp)
 	if (!lp->dev)
 		goto err_alloc;
 
-	lp->dev->name = dev_name(&lp->spi->dev);
 	lp->dev->priv = lp;
 	lp->dev->parent = &lp->spi->dev;
 #ifdef AT86RF230_OLDFW_HACK
