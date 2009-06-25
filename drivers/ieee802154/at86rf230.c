@@ -348,7 +348,7 @@ at86rf230_write_fbuf(struct at86rf230_local *lp, u8 *data, u8 len)
 
 	};
 	struct spi_transfer xfer_buf = {
-		.len		= len,
+		.len		= len + 2,
 		.tx_buf		= data,
 	};
 
