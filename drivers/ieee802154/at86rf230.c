@@ -347,13 +347,13 @@ at86rf230_write_fbuf(struct at86rf230_local *lp, u8 *data, u8 len)
 
 	};
 	struct spi_transfer xfer_buf = {
-		.len		= len + 2,
+		.len		= len,
 		.tx_buf		= data,
 	};
 
 	mutex_lock(&lp->bmux);
 	buf[0] = CMD_WRITE | CMD_FB;
-	buf[1] = len;
+	buf[1] = len + 2;
 
 	dev_vdbg(&lp->spi->dev, "buf[0] = %02x\n", buf[0]);
 	dev_vdbg(&lp->spi->dev, "buf[1] = %02x\n", buf[1]);
