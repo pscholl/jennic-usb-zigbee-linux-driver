@@ -1,4 +1,3 @@
-#undef AT86RF230_OLDFW_HACK
 /*
  * AT86RF230/RF231 driver
  *
@@ -514,7 +513,6 @@ at86rf230_channel(struct ieee802154_dev *dev, int channel)
 static int
 at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
-	char *data;
 	struct at86rf230_local *lp = dev->priv;
 	int rc;
 	unsigned long flags;
@@ -523,21 +521,13 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 
 	might_sleep();
 
-#ifdef AT86RF230_OLDFW_HACK
-	data = skb_push(skb, 2);
-	data[0] = 0x7e;
-	data[1] = 0xff;
-#else
-	data = skb_push(skb, 0); /* FIXME: find a better way */
-#endif
-
 	spin_lock_irqsave(&lp->lock, flags);
 	BUG_ON(lp->is_tx);
 	lp->is_tx = 1;
 	INIT_COMPLETION(lp->tx_complete);
 	spin_unlock_irqrestore(&lp->lock, flags);
 
-	rc = at86rf230_write_fbuf(lp, data, skb->len);
+	rc = at86rf230_write_fbuf(lp, skb->data, skb->len);
 	if (rc)
 		goto err;
 
@@ -589,9 +579,6 @@ static int at86rf230_rx(struct at86rf230_local *lp)
 		return -EINVAL;
 	}
 
-#ifdef AT86RF230_OLDFW_HACK
-	skb_pull(skb, 2);
-#endif
 	ieee802154_rx_irqsafe(lp->dev, skb, lqi);
 
 	dev_dbg(&lp->spi->dev, "READ_FBUF: %d %d %x\n", rc, len, lqi);
@@ -618,11 +605,7 @@ static int at86rf230_register(struct at86rf230_local *lp)
 
 	lp->dev->priv = lp;
 	lp->dev->parent = &lp->spi->dev;
-#ifdef AT86RF230_OLDFW_HACK
-	lp->dev->extra_tx_headroom = 2;
-#else
 	lp->dev->extra_tx_headroom = 0;
-#endif
 	lp->dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
 	lp->dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
 
