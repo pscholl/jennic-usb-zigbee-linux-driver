@@ -185,18 +185,6 @@ static void ieee802154_netdev_setup_master(struct net_device *dev)
 	dev->netdev_ops = &ieee802154_master_ops;
 }
 
-static int ieee802154_register_netdev_master(struct ieee802154_priv *priv)
-{
-	struct net_device *dev = priv->hw.netdev;
-
-	dev->needed_headroom = priv->hw.extra_tx_headroom;
-	SET_NETDEV_DEV(dev, priv->hw.parent);
-
-	dev->sysfs_groups[1] = &pmib_group;
-
-	return register_netdev(dev);
-}
-
 struct ieee802154_dev *ieee802154_alloc_device(void)
 {
 	struct net_device *dev;
@@ -234,6 +222,8 @@ int ieee802154_register_device(struct ieee802154_dev *dev,
 		struct ieee802154_ops *ops)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
+	struct net_device *ndev = priv->hw.netdev;
+
 	int rc;
 
 	if (!try_module_get(ops->owner))
@@ -248,22 +238,37 @@ int ieee802154_register_device(struct ieee802154_dev *dev,
 
 	priv->ops = ops;
 
-	priv->dev_workqueue =
-		create_singlethread_workqueue(priv->hw.netdev->name);
-	if (!priv->dev_workqueue) {
-		rc = -ENOMEM;
-		goto out_put;
+	rtnl_lock();
+	if (strchr(ndev->name, '%')) {
+		rc = dev_alloc_name(ndev, ndev->name);
+		if (rc < 0)
+			goto out_unlock;
 	}
 
-	rc = ieee802154_register_netdev_master(priv);
+	priv->dev_workqueue =
+		create_singlethread_workqueue(ndev->name);
+	if (!priv->dev_workqueue) {
+		rc = -ENOMEM;
+		goto out_unlock;
+	}
+
+	ndev->needed_headroom = priv->hw.extra_tx_headroom;
+	SET_NETDEV_DEV(ndev, priv->hw.parent);
+
+	ndev->sysfs_groups[1] = &pmib_group;
+
+	rc = register_netdevice(ndev);
 	if (rc < 0)
 		goto out_wq;
+
+	rtnl_unlock();
 
 	return 0;
 
 out_wq:
 	destroy_workqueue(priv->dev_workqueue);
-out_put:
+out_unlock:
+	rtnl_unlock();
 	module_put(ops->owner);
 	return rc;
 }
