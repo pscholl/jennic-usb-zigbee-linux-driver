@@ -657,28 +657,7 @@ ieee802154_serial_cca(struct ieee802154_dev *dev)
 
 	pr_debug("%s\n", __func__);
 
-	zbdev = dev->priv;
-	if (NULL == zbdev) {
-		printk(KERN_ERR "%s: wrong phy\n", __func__);
-		return PHY_INVAL;
-	}
 
-	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
-
-	if (send_cmd(zbdev, CMD_CCA) != 0) {
-		ret = PHY_ERROR;
-		goto out;
-	}
-
-	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
-out:
-	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n", __func__);
 	return ret;
 }
@@ -752,6 +731,21 @@ ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
 		return PHY_ERROR;
+
+	if (send_cmd(zbdev, CMD_CCA) != 0) {
+		ret = PHY_ERROR;
+		goto out;
+	}
+
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0)
+		ret = zbdev->status;
+	else
+		ret = PHY_ERROR;
+
+	if (ret != PHY_SUCCESS)
+		goto out;
 
 	if (send_block(zbdev, skb->len, skb->data) != 0) {
 		ret = PHY_ERROR;
