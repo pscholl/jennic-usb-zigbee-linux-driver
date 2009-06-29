@@ -122,17 +122,6 @@ static int ieee802154_master_close(struct net_device *dev)
 	return 0;
 }
 
-static void ieee802154_netdev_setup_master(struct net_device *dev)
-{
-	dev->addr_len		= 0;
-	dev->features		= NETIF_F_NO_CSUM;
-	dev->hard_header_len	= 0;
-	dev->mtu		= 127;
-	dev->tx_queue_len	= 0;
-	dev->type		= ARPHRD_IEEE802154_PHY;
-	dev->flags		= IFF_NOARP | IFF_BROADCAST;
-	dev->watchdog_timeo	= 0;
-}
 static ssize_t ieee802154_netdev_show(const struct device *dev,
 		   struct device_attribute *attr, char *buf,
 		   ssize_t (*format)(const struct net_device *, char *))
@@ -182,11 +171,24 @@ static const struct net_device_ops ieee802154_master_ops = {
 	.ndo_start_xmit		= ieee802154_master_hard_start_xmit,
 };
 
+static void ieee802154_netdev_setup_master(struct net_device *dev)
+{
+	dev->addr_len		= 0;
+	dev->features		= NETIF_F_NO_CSUM;
+	dev->hard_header_len	= 0;
+	dev->mtu		= 127;
+	dev->tx_queue_len	= 0;
+	dev->type		= ARPHRD_IEEE802154_PHY;
+	dev->flags		= IFF_NOARP | IFF_BROADCAST;
+	dev->watchdog_timeo	= 0;
+
+	dev->netdev_ops = &ieee802154_master_ops;
+}
+
 static int ieee802154_register_netdev_master(struct ieee802154_priv *priv)
 {
 	struct net_device *dev = priv->hw.netdev;
 
-	dev->netdev_ops = &ieee802154_master_ops;
 	dev->needed_headroom = priv->hw.extra_tx_headroom;
 	SET_NETDEV_DEV(dev, priv->hw.parent);
 
