@@ -433,14 +433,6 @@ at86rf230_ed(struct ieee802154_dev *dev, u8 *level)
 }
 
 static phy_status_t
-at86rf230_cca(struct ieee802154_dev *dev)
-{
-	pr_debug("%s\n", __func__);
-	might_sleep();
-	return PHY_IDLE;
-}
-
-static phy_status_t
 at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 {
 	struct at86rf230_local *lp = dev->priv;
@@ -590,7 +582,6 @@ static struct ieee802154_ops at86rf230_ops = {
 	.owner = THIS_MODULE,
 	.tx = at86rf230_tx,
 	.ed = at86rf230_ed,
-	.cca = at86rf230_cca,
 	.set_trx_state = at86rf230_state,
 	.set_channel = at86rf230_channel,
 };

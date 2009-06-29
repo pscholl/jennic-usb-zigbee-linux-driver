@@ -63,14 +63,6 @@ hw_ed(struct ieee802154_dev *dev, u8 *level)
 }
 
 static phy_status_t
-hw_cca(struct ieee802154_dev *dev)
-{
-	pr_debug("%s\n", __func__);
-	might_sleep();
-	return PHY_IDLE;
-}
-
-static phy_status_t
 hw_state(struct ieee802154_dev *dev, phy_status_t state)
 {
 	struct fake_dev_priv *priv = dev->priv;
@@ -147,7 +139,6 @@ static struct ieee802154_ops fake_ops = {
 	.owner = THIS_MODULE,
 	.tx = hw_tx,
 	.ed = hw_ed,
-	.cca = hw_cca,
 	.set_trx_state = hw_state,
 	.set_channel = hw_channel,
 };

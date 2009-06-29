@@ -46,12 +46,6 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 		}
 	}
 
-	res = xw->priv->ops->cca(&xw->priv->hw);
-	if (res != PHY_IDLE) {
-		pr_debug("CCA failed\n");
-		goto out;
-	}
-
 	res = xw->priv->ops->set_trx_state(&xw->priv->hw, PHY_TX_ON);
 	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
 		pr_debug("set_trx_state returned %d\n", res);
@@ -232,7 +226,6 @@ int ieee802154_register_device(struct ieee802154_dev *dev,
 	BUG_ON(!dev);
 	BUG_ON(!ops);
 	BUG_ON(!ops->tx);
-	BUG_ON(!ops->cca);
 	BUG_ON(!ops->ed);
 	BUG_ON(!ops->set_trx_state);
 

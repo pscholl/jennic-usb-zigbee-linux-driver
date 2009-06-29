@@ -650,19 +650,6 @@ out:
 }
 
 static phy_status_t
-ieee802154_serial_cca(struct ieee802154_dev *dev)
-{
-	struct zb_device *zbdev;
-	phy_status_t ret;
-
-	pr_debug("%s\n", __func__);
-
-
-	pr_debug("%s end\n", __func__);
-	return ret;
-}
-
-static phy_status_t
 ieee802154_serial_set_state(struct ieee802154_dev *dev, phy_status_t state)
 {
 	struct zb_device *zbdev;
@@ -773,7 +760,6 @@ static struct ieee802154_ops serial_ops = {
 	.owner = THIS_MODULE,
 	.tx = ieee802154_serial_xmit,
 	.ed = ieee802154_serial_ed,
-	.cca = ieee802154_serial_cca,
 	.set_trx_state = ieee802154_serial_set_state,
 	.set_channel	= ieee802154_serial_set_channel,
 };
