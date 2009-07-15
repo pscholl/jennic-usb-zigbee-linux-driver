@@ -20,6 +20,9 @@ config IEEE802154_FAKEHARD
           This driver can also be built as a module. To do so say M here.
 	  The module will be called 'fakehard'.
 
+config IEEE802154_JENUSB
+	tristate "Jennic USB driver"
+  depends on USB && IEEE802154_DRIVERS
 
 if IEEE802154_DRIVERS && MAC802154
 config IEEE802154_FAKELB
@@ -37,7 +40,6 @@ config IEEE802154_SERIAL
 config IEEE802154_AT86RF230
 	tristate "AT86RF230 transceiver driver"
 	depends on SPI
-
 
 endif
 
