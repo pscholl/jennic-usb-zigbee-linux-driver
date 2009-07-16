@@ -34,8 +34,6 @@
 #ifndef _mac_sap_h_
 #define _mac_sap_h_
 
-#define packed __attribute__((packed))
-
 /** Maximum PHY packet (PDU) size */
 #define MAC_MAX_PHY_PKT_SIZE            127
 /** PHY turnaround time */
@@ -194,7 +192,7 @@ typedef struct
 {
     __be32 u32L;  /**< Low word */
     __be32 u32H;  /**< High word */
-} packed MAC_ExtAddr_s;
+} __attribute__ ((packed)) MAC_ExtAddr_s;
 
 typedef struct
 {
@@ -205,7 +203,7 @@ typedef struct
         __be16        u16Short;
         MAC_ExtAddr_s sExt;
     };
-} packed MAC_Addr_s;
+} __attribute__ ((packed)) MAC_Addr_s;
 
 typedef struct
 {
@@ -215,7 +213,7 @@ typedef struct
     u8            u8AclSecuritySuite;                                       /**< Security suite */
     u8            u8AclSecurityMaterialLen;                                 /**< Length of security material */
     u8            au8AclSecurityMaterial[MAC_MAX_SECURITY_MATERIAL_LEN];    /**< Security material */
-} packed MAC_SapAclEntry_s;
+} __attribute__ ((packed)) MAC_SapAclEntry_s;
 
 typedef struct
 {
@@ -228,7 +226,7 @@ typedef struct
     u8         u8SecurityFailure;   /**< True if there was an error in security processing */
     __be16     u16SuperframeSpec;   /**< Superframe specification */
     __be32     u32TimeStamp;        /**< Timestamp of the received beacon */
-} packed MAC_PanDescr_s;
+} __attribute__ ((packed)) MAC_PanDescr_s;
 
 typedef struct
 {
@@ -237,7 +235,7 @@ typedef struct
     u8         u8Capability;        /**< Device's capability */
     u8         u8SecurityEnable;    /**< True if security is to be used on command frames */
     u8         pad;
-} packed MAC_MlmeReqAssociate_s;
+} __attribute__ ((packed)) MAC_MlmeReqAssociate_s;
 
 typedef struct
 {
@@ -245,27 +243,27 @@ typedef struct
     u8         u8Reason;            /**< Disassociation reason */
     u8         u8SecurityEnable;    /**< True if security is to be used on command frames */
     u8         pad[2];
-} packed MAC_MlmeReqDisassociate_s;
+} __attribute__ ((packed)) MAC_MlmeReqDisassociate_s;
 
 typedef struct
 {
     u8    u8PibAttribute;       /**< Attribute @sa MAC_PibAttr_e */
     u8    u8PibAttributeIndex;  /**< Index value used to specify which ACL entry to set. <b>Not part of 802.15.4</b> */
     u8    pad[2];
-} packed MAC_MlmeReqGet_s;
+} __attribute__ ((packed)) MAC_MlmeReqGet_s;
 
 typedef struct tagMAC_MlmeReqGts_s
 {
     u8    u8Characteristics;    /**< GTS characteristics */
     u8    u8SecurityEnable;     /**< True if security is to be used on command frames */
     u8    pad[2];
-} packed MAC_MlmeReqGts_s;
+} __attribute__ ((packed)) MAC_MlmeReqGts_s;
 
 typedef struct
 {
     u8    u8SetDefaultPib;  /**< True if PIB is to be reset to default values */
     u8    pad[3];
-} packed MAC_MlmeReqReset_s;
+} __attribute__ ((packed)) MAC_MlmeReqReset_s;
 
 typedef struct
 {
@@ -273,7 +271,7 @@ typedef struct
     __be32 u32RxOnDuration; /**< Number of symbol periods the receiver should be enabled for */
     u8     u8DeferPermit;   /**< True if receiver enable can be deferred to the next superframe (beacon networks only) */
     u8     pad[3]; 
-} packed MAC_MlmeReqRxEnable_s;
+} __attribute__ ((packed)) MAC_MlmeReqRxEnable_s;
 
 typedef struct MAC_MlmeReqScan_s
 {
@@ -281,7 +279,7 @@ typedef struct MAC_MlmeReqScan_s
     u8     u8ScanType;      /**< Scan type @sa MAC_MlmeScanType_e */
     u8     u8ScanDuration;  /**< Scan duration */
     u8     pad[2];
-} packed MAC_MlmeReqScan_s;
+} __attribute__ ((packed)) MAC_MlmeReqScan_s;
 
 typedef struct
 {
@@ -325,7 +323,7 @@ typedef struct
       u8     u8MaxFrameRetries;       /**< macMaxFrameRetries */
       u8     pad[MAC_MAX_BEACON_PAYLOAD_LEN+2];
     };
-} packed MAC_MlmeReqSet_s;
+} __attribute__ ((packed)) MAC_MlmeReqSet_s;
 
 typedef struct
 {
@@ -338,39 +336,39 @@ typedef struct
     u8     u8Realignment;       /**< True if Coordinator realignment is sent when superframe parameters change */
     u8     u8SecurityEnable;    /**< True if security is to be used on command frames */
     u8     pad[3];
-} packed MAC_MlmeReqStart_s;
+} __attribute__ ((packed)) MAC_MlmeReqStart_s;
 
 typedef struct
 {
     u8     u8Channel;       /**< Channel to listen for beacon on */
     u8     u8TrackBeacon;   /**< True if beacon is to be tracked */
     u8     pad[2]; 
-} packed MAC_MlmeReqSync_s;
+} __attribute__ ((packed)) MAC_MlmeReqSync_s;
 
 typedef struct
 {
     MAC_Addr_s sCoord;              /**< Coordinator to poll for data */
     u8         u8SecurityEnable;    /**< True if security is to be used on command frames */
     u8         pad[3];
-} packed MAC_MlmeReqPoll_s;
+} __attribute__ ((packed)) MAC_MlmeReqPoll_s;
 
 typedef struct
 {
     MAC_ExtAddr_s sExtAddr; /**< Extended address to set */
-} packed MAC_MlmeReqVsExtAddr_s;
+} __attribute__ ((packed)) MAC_MlmeReqVsExtAddr_s;
 
 typedef struct
 {
     u8     u8Status;            /**< Status of association @sa MAC_Enum_e */
     u8     u8Pad;               /**< Padding to show alignment */
     __be16 u16AssocShortAddr;   /**< Associated Short Address */
-} packed MAC_MlmeCfmAssociate_s;
+} __attribute__ ((packed)) MAC_MlmeCfmAssociate_s;
 
 typedef struct
 {
     u8    u8Status; /**< Status of disassociation @sa MAC_Enum_e */
     u8    pad[3];
-} packed MAC_MlmeCfmDisassociate_s;
+} __attribute__ ((packed)) MAC_MlmeCfmDisassociate_s;
 
 typedef struct
 {
@@ -414,26 +412,26 @@ typedef struct
       u8     u8MaxFrameRetries;       /**< macMaxFrameRetries */
       u8     pad[MAC_MAX_BEACON_PAYLOAD_LEN+2];
     };
-} packed MAC_MlmeCfmGet_s;
+} __attribute__ ((packed)) MAC_MlmeCfmGet_s;
 
 typedef struct
 {
     u8    u8Status;             /**< Status of GTS request @sa MAC_Enum_e */
     u8    u8Characteristics;    /**< GTS characteristics */
     u8    pad[2]; 
-} packed MAC_MlmeCfmGts_s;
+} __attribute__ ((packed)) MAC_MlmeCfmGts_s;
 
 typedef struct
 {
     u8    u8Status; /**< Status of receiver enable request @sa MAC_Enum_e */
     u8    pad[3]; 
-} packed MAC_MlmeCfmReset_s;
+} __attribute__ ((packed)) MAC_MlmeCfmReset_s;
 
 typedef struct
 {
     u8    u8Status; /**< Status of receiver enable request @sa MAC_Enum_e */
     u8    pad[3]; 
-} packed MAC_MlmeCfmRxEnable_s;
+} __attribute__ ((packed)) MAC_MlmeCfmRxEnable_s;
 
 
 typedef struct
@@ -447,26 +445,26 @@ typedef struct
         u8             au8EnergyDetect[MAC_MAX_SCAN_CHANNELS];
         MAC_PanDescr_s asPanDescr[MAC_MAX_SCAN_PAN_DESCRS];
     };
-} packed MAC_MlmeCfmScan_s;
+} __attribute__ ((packed)) MAC_MlmeCfmScan_s;
 
 typedef struct
 {
     u8    u8Status;         /**< Status of PIB set request @sa MAC_Enum_e */
     u8    u8PibAttribute;   /**< PIB attribute set */
     u8    pad[2];
-} packed MAC_MlmeCfmSet_s;
+} __attribute__ ((packed)) MAC_MlmeCfmSet_s;
 
 typedef struct
 {
     u8    u8Status; /**< Status of superframe start request @sa MAC_Enum_e */
     u8    pad[3];
-} packed MAC_MlmeCfmStart_s;
+} __attribute__ ((packed)) MAC_MlmeCfmStart_s;
 
 typedef struct
 {
     u8    u8Status; /**< Status of data poll request @sa MAC_Enum_e */
     u8    pad[3];
-} packed MAC_MlmeCfmPoll_s;
+} __attribute__ ((packed)) MAC_MlmeCfmPoll_s;
 
 typedef struct
 {
@@ -475,7 +473,7 @@ typedef struct
     u8            u8SecurityUse;    /**< True if security was used on command frames */
     u8            u8AclEntry;       /**< Security suite used */
     u8            pad;
-} packed MAC_MlmeIndAssociate_s;
+} __attribute__ ((packed)) MAC_MlmeIndAssociate_s;
 
 typedef struct
 {
@@ -484,13 +482,13 @@ typedef struct
     u8            u8SecurityUse;    /**< True if security was used on command frames */
     u8            u8AclEntry;       /**< Security suite used */
     u8            pad;
-} packed MAC_MlmeIndDisassociate_s;
+} __attribute__ ((packed)) MAC_MlmeIndDisassociate_s;
 
 typedef struct
 {
     u8    u8Reason; /**< Synchronisation loss reason @sa MAC_Enum_e */
     u8    pad[3];
-} packed MAC_MlmeIndSyncLoss_s;
+} __attribute__ ((packed)) MAC_MlmeIndSyncLoss_s;
 
 typedef struct
 {
@@ -499,7 +497,7 @@ typedef struct
     u8     u8Security;          /**< True if security was used on command frames */
     u8     u8AclEntry;          /**< Security suite used */
     u8     pad[3];
-} packed MAC_MlmeIndGts_s;
+} __attribute__ ((packed)) MAC_MlmeIndGts_s;
 
 typedef struct
 {
@@ -514,7 +512,7 @@ typedef struct
     } uAddrList[7];
     u8               u8SDU[MAC_MAX_BEACON_PAYLOAD_LEN]; /**< Beacon payload */
     u8               pad2[2];
-} packed MAC_MlmeIndBeacon_s;
+} __attribute__ ((packed)) MAC_MlmeIndBeacon_s;
 
 typedef struct
 {
@@ -522,7 +520,7 @@ typedef struct
     MAC_Addr_s sDstAddr;    /**< Destination address of frame */
     u8         u8Status;    /**< Status of communication @sa MAC_Enum_e */
     u8         pad[3];
-} packed MAC_MlmeIndCommStatus_s;
+} __attribute__ ((packed)) MAC_MlmeIndCommStatus_s;
 
 typedef struct
 {
@@ -530,7 +528,7 @@ typedef struct
     u8            u8SecurityUse;    /**< True if security was used on command frames */
     u8            u8AclEntry;       /**< Security suite used */
     u8            pad[2];
-} packed MAC_MlmeIndOrphan_s;
+} __attribute__ ((packed)) MAC_MlmeIndOrphan_s;
 
 typedef struct
 {
@@ -538,7 +536,7 @@ typedef struct
     __be16        u16AssocShortAddr;    /**< Short address allocated to Device */
     u8            u8Status;             /**< Status of association */
     u8            u8SecurityEnable;     /**< True if security is to be used on command frames */
-} packed MAC_MlmeRspAssociate_s;
+} __attribute__ ((packed)) MAC_MlmeRspAssociate_s;
 
 typedef struct
 {
@@ -546,7 +544,7 @@ typedef struct
     __be16        u16OrphanShortAddr;   /**< Short address Orphaned Device should use */
     u8            u8Associated;         /**< True if Device was previously associated */
     u8            u8SecurityEnable;     /**< True if security is to be used on command frames */
-} packed MAC_MlmeRspOrphan_s;
+} __attribute__ ((packed)) MAC_MlmeRspOrphan_s;
 
 typedef enum
 {
@@ -589,7 +587,7 @@ typedef struct
       MAC_MlmeRspAssociate_s    sRspAssociate;        /**< Association response */
       MAC_MlmeRspOrphan_s       sRspOrphan;           /**< Orphan response */
     };
-} packed MAC_MlmeReqRsp_s;
+} __attribute__ ((packed)) MAC_MlmeReqRsp_s;
 
 typedef enum
 {
@@ -617,7 +615,7 @@ typedef struct
       MAC_MlmeCfmReset_s        sCfmReset;            /**< Reset confirm */
       MAC_MlmeCfmRxEnable_s     sCfmRxEnable;         /**< Receiver enable confirm */
     };
-} packed MAC_MlmeSyncCfm_s;
+} __attribute__ ((packed)) MAC_MlmeSyncCfm_s;
 
 typedef enum
 {
@@ -657,7 +655,7 @@ typedef struct
       MAC_MlmeIndCommStatus_s   sIndCommStatus;
       MAC_MlmeIndOrphan_s       sIndOrphan;
     };
-} packed MAC_MlmeDcfmInd_s;
+} __attribute__ ((packed)) MAC_MlmeDcfmInd_s;
 
 typedef struct
 {
@@ -666,34 +664,34 @@ typedef struct
     u8         u8TxOptions;                         /**< Transmit options */
     u8         u8SduLength;                         /**< Length of payload (MSDU) */
     u8         au8Sdu[MAC_MAX_DATA_PAYLOAD_LEN];    /**< Payload (MSDU) */
-} packed MAC_TxFrameData_s;
+} __attribute__ ((packed)) MAC_TxFrameData_s;
 
 typedef struct
 {
     u8                u8Handle; /**< Handle of frame in queue */
     u8                pad[3];
     MAC_TxFrameData_s sFrame;   /**< Frame to send */
-} packed MAC_McpsReqData_s;
+} __attribute__ ((packed)) MAC_McpsReqData_s;
 
 typedef struct
 {
     u8             u8Handle;    /**< Handle of request to purge from queue */
     u8    pad[3]; 
-} packed MAC_McpsReqPurge_s;
+} __attribute__ ((packed)) MAC_McpsReqPurge_s;
 
 typedef struct
 {
     u8    u8Handle; /**< Handle matching associated request */
     u8    u8Status; /**< Status of request @sa MAC_Enum_e */
     u8    pad[2]; 
-} packed MAC_McpsCfmData_s;
+} __attribute__ ((packed)) MAC_McpsCfmData_s;
 
 typedef struct
 {
     u8    u8Handle; /**< Handle matching associated request */
     u8    u8Status; /**< Status of request @sa MAC_Enum_e */
     u8    pad[2]; 
-} packed MAC_McpsCfmPurge_s;
+} __attribute__ ((packed)) MAC_McpsCfmPurge_s;
 
 typedef struct
 {
@@ -705,12 +703,12 @@ typedef struct
     u8         u8SduLength;                         /**< Length of payload (MSDU) */
     u8         au8Sdu[MAC_MAX_DATA_PAYLOAD_LEN];    /**< Payload (MSDU) */
     u8         pad[2]; 
-} packed MAC_RxFrameData_s;
+} __attribute__ ((packed)) MAC_RxFrameData_s;
 
 typedef struct
 {
     MAC_RxFrameData_s sFrame;   /**< Frame received */
-} packed MAC_McpsIndData_s;
+} __attribute__ ((packed)) MAC_McpsIndData_s;
 
 typedef enum
 {
@@ -728,7 +726,7 @@ typedef struct
       MAC_McpsReqData_s  sReqData;   /**< Data request */
       MAC_McpsReqPurge_s sReqPurge;  /**< Purge request */
     };
-} packed MAC_McpsReqRsp_s;
+} __attribute__ ((packed)) MAC_McpsReqRsp_s;
 
 typedef enum
 {
@@ -747,7 +745,7 @@ typedef struct
       MAC_McpsCfmData_s  sCfmData;
       MAC_McpsCfmPurge_s sCfmPurge;
     };
-} packed MAC_McpsSyncCfm_s;
+} __attribute__ ((packed)) MAC_McpsSyncCfm_s;
 
 typedef enum
 {
@@ -767,28 +765,28 @@ typedef struct
       MAC_McpsCfmPurge_s sDcfmPurge;  /**< Deferred purge confirm */
       MAC_McpsIndData_s  sIndData;    /**< Received data indication */
     };
-} packed MAC_McpsDcfmInd_s;
+} __attribute__ ((packed)) MAC_McpsDcfmInd_s;
 
 typedef struct
 {
     u8     u8Type;          /**< Request/Response type */
     u8     u8ParamLength;   /**< Parameter length */
     __be16 u16Pad;          /**< Padding to force alignment */
-} packed MAC_ReqRspHdr_s;
+} __attribute__ ((packed)) MAC_ReqRspHdr_s;
 
 typedef struct
 {
     u8     u8Status;        /**< Confirm status */
     u8     u8ParamLength;   /**< Parameter length */
     __be16 u16Pad;          /**< Padding to force alignment */
-} packed MAC_SyncCfmHdr_s;
+} __attribute__ ((packed)) MAC_SyncCfmHdr_s;
 
 typedef struct
 {
     u8     u8Type;          /**< Deferred confirm/Indication type */
     u8     u8ParamLength;   /**< Parameter length */
     __be16 u16Pad;          /**< Padding to force alignment */
-} packed MAC_DcfmIndHdr_s;
+} __attribute__ ((packed)) MAC_DcfmIndHdr_s;
 
 typedef enum
 {
@@ -819,7 +817,7 @@ typedef struct jenusb_req {
       MAC_McpsReqRsp_s mcps;
       MAC_MlmeReqRsp_s mlme;
     };
-} packed jenusb_req;
+} __attribute__ ((packed)) jenusb_req;
 
 typedef struct jenusb_ind {
     u8 type;
@@ -828,7 +826,7 @@ typedef struct jenusb_ind {
       MAC_McpsDcfmInd_s mcps;
       MAC_MlmeDcfmInd_s mlme;
     };
-} packed jenusb_ind;
+} __attribute__ ((packed)) jenusb_ind;
 
 typedef struct jenusb_cfm {
     u8 type;
@@ -837,6 +835,6 @@ typedef struct jenusb_cfm {
       MAC_McpsSyncCfm_s mcps;
       MAC_MlmeSyncCfm_s mlme;
     };
-} packed jenusb_cfm;
+} __attribute__ ((packed)) jenusb_cfm;
 
 #endif /* _mac_sap_h_ */

@@ -1,7 +1,9 @@
 /*
- * Sample driver for HardMAC IEEE 802.15.4 devices
+ * Driver for Jennic JN5139 IEEE802.15.4 micro-controller connected through
+ * USB.
  *
- * Copyright (C) 2009 Siemens AG
+ * Copyright (C) 2009
+ * Telecooperation Office (TecO), Universitaet Karlsruhe (TH), Germany.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -16,16 +18,22 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Written by:
- * Dmitry Eremin-Solenikov <dmitry.baryshkov@siemens.com>
+ * Author(s):
+ * Philipp Scholl <scholl@teco.edu>
+ *
+ * This driver is based on the usbnet implementation and the fakehard driver of
+ * the linux IEEE802.15.4 stack.
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/ctype.h>
+#include <linux/types.h>
 #include <linux/platform_device.h>
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
 #include <linux/if_arp.h>
 #include <linux/usb.h>
+#include <linux/usb/cdc.h>
 
 #include <net/ieee802154/af_ieee802154.h>
 #include <net/ieee802154/netdevice.h>
@@ -50,6 +58,19 @@ struct jenusb {
 
 	struct workqueue_struct *workqueue;
 	bool                 running;
+};
+
+struct cdc_ieee802154_desc {
+	__u8   bLength;
+	__u8   bDescriptorType;
+	__u8   bDescriptorSubType;
+	__u8   iMACAddress;
+	__le16 wMaxSegmentSize;
+} __attribute__ ((packed));
+
+struct cdc_ieee802154 {
+	struct usb_cdc_header_desc header;
+	struct cdc_ieee802154_desc ieee802154;
 };
 
 struct jenusb_work {
@@ -661,6 +682,7 @@ jenusb_net_open(struct net_device *net)
 	req->mlme.u8ParamLength = sizeof(MAC_MlmeReqReset_s);
 	req->mlme.sReqReset.u8SetDefaultPib = false;
 
+	dev->running = true;
 	retval = jenusb_post_req(dev, req, cfm);
 
 	if (retval) {
@@ -672,14 +694,17 @@ jenusb_net_open(struct net_device *net)
 
 		// schedule rx work
 		if (!work) {
+			dev->running = false;
 			retval = -ENOMEM;
 		} else {
-			dev->running = true;
 			netif_start_queue(net);
 			INIT_DELAYED_WORK(&work->dwork, jenusb_rx_work);
 			queue_delayed_work(dev->workqueue, &work->dwork, dev->read_delay);
 		}
 	}
+
+	if (retval)
+		dev->running = false;
 	mutex_unlock(&dev->transaction);
 
 	return retval;
@@ -854,6 +879,16 @@ ieee802154_setup(struct net_device *net)
 	net->watchdog_timeo	= 0;
 }
 
+static u8 nibble(unsigned char c)
+{
+	if (likely(isdigit(c)))
+		return c - '0';
+	c = toupper(c);
+	if (likely(isxdigit(c)))
+		return 10 + c - 'A';
+	return 0;
+}
+
 #define MAX_ALT_SETTINGS 32
 
 int
@@ -864,6 +899,7 @@ jenusb_probe(struct usb_interface *interface, const struct usb_device_id *prod)
 	struct usb_device *udev;
 	struct usb_host_interface *iface_desc;
 	struct usb_endpoint_descriptor *endpoint;
+  struct cdc_ieee802154 *info = NULL;
 	size_t bulk_in_size, irq_in_size, irq_delay, read_delay;
 	int retval = -ENOMEM, i, j;
 	u32 bulkinep=0, bulkoutep=0, irqinep=0;
@@ -898,6 +934,10 @@ jenusb_probe(struct usb_interface *interface, const struct usb_device_id *prod)
 			}
 		}
 
+		if (iface_desc->extralen == sizeof(struct cdc_ieee802154) ) {
+			info = (struct cdc_ieee802154*) interface->cur_altsetting->extra;
+		}
+
 		if(bulkinep && bulkoutep && irqinep) {
 			retval = usb_set_interface(udev,
 			           iface_desc->desc.bInterfaceNumber,
@@ -912,6 +952,11 @@ jenusb_probe(struct usb_interface *interface, const struct usb_device_id *prod)
 		goto error;
 	}
 
+	if(!info) {
+		err("cdc descriptor not found");
+		goto error;
+	}
+
 	/* register the device now with the network stack */
 	net = alloc_netdev(sizeof(*dev), "wpan%d", ieee802154_setup);
 
@@ -920,6 +965,27 @@ jenusb_probe(struct usb_interface *interface, const struct usb_device_id *prod)
 		goto error;
 	}
 
+	/* retrieve mac address from usb descriptor, code adapted from usbnet. */
+	{
+		char buf[IEEE802154_ADDR_LEN*2+1];
+		int len, i;
+
+		BUG_ON(net->addr_len != IEEE802154_ADDR_LEN);
+
+		len = usb_string(udev, info->ieee802154.iMACAddress, buf, sizeof(buf));
+
+		if (len != IEEE802154_ADDR_LEN*2) {
+			err("bad MAC string %d fetch, %d\n", info->ieee802154.iMACAddress, len);
+			goto error;
+		}
+
+		for (i=len=0; i < IEEE802154_ADDR_LEN; i++, len+=2)
+			net->dev_addr[i] = (nibble(buf[len])<<4) + nibble(buf[len+1]);
+
+		memcpy(net->perm_addr, net->dev_addr, net->addr_len);
+	}
+
+	/* initialize driver */
 	dev = netdev_priv(net);
 	kref_init(&dev->kref);
 
@@ -951,18 +1017,12 @@ jenusb_probe(struct usb_interface *interface, const struct usb_device_id *prod)
 	dev->in_cfm = usb_rcvintpipe(dev->udev, irqinep);
 	dev->out = usb_sndbulkpipe(dev->udev, bulkoutep);
 
-	/* TODO: retrieve mac address from usb descriptor */
-	memcpy(net->dev_addr, "\xba\xbe\xca\xfe\xde\xad\xbe\xef",
-			net->addr_len);
-	memcpy(net->perm_addr, net->dev_addr, net->addr_len);
-
 	retval = register_netdev(net);
 	if (retval < 0) {
 		err("unable to register network device");
 		goto error;
 	}
 
-	//devinfo(net, "added Jenusb Ieee802.15.4 Mac\n");
 	return retval;
 error:
 	printk("jenusb: unable to initialize. Error numer %d\n", retval);
