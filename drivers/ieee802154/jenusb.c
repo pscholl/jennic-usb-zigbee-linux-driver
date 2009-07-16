@@ -58,6 +58,8 @@ struct jenusb {
 
 	struct workqueue_struct *workqueue;
 	bool                 running;
+
+	atomic_t             panid, shortaddr;
 };
 
 struct cdc_ieee802154_desc {
@@ -190,66 +192,20 @@ jenusb_to_ieee802154_addr(MAC_Addr_s *a, struct ieee802154_addr* b)
 	}
 }
 
-static u16
+static u16 /* called in atomic context */
 jenusb_get_pan_id(struct net_device *net)
 {
 	struct jenusb *dev = netdev_priv(net);
-	struct jenusb_req *req = &dev->req;
-	struct jenusb_cfm *cfm = &dev->cfm;
-	int retval, panid;
-
 	BUG_ON(net->type != ARPHRD_IEEE802154);
-
-	retval = mutex_lock_interruptible(&dev->transaction);
-	if (retval) return retval;
-
-	req->type = MAC_SAP_MLME;
-	req->mlme.u8Type = MAC_MLME_REQ_GET;
-	req->mlme.u8ParamLength = sizeof(MAC_MlmeReqGet_s);
-	req->mlme.sReqGet.u8PibAttribute = MAC_PIB_ATTR_PAN_ID;
-	req->mlme.sReqGet.u8PibAttributeIndex = 0;
-
-	retval = jenusb_post_req(dev, req, cfm);
-
-	if (retval || jenusb_chk_err(cfm, sCfmGet)) {
-		panid = IEEE802154_ADDR_UNDEF;
- 	} else {
-		panid = be16_to_cpu(cfm->mlme.sCfmGet.u16PanId);
-	}
-
-	mutex_unlock(&dev->transaction);
-	return panid;
+	return atomic_read(&dev->panid);
 }
 
-static u16
+static u16 /* called in atomic context */
 jenusb_get_short_addr(struct net_device *net)
 {
 	struct jenusb *dev = netdev_priv(net);
-	struct jenusb_req *req = &dev->req;
-	struct jenusb_cfm *cfm = &dev->cfm;
-	int retval, shortaddr;
-
 	BUG_ON(net->type != ARPHRD_IEEE802154);
-
-	retval = mutex_lock_interruptible(&dev->transaction);
-	if (retval) return retval;
-
-	req->type = MAC_SAP_MLME;
-	req->mlme.u8Type = MAC_MLME_REQ_GET;
-	req->mlme.u8ParamLength = sizeof(MAC_MlmeReqGet_s);
-	req->mlme.sReqGet.u8PibAttribute = MAC_PIB_ATTR_SHORT_ADDRESS;
-	req->mlme.sReqGet.u8PibAttributeIndex = 0;
-
-	retval = jenusb_post_req(dev, req, cfm);
-
-	if (retval || jenusb_chk_err(cfm, sCfmGet)) {
-		shortaddr = IEEE802154_ADDR_UNDEF;
-	} else {
-		shortaddr = be16_to_cpu(cfm->mlme.sCfmGet.u16ShortAddr);
-	}
-
-	mutex_unlock(&dev->transaction);
-	return shortaddr;
+	return atomic_read(&dev->shortaddr);
 }
 
 static int
@@ -272,7 +228,8 @@ jenusb_set_panid(struct net_device *net, u16 panid) {
 	req->mlme.sReqSet.u16PanId = panid;
 
 	retval = jenusb_post_req(dev, req, cfm);
-	jenusb_chk_err(cfm, sCfmSet);
+	if (!jenusb_chk_err(cfm, sCfmSet))
+		atomic_set(&dev->panid, panid);
 
 	mutex_unlock(&dev->transaction);
 	return retval;
@@ -298,7 +255,8 @@ jenusb_set_short_addr(struct net_device *net, u16 short_addr) {
 	req->mlme.sReqSet.u16ShortAddr = short_addr;
 
 	retval = jenusb_post_req(dev, req, cfm);
-	jenusb_chk_err(cfm, sCfmSet);
+	if (!jenusb_chk_err(cfm, sCfmSet))
+		atomic_set(&dev->shortaddr, short_addr);
 
 	mutex_unlock(&dev->transaction);
 	return retval;
@@ -365,6 +323,9 @@ jenusb_assoc_resp(struct net_device *net, struct ieee802154_addr *addr,
 	struct jenusb_req *req = &dev->req;
 	struct jenusb_cfm *cfm = &dev->cfm;
 	int retval;
+
+  err("%s", __func__);
+  return 0;
 
 	retval = mutex_lock_interruptible(&dev->transaction);
 	if (retval) return retval;
@@ -519,17 +480,19 @@ jenusb_mcps_ind(struct net_device *dev, MAC_McpsDcfmInd_s *ind) {
 			break;
 		case MAC_MCPS_IND_DATA:   /* data received */
 			frame = &ind->sIndData.sFrame;
-			skb = alloc_skb(frame->u8SduLength, GFP_KERNEL);
+			skb = dev_alloc_skb(frame->u8SduLength);
 			if (!skb) {
 				dev->stats.rx_dropped++;
-				err("jenusb: rx no memory");
+				if (printk_ratelimit()) err("rx no memory");
 				return;
 			}
+			memcpy(skb_put(skb, frame->u8SduLength), frame->au8Sdu,
+			       frame->u8SduLength);
+
 			skb->dev = dev;
 			skb->iif = skb->dev->ifindex;
 			skb->protocol = htons(ETH_P_IEEE802154);
 			skb_reset_mac_header(skb);
-			memcpy(skb->data, frame->au8Sdu, frame->u8SduLength);
 			//phy_cb(skb)->lqi = frame->u8LinkQuality;
 			jenusb_to_ieee802154_addr(&frame->sSrcAddr, &mac_cb(skb)->sa);
 			jenusb_to_ieee802154_addr(&frame->sDstAddr, &mac_cb(skb)->da);
@@ -557,45 +520,26 @@ jenusb_mlme_ind(struct net_device *dev, MAC_MlmeDcfmInd_s *ind) {
 				ind->sDcfmScan.u8ScanType == MAC_MLME_SCAN_TYPE_ENERGY_DETECT ?
 				ind->sDcfmScan.au8EnergyDetect : NULL);
 			break;
-
-	case MAC_MLME_DCFM_GTS:
-			break;
-
 	case MAC_MLME_DCFM_ASSOCIATE:
 			retval = ieee802154_nl_assoc_confirm(dev,
 			  be16_to_cpu(ind->sDcfmAssociate.u16AssocShortAddr),
 			  ind->sDcfmAssociate.u8Status);
 			break;
-
 	case MAC_MLME_DCFM_DISASSOCIATE:
 			retval = ieee802154_nl_disassoc_confirm(dev,
 			  ind->sDcfmDisassociate.u8Status);
 			break;
-
-	case MAC_MLME_DCFM_POLL:
-			break;
-
-	case MAC_MLME_DCFM_RX_ENABLE:
-			break;
-
 	case MAC_MLME_IND_ASSOCIATE:
 			addr.addr_type = IEEE802154_ADDR_LONG;
 			memcpy(addr.hwaddr, &ind->sIndAssociate.sDeviceAddr, sizeof(addr.hwaddr));
 			retval = ieee802154_nl_assoc_indic(dev, &addr,
 			  ind->sIndAssociate.u8Capability); /* XXX: assume cap fields match */
 			break;
-
 	case MAC_MLME_IND_DISASSOCIATE:
 			addr.addr_type = IEEE802154_ADDR_LONG;
 			memcpy(addr.hwaddr, &ind->sIndDisassociate.sDeviceAddr, sizeof(addr.hwaddr));
 			retval = ieee802154_nl_disassoc_indic(dev, &addr,
 			  ind->sIndDisassociate.u8Reason); /* XXX: assume reason matches */
-			break;
-
-	case MAC_MLME_IND_SYNC_LOSS:
-			break;
-
-	case MAC_MLME_IND_GTS:
 			break;
 
 	case MAC_MLME_IND_BEACON_NOTIFY:
@@ -604,19 +548,23 @@ jenusb_mlme_ind(struct net_device *dev, MAC_MlmeDcfmInd_s *ind) {
 			  be16_to_cpu(ind->sIndBeacon.sPANdescriptor.sCoord.u16Short));
 			break;
 
+	case MAC_MLME_DCFM_GTS:
+	case MAC_MLME_DCFM_POLL:
+	case MAC_MLME_DCFM_RX_ENABLE:
+	case MAC_MLME_IND_SYNC_LOSS:
+	case MAC_MLME_IND_GTS:
 	case MAC_MLME_IND_COMM_STATUS:
-			break;
-
 	case MAC_MLME_IND_ORPHAN:
+			err("unsupported mlme indiccation 0x%x", ind->u8Type);
 			break;
 
 	default:
-			err("jenusb: unknown mlme indiccation\n");
+			err("unknown mlme indiccation\n");
 			break;
 	}
 
 	if (retval) {
-		err("%s 0x%x %d", __func__, ind->u8Type, retval);
+		err("%s delivery of 0x%x failed with %d", __func__, ind->u8Type, retval);
 	}
 }
 
@@ -636,6 +584,11 @@ jenusb_rx_work(struct work_struct *w) {
 
 	switch(retval) {
 	case 0:
+		break;
+	case -ETIMEDOUT:
+		if (len!=0)
+			err("%s - incomplete read %d", __func__, len);
+		goto again;
 		break;
 	case -ENODEV:
 	case -EPIPE:
@@ -657,11 +610,14 @@ jenusb_rx_work(struct work_struct *w) {
 			err("%s - unknown indication %d", __func__, work->ind.type);
 	}
 
+again:
 	// reschedule this function
 	INIT_DELAYED_WORK(&work->dwork, jenusb_rx_work);
 	queue_delayed_work(dev->workqueue, &work->dwork, dev->read_delay);
 	return;
 err:
+	// TODO: stop the device
+	err("%s failed: %d", __func__, retval);
 	if (work) kfree(work);
 	return;
 }
@@ -855,12 +811,14 @@ jenusb_release(struct kref *kref)
 {
 	struct jenusb *dev = container_of(kref, struct jenusb, kref);
 
+	dev->running = false;
+	unregister_netdev(dev->net);
+
 	if (dev->workqueue) {
 		flush_workqueue(dev->workqueue);
 		destroy_workqueue(dev->workqueue);
 	}
 
-	unregister_netdev(dev->net);
 	usb_put_dev(dev->udev);
 	free_netdev(dev->net);
 }
