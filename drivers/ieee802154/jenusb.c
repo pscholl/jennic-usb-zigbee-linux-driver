@@ -400,7 +400,7 @@ jenusb_start_req(struct net_device *net, struct ieee802154_addr *addr,
 
 	/* when we get started as a coordinator, the jennic chip switches to
 	 * the IEEE 802.15.4 coord short addr (0x0000) */
-	//if(pan_coord) jenusb_set_short_addr(net, 0x0000);
+	if(pan_coord) jenusb_set_short_addr(net, 0x0000);
 
 	retval = mutex_lock_interruptible(&dev->transaction);
 	if (retval) return retval;
@@ -474,7 +474,7 @@ static struct ieee802154_mlme_ops jenusb_mlme_ops = {
 	.get_bsn = 		jenusb_get_bsn,
 };
 
-	struct fc { /* frame control field */
+struct fc { /* frame control field */
 		u8 frame_type:3;
 		u8 sec_enable:1;
 		u8 fr_pending:1;
