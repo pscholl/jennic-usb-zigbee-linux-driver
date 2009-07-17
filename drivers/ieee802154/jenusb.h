@@ -555,7 +555,7 @@ typedef enum
     MAC_MLME_REQ_RESET,             /**< Use with tagMAC_MlmeReqReset_s */
     MAC_MLME_REQ_RX_ENABLE,         /**< Use with tagMAC_MlmeReqRxEnable_s */
     MAC_MLME_REQ_SCAN,              /**< Use with tagMAC_MlmeReqScan_s */
-    MAC_MLME_REQ_SET,       /**< Use with tagMAC_MlmeReqSet_s */
+    MAC_MLME_REQ_SET,       /**< Use with tag MAC_MlmeReqSet_s */
     MAC_MLME_REQ_START,             /**< Use with tagMAC_MlmeReqStart_s */
     MAC_MLME_REQ_SYNC,              /**< Use with tagMAC_MlmeReqSync_s */
     MAC_MLME_REQ_POLL,              /**< Use with tagMAC_MlmeReqPoll_s */
