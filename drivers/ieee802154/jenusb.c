@@ -396,11 +396,12 @@ jenusb_start_req(struct net_device *net, struct ieee802154_addr *addr,
 	struct jenusb *dev = netdev_priv(net);
 	struct jenusb_req *req = &dev->req;
 	struct jenusb_cfm *cfm = &dev->cfm;
-	int retval;
+	int retval = 0;
 
 	/* when we get started as a coordinator, the jennic chip switches to
 	 * the IEEE 802.15.4 coord short addr (0x0000) */
-	if(pan_coord) jenusb_set_short_addr(net, 0x0000);
+	if (pan_coord) retval = jenusb_set_short_addr(net, 0x0000);
+	if (retval) goto err;
 
 	retval = mutex_lock_interruptible(&dev->transaction);
 	if (retval) return retval;
@@ -486,15 +487,103 @@ struct fc { /* frame control field */
 		u8 sa_addr_mode:2;
 } __attribute__((packed));
 
+static int
+addr_len(MAC_Addr_s *a) {
+	switch(a->u8AddrMode) {
+	case IEEE802154_ADDR_SHORT:
+		return sizeof(u16);
+	case IEEE802154_ADDR_LONG:
+		return sizeof(u64);
+	case IEEE802154_ADDR_NONE:
+		return 0;
+	default:
+		err("unknown addr type");
+	}
+	return 0;
+}
+
+/* jennic chips only give the MSDU, so we rebuild a MPDU here,
+ * but this is only true if not in promiscuous mode */
+static int
+to_skb(MAC_RxFrameData_s *frame, struct sk_buff *skb) {
+	u8  *ptr;
+	u8   seq;
+	u8   isintrapan = false;
+	int len = frame->u8SduLength;
+
+	if (addr_len(&frame->sDstAddr) < 0 || addr_len(&frame->sSrcAddr) < 0)
+		return -EINVAL;
+
+ 	len += sizeof(struct fc);
+ 	len += sizeof(seq);
+	len += addr_len(&frame->sDstAddr);
+	len += addr_len(&frame->sSrcAddr);
+
+	skb = dev_alloc_skb(len);
+	if (!skb) {
+		if (printk_ratelimit()) err("rx no memory");
+		return -ENOMEM;
+	}
+
+	isintrapan = frame->sDstAddr.u16PanId == frame->sSrcAddr.u16PanId;
+	
+	ptr = skb_put(skb, len);
+	((struct fc*) ptr)->frame_type = IEEE802154_FC_TYPE_DATA;
+	((struct fc*) ptr)->sec_enable = frame->u8SecurityUse;
+	((struct fc*) ptr)->fr_pending = false;
+	((struct fc*) ptr)->intra_pan = isintrapan;
+	((struct fc*) ptr)->ack_required = false;
+	((struct fc*) ptr)->da_addr_mode = frame->sDstAddr.u8AddrMode;
+	((struct fc*) ptr)->sa_addr_mode = frame->sSrcAddr.u8AddrMode;
+
+	*(ptr+2) = 0; /* sequence number, unable to get that */
+
+	/* copy over addresses */
+	ptr += 3;
+	switch(frame->sDstAddr.u8AddrMode) {
+	case IEEE802154_ADDR_NONE:
+		break;
+	case IEEE802154_ADDR_SHORT:
+		*((u16*) ptr)     = be16_to_cpu(frame->sDstAddr.u16PanId);
+		*((u16*) (ptr+2)) = be16_to_cpu(frame->sDstAddr.u16Short);
+		ptr += 4;
+		break;
+	case IEEE802154_ADDR_LONG:
+		*((u16*) ptr)     = be16_to_cpu(frame->sDstAddr.u16PanId);
+		*((u64*) (ptr+2)) = be64_to_cpu(*((u64*) &frame->sDstAddr.sExt));
+		ptr += 10;
+		break;
+	}
+
+	switch(frame->sSrcAddr.u8AddrMode) {
+	case IEEE802154_ADDR_NONE:
+		break;
+	case IEEE802154_ADDR_SHORT:
+		if (isintrapan) {
+			*((u16*) (ptr)) = be16_to_cpu(frame->sSrcAddr.u16Short);
+			ptr += 2;
+		} else {
+			*((u16*) ptr)     = be16_to_cpu(frame->sSrcAddr.u16PanId);
+			*((u16*) (ptr+2)) = be16_to_cpu(frame->sSrcAddr.u16Short);
+			ptr += 4;
+		}
+		break;
+	case IEEE802154_ADDR_LONG:
+		*((u16*) ptr)     = be16_to_cpu(frame->sSrcAddr.u16PanId);
+		*((u64*) (ptr+2)) = be64_to_cpu(*((u64*) &frame->sSrcAddr.sExt));
+		ptr += 10;
+		break;
+	}
+
+	memcpy(ptr, frame->au8Sdu, frame->u8SduLength);
+	return len;
+}
+
 static void
 jenusb_mcps_ind(struct net_device *dev, MAC_McpsDcfmInd_s *ind) {
 	struct sk_buff *skb;
 	MAC_RxFrameData_s *frame;
-	int len = 0;
-
-	u8  *ptr;
-	u8   seq;
-	u8   isintrapan = false;
+	int retval = 0;
 
 	switch(ind->u8Type) {
 		case MAC_MCPS_DCFM_PURGE: /* confirm for purge request */
@@ -502,97 +591,12 @@ jenusb_mcps_ind(struct net_device *dev, MAC_McpsDcfmInd_s *ind) {
 		case MAC_MCPS_DCFM_DATA:  /* confirm for data send request */
 			break;
 		case MAC_MCPS_IND_DATA:   /* data received */
-			frame = &ind->sIndData.sFrame;
+			retval = to_skb(&ind->sIndData.sFrame, skb);
 
-			/* jennic chips only give the MSDU, so we rebuild a MPDU here,
-			 * but this is only true if not in promiscuous mode */
-			len += frame->u8SduLength;
-			len += sizeof(struct fc);
-			len += sizeof(seq);
-			switch(frame->sSrcAddr.u8AddrMode) {
-			case IEEE802154_ADDR_SHORT:
-				len += sizeof(u16);
-				break;
-			case IEEE802154_ADDR_LONG:
-				len += sizeof(u64);
-				break;
-			case IEEE802154_ADDR_NONE:
-				break;
-			default:
-				err("unknown addr type");
-			}
-
-			switch(frame->sDstAddr.u8AddrMode) {
-			case IEEE802154_ADDR_SHORT:
-				len += sizeof(u16);
-				break;
-			case IEEE802154_ADDR_LONG:
-				len += sizeof(u64);
-				break;
-			case IEEE802154_ADDR_NONE:
-				break;
-			default:
-				err("unknown addr type");
-			}
-
-			skb = dev_alloc_skb(len);
-			if (!skb) {
+			if (retval<0) {
 				dev->stats.rx_dropped++;
-				if (printk_ratelimit()) err("rx no memory");
 				return;
 			}
-
-			isintrapan = frame->sDstAddr.u16PanId == frame->sSrcAddr.u16PanId;
-			
-			ptr = skb_put(skb, len);
-			((struct fc*) ptr)->frame_type = IEEE802154_FC_TYPE_DATA;
-			((struct fc*) ptr)->sec_enable = frame->u8SecurityUse;
-			((struct fc*) ptr)->fr_pending = false;
-			((struct fc*) ptr)->intra_pan = isintrapan;
-			((struct fc*) ptr)->ack_required = false;
-			((struct fc*) ptr)->da_addr_mode = frame->sDstAddr.u8AddrMode;
-			((struct fc*) ptr)->sa_addr_mode = frame->sSrcAddr.u8AddrMode;
-
-			*(ptr+2) = 0; /* sequence number, unable to get that */
-
-			/* copy over addresses */
-			ptr += 3;
-			switch(frame->sDstAddr.u8AddrMode) {
-			case IEEE802154_ADDR_NONE:
-				break;
-			case IEEE802154_ADDR_SHORT:
-				*((u16*) ptr)     = be16_to_cpu(frame->sDstAddr.u16PanId);
-				*((u16*) (ptr+2)) = be16_to_cpu(frame->sDstAddr.u16Short);
-				ptr += 4;
-				break;
-			case IEEE802154_ADDR_LONG:
-				*((u16*) ptr)     = be16_to_cpu(frame->sDstAddr.u16PanId);
-				*((u64*) (ptr+2)) = be64_to_cpu(*((u64*) &frame->sDstAddr.sExt));
-				ptr += 10;
-				break;
-			}
-
-			switch(frame->sSrcAddr.u8AddrMode) {
-			case IEEE802154_ADDR_NONE:
-				break;
-			case IEEE802154_ADDR_SHORT:
-				if (isintrapan) {
-					*((u16*) (ptr)) = be16_to_cpu(frame->sSrcAddr.u16Short);
-					ptr += 2;
-				} else {
-					*((u16*) ptr)     = be16_to_cpu(frame->sSrcAddr.u16PanId);
-					*((u16*) (ptr+2)) = be16_to_cpu(frame->sSrcAddr.u16Short);
-					ptr += 4;
-				}
-				break;
-			case IEEE802154_ADDR_LONG:
-				*((u16*) ptr)     = be16_to_cpu(frame->sSrcAddr.u16PanId);
-				*((u64*) (ptr+2)) = be64_to_cpu(*((u64*) &frame->sSrcAddr.sExt));
-				ptr += 10;
-				break;
-			}
-
-			memcpy(ptr, frame->au8Sdu, frame->u8SduLength);
 
 			skb->dev = dev;
 			skb->iif = skb->dev->ifindex;
@@ -602,7 +606,7 @@ jenusb_mcps_ind(struct net_device *dev, MAC_McpsDcfmInd_s *ind) {
 			jenusb_to_ieee802154_addr(&frame->sSrcAddr, &mac_cb(skb)->sa);
 			jenusb_to_ieee802154_addr(&frame->sDstAddr, &mac_cb(skb)->da);
 			dev->stats.rx_packets++;
-			dev->stats.rx_bytes += len; //frame->u8SduLength;
+			dev->stats.rx_bytes += retval;
 			netif_rx(skb);
 			break;
 		default:
@@ -728,8 +732,7 @@ err:
 }
 
 static int
-jenusb_net_open(struct net_device *net)
-{
+jenusb_net_open(struct net_device *net) {
 	struct jenusb *dev = netdev_priv(net);
 	struct jenusb_req *req = &dev->req;
 	struct jenusb_cfm *cfm = &dev->cfm;
@@ -772,8 +775,7 @@ jenusb_net_open(struct net_device *net)
 }
 
 static int
-jenusb_net_close(struct net_device *net)
-{
+jenusb_net_close(struct net_device *net) {
 	struct jenusb *dev = netdev_priv(net);
 	dev->running = false;
 	netif_stop_queue(net);
@@ -782,8 +784,68 @@ jenusb_net_close(struct net_device *net)
 }
 
 static int
-jenusb_net_xmit(struct sk_buff *skb, struct net_device *net)
-{
+from_skb(struct sk_buff *skb, MAC_TxFrameData_s *frame) {
+	u8 *ptr = skb->data;
+	struct fc* fcf = (struct fc*) ptr;
+
+	if (fcf->frame_type != IEEE802154_FC_TYPE_DATA)
+		return -ENOTSUPP;
+
+	if (fcf->da_addr_mode == IEEE802154_ADDR_NONE &&
+	    fcf->sa_addr_mode == IEEE802154_ADDR_NONE)
+		return -EINVAL;
+
+	/* fill frame control, XXX: GTS missing */
+	frame->u8TxOptions  = fcf->ack_required ? MAC_TX_OPTION_ACK : 0;
+	frame->u8TxOptions |= fcf->sec_enable ? MAC_TX_OPTION_SECURITY : 0;
+
+	/* sequence number, ignore can't set that manually */
+	ptr += 2;
+
+	/* copy addresses */
+	ptr += 1;
+	frame->sDstAddr.u8AddrMode = fcf->da_addr_mode;
+	switch(fcf->da_addr_mode) {
+	case IEEE802154_ADDR_NONE:
+		break;
+	case IEEE802154_ADDR_SHORT:
+		frame->sDstAddr.u16PanId = cpu_to_be16(*((u16*) ptr));
+		frame->sDstAddr.u16Short = cpu_to_be16(*((u16*) (ptr+2)));
+		ptr += 4;
+		break;
+	case IEEE802154_ADDR_LONG:
+		frame->sDstAddr.u16PanId = cpu_to_be16(*((u16*) ptr));
+		memcpy(&frame->sDstAddr.sExt, ptr+2, sizeof(frame->sDstAddr.sExt));
+		ptr += 10;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	frame->sSrcAddr.u8AddrMode = fcf->sa_addr_mode;
+	switch(fcf->da_addr_mode) {
+	case IEEE802154_ADDR_NONE:
+		break;
+	case IEEE802154_ADDR_SHORT:
+		frame->sSrcAddr.u16PanId = cpu_to_be16(*((u16*) ptr));
+		frame->sSrcAddr.u16Short = cpu_to_be16(*((u16*) (ptr+2)));
+		ptr += 4;
+		break;
+	case IEEE802154_ADDR_LONG:
+		frame->sSrcAddr.u16PanId = cpu_to_be16(*((u16*) ptr));
+		memcpy(&frame->sSrcAddr.sExt, ptr+2, sizeof(frame->sSrcAddr.sExt));
+		ptr += 10;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	memcpy(frame->au8Sdu, ptr, frame->u8SduLength);
+	return frame->u8SduLength;
+}
+
+static int
+jenusb_net_xmit(struct sk_buff *skb, struct net_device *net) {
 	struct jenusb     *dev = netdev_priv(net);
 	struct jenusb_req *req = &dev->req;
 	struct jenusb_cfm *cfm = &dev->cfm;
@@ -801,26 +863,8 @@ jenusb_net_xmit(struct sk_buff *skb, struct net_device *net)
 	req->mcps.u8ParamLength = sizeof(MAC_McpsReqData_s);
 	req->mcps.sReqData.u8Handle = 0;
 
-	ieee802154_addr_to_jenusb(&mac_cb(skb)->sa,
-		&req->mcps.sReqData.sFrame.sSrcAddr);
-	ieee802154_addr_to_jenusb(&mac_cb(skb)->da,
-		&req->mcps.sReqData.sFrame.sDstAddr);
-
-	req->mcps.sReqData.sFrame.u8TxOptions = 0;
-	req->mcps.sReqData.sFrame.u8TxOptions |=
-		mac_cb(skb)->flags & MAC_CB_FLAG_ACKREQ ? MAC_TX_OPTION_ACK : 0;
-//	req->mcps.sReqData.sFrame.u8TxOptions =
-//		mac_cb(skb)->flags & MISSING ? MAC_TX_OPTION_GTS : 0;
-//	req->mcps.sReqData.sFrame.u8TxOptions =
-//		mac_cb(skb)->flags & MISSING ? MAC_TX_OPTION_INDIRECT : 0;
-//	req->mcps.sReqData.sFrame.u8TxOptions =
-//		mac_cb(skb)->flags & MAC_CB_FLAG_INTRAPAN ? MISSING : 0;
-	req->mcps.sReqData.sFrame.u8TxOptions |=
-		mac_cb(skb)->flags & MAC_CB_FLAG_SECEN ? MAC_TX_OPTION_SECURITY : 0;
-
-	req->mcps.sReqData.sFrame.u8SduLength = skb->len;
-	memcpy(req->mcps.sReqData.sFrame.au8Sdu, skb->data,
-	       min(skb->len, sizeof(req->mcps.sReqData.sFrame.au8Sdu)));
+	if( (retval=from_skb(skb, &req->mcps.sReqData.sFrame)) < 0)
+		goto drop;
 
 	net->trans_start = jiffies;
 	retval = jenusb_post_req(dev, req, cfm);
