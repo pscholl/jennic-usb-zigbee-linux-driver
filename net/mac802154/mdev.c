@@ -22,7 +22,7 @@
 #include <net/route.h>
 
 #include <net/af_ieee802154.h>
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 #include "mac802154.h"
 

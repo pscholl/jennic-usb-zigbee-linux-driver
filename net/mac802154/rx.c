@@ -25,7 +25,7 @@
 #include <linux/workqueue.h>
 #include <linux/netdevice.h>
 
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 #include "mac802154.h"
 

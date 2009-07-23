@@ -31,7 +31,7 @@
 #include <linux/tty.h>
 #include <linux/skbuff.h>
 #include <linux/sched.h>
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 
 /* NOTE: be sure to use here the same values as in the firmware */

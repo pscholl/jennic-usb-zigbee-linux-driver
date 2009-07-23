@@ -25,7 +25,7 @@
 #include <linux/skbuff.h>
 #include <linux/if_arp.h>
 #include <net/af_ieee802154.h>
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 #include <net/ieee802154.h>
 #include <net/ieee802154_netdev.h>
 #include <net/nl802154.h>

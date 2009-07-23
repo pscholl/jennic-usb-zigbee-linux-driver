@@ -18,8 +18,8 @@
  *
  * Written by:
  */
-#ifndef IEEE802154_MAC802154_H
-#define IEEE802154_MAC802154_H
+#ifndef NET_MAC802154_H
+#define NET_MAC802154_H
 
 typedef enum {
 	PHY_BUSY = 0, /* cca */

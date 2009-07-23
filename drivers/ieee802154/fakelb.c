@@ -27,7 +27,7 @@
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 struct fake_dev_priv {
 	struct ieee802154_dev *dev;

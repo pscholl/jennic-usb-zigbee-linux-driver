@@ -31,7 +31,7 @@
 #include <linux/spi/at86rf230.h>
 #include <linux/rtnetlink.h> /* FIXME: hack for slave instantiation */
 
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 struct at86rf230_local {
 	struct spi_device *spi;
