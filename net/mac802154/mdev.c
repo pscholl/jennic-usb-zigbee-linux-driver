@@ -21,7 +21,7 @@
 #include <linux/if_arp.h>
 #include <net/route.h>
 
-#include <net/ieee802154/af_ieee802154.h>
+#include <net/af_ieee802154.h>
 #include <net/ieee802154/mac802154.h>
 
 #include "mac802154.h"

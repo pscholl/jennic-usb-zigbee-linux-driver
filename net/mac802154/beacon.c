@@ -26,11 +26,11 @@
 #include <linux/if_arp.h>
 #include <linux/list.h>
 
-#include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/nl802154.h>
+#include <net/af_ieee802154.h>
+#include <net/nl802154.h>
 #include <net/ieee802154/mac802154.h>
-#include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/netdevice.h>
+#include <net/ieee802154.h>
+#include <net/ieee802154_netdev.h>
 
 #include "mac802154.h"
 #include "beacon.h"

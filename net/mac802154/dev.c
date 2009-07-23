@@ -36,10 +36,10 @@
 #include <net/route.h>
 #include <net/rtnetlink.h>
 
-#include <net/ieee802154/af_ieee802154.h>
+#include <net/af_ieee802154.h>
 #include <net/ieee802154/mac802154.h>
-#include <net/ieee802154/netdevice.h>
-#include <net/ieee802154/mac_def.h>
+#include <net/ieee802154_netdev.h>
+#include <net/ieee802154.h>
 
 #include "mac802154.h"
 #include "beacon.h"
