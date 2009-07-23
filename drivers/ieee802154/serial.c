@@ -29,8 +29,8 @@
 #include <linux/kernel.h>
 #include <linux/completion.h>
 #include <linux/tty.h>
-#include <linux/netdevice.h>
 #include <linux/skbuff.h>
+#include <linux/sched.h>
 #include <net/ieee802154/mac802154.h>
 
 
@@ -896,7 +896,6 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file,
 		unsigned int cmd, unsigned long arg)
 {
 	struct zb_device *zbdev;
-	void __user *argp = (void __user *) arg;
 
 	pr_debug("cmd = 0x%x\n", cmd);
 
@@ -907,13 +906,6 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file,
 	}
 
 	switch (cmd) {
-	case PPPIOCGUNIT:
-		/* TODO: some error checking */
-		BUG_ON(!zbdev->dev->netdev);
-		if (copy_to_user(argp, zbdev->dev->netdev->name,
-					strlen(zbdev->dev->netdev->name)))
-			return -EFAULT;
-		return 0;
 	case TCFLSH:
 		return tty_perform_flush(tty, arg);
 	default:
