@@ -147,21 +147,21 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 {
 	struct fake_dev_priv *priv;
 	int err = -ENOMEM;
+	struct ieee802154_dev *ieee;
 
-	priv = kzalloc(sizeof(struct fake_dev_priv), GFP_KERNEL);
-	if (!priv)
-		goto err_alloc;
+	ieee = ieee802154_alloc_device(sizeof(*priv), &fake_ops);
+	if (!dev)
+		goto err_alloc_dev;
+
+	priv = ieee->priv;
+	priv->dev = ieee;
 
 	INIT_LIST_HEAD(&priv->list);
-
-	priv->dev = ieee802154_alloc_device();
-	if (!priv->dev)
-		goto err_alloc_dev;
-	priv->dev->priv = priv;
-	priv->dev->parent = dev;
 	priv->fake = fake;
 
-	err = ieee802154_register_device(priv->dev, &fake_ops);
+	ieee->parent = dev;
+
+	err = ieee802154_register_device(ieee);
 	if (err)
 		goto err_reg;
 
@@ -174,8 +174,6 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 err_reg:
 	ieee802154_free_device(priv->dev);
 err_alloc_dev:
-	kfree(priv);
-err_alloc:
 	return err;
 }
 

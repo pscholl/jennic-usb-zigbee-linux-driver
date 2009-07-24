@@ -586,38 +586,6 @@ static struct ieee802154_ops at86rf230_ops = {
 	.set_channel = at86rf230_channel,
 };
 
-static int at86rf230_register(struct at86rf230_local *lp)
-{
-	int rc = -ENOMEM;
-
-	lp->dev = ieee802154_alloc_device();
-	if (!lp->dev)
-		goto err_alloc;
-
-	lp->dev->priv = lp;
-	lp->dev->parent = &lp->spi->dev;
-	lp->dev->extra_tx_headroom = 0;
-	lp->dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
-	lp->dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
-
-	rc = ieee802154_register_device(lp->dev, &at86rf230_ops);
-	if (rc)
-		goto err_register;
-
-	return 0;
-
-err_register:
-	ieee802154_free_device(lp->dev);
-err_alloc:
-	return rc;
-}
-
-static void at86rf230_unregister(struct at86rf230_local *lp)
-{
-	ieee802154_unregister_device(lp->dev);
-	ieee802154_free_device(lp->dev);
-}
-
 static void at86rf230_irqwork(struct work_struct *work)
 {
 	struct at86rf230_local *lp =
@@ -759,29 +727,38 @@ static int at86rf230_resume(struct spi_device *spi)
 
 static int __devinit at86rf230_probe(struct spi_device *spi)
 {
-	struct at86rf230_local *lp = kzalloc(sizeof *lp, GFP_KERNEL);
+	struct ieee802154_dev *dev;
+	struct at86rf230_local *lp;
 	u8 man_id_0, man_id_1;
 	int rc;
 	const char *chip;
 	int supported = 0;
 	struct at86rf230_platform_data *pdata = spi->dev.platform_data;
 
-	if (!lp)
-		return -ENOMEM;
-
 	if (!pdata) {
 		dev_err(&spi->dev, "no platform_data\n");
-		rc = -EINVAL;
-		goto err;
+		return -EINVAL;
 	}
 
 	if (!spi->irq) {
 		dev_err(&spi->dev, "no IRQ specified\n");
-		rc = -EINVAL;
-		goto err;
+		return -EINVAL;
 	}
 
+	dev = ieee802154_alloc_device(sizeof(*lp), &at86rf230_ops);
+	if (!dev)
+		return -ENOMEM;
+
+	lp = dev->priv;
+	lp->dev = dev;
+
 	lp->spi = spi;
+
+	dev->priv = lp;
+	dev->parent = &spi->dev;
+	dev->extra_tx_headroom = 0;
+	dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
+	dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
 
 	lp->rstn = pdata->rstn;
 	lp->slp_tr = pdata->slp_tr;
@@ -874,13 +851,13 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 
 	dev_dbg(&spi->dev, "registered at86rf230\n");
 
-	rc = at86rf230_register(lp);
+	rc = ieee802154_register_device(lp->dev);
 	if (rc)
 		goto err_irq;
 
 	return rc;
 
-	at86rf230_unregister(lp);
+	ieee802154_unregister_device(lp->dev);
 err_irq:
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
@@ -890,10 +867,9 @@ err_gpio_dir:
 err_slp_tr:
 	gpio_free(lp->rstn);
 err_rstn:
-err:
 	spi_set_drvdata(spi, NULL);
 	mutex_destroy(&lp->bmux);
-	kfree(lp);
+	ieee802154_free_device(lp->dev);
 	return rc;
 }
 
@@ -901,7 +877,7 @@ static int __devexit at86rf230_remove(struct spi_device *spi)
 {
 	struct at86rf230_local *lp = spi_get_drvdata(spi);
 
-	at86rf230_unregister(lp);
+	ieee802154_unregister_device(lp->dev);
 
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
@@ -912,7 +888,7 @@ static int __devexit at86rf230_remove(struct spi_device *spi)
 
 	spi_set_drvdata(spi, NULL);
 	mutex_destroy(&lp->bmux);
-	kfree(lp);
+	ieee802154_free_device(lp->dev);
 
 	dev_dbg(&spi->dev, "unregistered at86rf230\n");
 	return 0;

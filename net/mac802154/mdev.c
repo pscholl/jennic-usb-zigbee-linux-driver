@@ -179,12 +179,15 @@ static void ieee802154_netdev_setup_master(struct net_device *dev)
 	dev->netdev_ops = &ieee802154_master_ops;
 }
 
-struct ieee802154_dev *ieee802154_alloc_device(void)
+struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
+		struct ieee802154_ops *ops)
 {
 	struct net_device *dev;
 	struct ieee802154_priv *priv;
 
-	dev = alloc_netdev(sizeof(struct ieee802154_priv),
+	dev = alloc_netdev(
+		((sizeof(struct ieee802154_priv) + NETDEV_ALIGN_CONST)
+			 &~ NETDEV_ALIGN_CONST) + priv_size,
 			"mwpan%d", ieee802154_netdev_setup_master);
 	if (!dev) {
 		printk(KERN_ERR
@@ -193,6 +196,22 @@ struct ieee802154_dev *ieee802154_alloc_device(void)
 	}
 	priv = netdev_priv(dev);
 	priv->hw.netdev = dev;
+	priv->hw.priv = (char *)priv +
+		((sizeof(struct  ieee802154_priv) +
+		 NETDEV_ALIGN_CONST) & ~NETDEV_ALIGN_CONST);
+
+	BUG_ON(!dev);
+	BUG_ON(!ops);
+	BUG_ON(!ops->tx);
+	BUG_ON(!ops->ed);
+	BUG_ON(!ops->set_trx_state);
+
+	if (!try_module_get(ops->owner)) {
+		free_netdev(dev);
+		return NULL;
+	}
+
+	priv->ops = ops;
 
 	INIT_LIST_HEAD(&priv->slaves);
 	mutex_init(&priv->slaves_mtx);
@@ -208,28 +227,18 @@ void ieee802154_free_device(struct ieee802154_dev *hw)
 	BUG_ON(!list_empty(&priv->slaves));
 	BUG_ON(!priv->hw.netdev);
 
+	module_put(priv->ops->owner);
+
 	free_netdev(priv->hw.netdev);
 }
 EXPORT_SYMBOL(ieee802154_free_device);
 
-int ieee802154_register_device(struct ieee802154_dev *dev,
-		struct ieee802154_ops *ops)
+int ieee802154_register_device(struct ieee802154_dev *dev)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
 	struct net_device *ndev = priv->hw.netdev;
 
 	int rc;
-
-	if (!try_module_get(ops->owner))
-		return -EFAULT;
-
-	BUG_ON(!dev);
-	BUG_ON(!ops);
-	BUG_ON(!ops->tx);
-	BUG_ON(!ops->ed);
-	BUG_ON(!ops->set_trx_state);
-
-	priv->ops = ops;
 
 	rtnl_lock();
 	if (strchr(ndev->name, '%')) {
@@ -262,7 +271,6 @@ out_wq:
 	destroy_workqueue(priv->dev_workqueue);
 out_unlock:
 	rtnl_unlock();
-	module_put(ops->owner);
 	return rc;
 }
 EXPORT_SYMBOL(ieee802154_register_device);
@@ -280,8 +288,6 @@ void ieee802154_unregister_device(struct ieee802154_dev *dev)
 	unregister_netdevice(priv->hw.netdev);
 
 	rtnl_unlock();
-
-	module_put(priv->ops->owner);
 }
 EXPORT_SYMBOL(ieee802154_unregister_device);
 

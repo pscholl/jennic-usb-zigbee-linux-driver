@@ -44,7 +44,7 @@ struct ieee802154_dev {
 	void	*priv;		/* driver-specific data */
 	u32	channel_mask;
 	u8	current_channel;
-	u32 flags; /* Flags for device to set */
+	u32	flags; /* Flags for device to set */
 	struct device *parent;
 	struct net_device *netdev; /* mwpanX device */
 };
@@ -63,9 +63,8 @@ struct ieee802154_ops {
 	phy_status_t (*set_channel)(struct ieee802154_dev *dev, int channel);
 };
 
-struct ieee802154_dev *ieee802154_alloc_device(void);
-int ieee802154_register_device(struct ieee802154_dev *dev,
-		struct ieee802154_ops *ops);
+struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size, struct ieee802154_ops *ops);
+int ieee802154_register_device(struct ieee802154_dev *dev);
 void ieee802154_unregister_device(struct ieee802154_dev *dev);
 void ieee802154_free_device(struct ieee802154_dev *dev);
 

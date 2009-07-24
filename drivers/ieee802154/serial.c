@@ -772,41 +772,36 @@ static int
 ieee802154_tty_open(struct tty_struct *tty)
 {
 	struct zb_device *zbdev = tty->disc_data;
+	struct ieee802154_dev *dev;
 	int err;
 
 	pr_debug("Openning ldisc\n");
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
 
-	if (zbdev)
+	if (tty->disc_data)
 		return -EBUSY;
 
-	/* Allocate device structure */
-	zbdev = kzalloc(sizeof(struct zb_device), GFP_KERNEL);
-	if (NULL == zbdev) {
-		printk(KERN_ERR "%s: can't allocate zb_device structure.\n",
-				__func__);
+	dev = ieee802154_alloc_device(sizeof(*zbdev), &serial_ops);
+	if (!dev) {
 		return -ENOMEM;
 	}
+
+	zbdev = dev->priv;
+	zbdev->dev = dev;
+
 	mutex_init(&zbdev->mutex);
 	init_completion(&zbdev->open_done);
 	init_waitqueue_head(&zbdev->wq);
 
-	zbdev->dev = ieee802154_alloc_device();
-	if (!zbdev->dev) {
-		err = -ENOMEM;
-		goto out_free_zb;
-	}
-
-	zbdev->dev->priv		= zbdev;
-	zbdev->dev->extra_tx_headroom	= 0;
+	dev->extra_tx_headroom = 0;
 	/* only 2.4 GHz band */
-	zbdev->dev->channel_mask	= 0x7ff;
+	dev->channel_mask = 0x7ff;
 	/* it's 1st channel of 2.4 Ghz space */
-	zbdev->dev->current_channel	= 11;
-	zbdev->dev->flags		= IEEE802154_FLAGS_OMIT_CKSUM;
+	dev->current_channel = 11;
+	dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
 
-	zbdev->dev->parent = tty_get_device(tty);
+	dev->parent = tty_get_device(tty);
 
 	zbdev->tty = tty_kref_get(tty);
 	cleanup(zbdev);
@@ -821,7 +816,7 @@ ieee802154_tty_open(struct tty_struct *tty)
 		tty->ldisc.ops->flush_buffer(tty);
 	tty_driver_flush_buffer(tty);
 
-	err = ieee802154_register_device(zbdev->dev, &serial_ops);
+	err = ieee802154_register_device(dev);
 	/* we put it only after it has a chance to be get by network core */
 	if (zbdev->dev->parent)
 		put_device(zbdev->dev->parent);
@@ -840,8 +835,6 @@ out_free:
 	zbdev->tty = NULL;
 
 	ieee802154_free_device(zbdev->dev);
-out_free_zb:
-	kfree(zbdev);
 
 	return err;
 }
@@ -874,7 +867,6 @@ ieee802154_tty_close(struct tty_struct *tty)
 	tty_driver_flush_buffer(tty);
 
 	ieee802154_free_device(zbdev->dev);
-	kfree(zbdev);
 }
 
 /*
