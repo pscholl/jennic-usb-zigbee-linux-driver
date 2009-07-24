@@ -46,7 +46,6 @@ struct ieee802154_dev {
 	u8	current_channel;
 	u32	flags; /* Flags for device to set */
 	struct device *parent;
-	struct net_device *netdev; /* mwpanX device */
 };
 
 /* Checksum is in hardware and is omitted from packet */

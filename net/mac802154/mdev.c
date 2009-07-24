@@ -195,7 +195,7 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 		return NULL;
 	}
 	priv = netdev_priv(dev);
-	priv->hw.netdev = dev;
+	priv->netdev = dev;
 	priv->hw.priv = (char *)priv +
 		((sizeof(struct  ieee802154_priv) +
 		 NETDEV_ALIGN_CONST) & ~NETDEV_ALIGN_CONST);
@@ -225,18 +225,18 @@ void ieee802154_free_device(struct ieee802154_dev *hw)
 	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
 
 	BUG_ON(!list_empty(&priv->slaves));
-	BUG_ON(!priv->hw.netdev);
+	BUG_ON(!priv->netdev);
 
 	module_put(priv->ops->owner);
 
-	free_netdev(priv->hw.netdev);
+	free_netdev(priv->netdev);
 }
 EXPORT_SYMBOL(ieee802154_free_device);
 
 int ieee802154_register_device(struct ieee802154_dev *dev)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
-	struct net_device *ndev = priv->hw.netdev;
+	struct net_device *ndev = priv->netdev;
 
 	int rc;
 
@@ -285,7 +285,7 @@ void ieee802154_unregister_device(struct ieee802154_dev *dev)
 	rtnl_lock();
 
 	ieee802154_drop_slaves(dev);
-	unregister_netdevice(priv->hw.netdev);
+	unregister_netdevice(priv->netdev);
 
 	rtnl_unlock();
 }

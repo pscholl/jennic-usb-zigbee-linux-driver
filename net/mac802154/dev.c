@@ -80,7 +80,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	phy_cb(skb)->chan = priv->chan;
 
 	skb->iif = dev->ifindex;
-	skb->dev = priv->hw->hw.netdev;
+	skb->dev = priv->hw->netdev;
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
@@ -380,7 +380,7 @@ void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 		list_del(&ndp->list);
 		mutex_unlock(&ndp->hw->slaves_mtx);
 
-		dev_put(ndp->hw->hw.netdev);
+		dev_put(ndp->hw->netdev);
 
 		unregister_netdevice(ndp->dev);
 	}
@@ -431,11 +431,11 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	priv->pan_id = IEEE802154_PANID_BROADCAST;
 	priv->short_addr = IEEE802154_ADDR_BROADCAST;
 
-	dev_hold(ipriv->hw.netdev);
+	dev_hold(ipriv->netdev);
 
 	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
 
-	SET_NETDEV_DEV(dev, &ipriv->hw.netdev->dev);
+	SET_NETDEV_DEV(dev, &ipriv->netdev->dev);
 
 	err = register_netdevice(dev);
 	if (err < 0)
@@ -461,7 +461,7 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 	list_del_rcu(&ndp->list);
 	mutex_unlock(&ndp->hw->slaves_mtx);
 
-	dev_put(ndp->hw->hw.netdev);
+	dev_put(ndp->hw->netdev);
 
 	synchronize_rcu();
 	unregister_netdevice(ndp->dev);
