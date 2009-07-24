@@ -469,7 +469,8 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 
 static size_t ieee802154_netdev_get_size(const struct net_device *dev)
 {
-	return  nla_total_size(2) +	/* IFLA_WPAN_PAN_ID */
+	return	nla_total_size(2) +	/* IFLA_WPAN_CHANNEL */
+		nla_total_size(2) +	/* IFLA_WPAN_PAN_ID */
 		nla_total_size(2) +	/* IFLA_WPAN_SHORT_ADDR */
 		nla_total_size(2) +	/* IFLA_WPAN_COORD_SHORT_ADDR */
 		nla_total_size(8);	/* IFLA_WPAN_COORD_EXT_ADDR */
