@@ -65,7 +65,8 @@ u16 crc_itu_t(u16 crc, const u8 *buffer, size_t len)
 EXPORT_SYMBOL(crc_itu_t);
 
 /**
- * crc_itu_t_bitreversed - Compute the CRC-ITU-T for the bit-reversed data buffer;
+ * crc_itu_t_bitreversed - Compute the CRC-ITU-T for the data buffer;
+ * the buffer content is assumed to be bit-reversed
  *
  * @crc:     previous CRC value
  * @buffer:  data pointer
