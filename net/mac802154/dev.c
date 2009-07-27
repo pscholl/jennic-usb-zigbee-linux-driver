@@ -23,17 +23,10 @@
 #include <linux/capability.h>
 #include <linux/module.h>
 #include <linux/if_arp.h>
-#include <linux/if_link.h>
-#include <linux/termios.h>	/* For TIOCOUTQ/INQ */
-#include <linux/notifier.h>
+#include <linux/rculist.h>
 #include <linux/random.h>
 #include <linux/crc-ccitt.h>
 #include <linux/mac802154.h>
-#include <net/datalink.h>
-#include <net/psnap.h>
-#include <net/sock.h>
-#include <net/tcp_states.h>
-#include <net/route.h>
 #include <net/rtnetlink.h>
 
 #include <net/af_ieee802154.h>
