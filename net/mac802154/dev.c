@@ -27,7 +27,7 @@
 #include <linux/termios.h>	/* For TIOCOUTQ/INQ */
 #include <linux/notifier.h>
 #include <linux/random.h>
-#include <linux/crc-itu-t.h>
+#include <linux/crc-ccitt.h>
 #include <linux/mac802154.h>
 #include <net/datalink.h>
 #include <net/psnap.h>
@@ -71,7 +71,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	priv = netdev_priv(dev);
 
 	if (!(priv->hw->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
-		u16 crc = bitrev16(crc_itu_t_bitreversed(0, skb->data, skb->len));
+		u16 crc = crc_ccitt(0, skb->data, skb->len);
 		u8 *data = skb_put(skb, 2);
 		data[0] = crc & 0xff;
 		data[1] = crc >> 8;
@@ -799,7 +799,7 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 			pr_debug("%s(): Got invalid frame\n", __func__);
 			goto out;
 		}
-		crc = crc_itu_t_bitreversed(0, skb->data, skb->len);
+		crc = crc_ccitt(0, skb->data, skb->len);
 		if (crc) {
 			pr_debug("%s(): CRC mismatch\n", __func__);
 			goto out;
