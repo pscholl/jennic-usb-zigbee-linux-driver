@@ -60,9 +60,6 @@ struct ieee802154_netdev_priv {
 	u8 bsn;
 	/* MAC BSN field */
 	u8 dsn;
-
-	/* This one is used to provide notifications */
-	struct blocking_notifier_head events;
 };
 
 static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -427,7 +424,6 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	get_random_bytes(&priv->bsn, 1);
 	get_random_bytes(&priv->dsn, 1);
 
-	BLOCKING_INIT_NOTIFIER_HEAD(&priv->events);
 	priv->pan_id = IEEE802154_PANID_BROADCAST;
 	priv->short_addr = IEEE802154_ADDR_BROADCAST;
 
@@ -898,24 +894,6 @@ u8 ieee802154_dev_get_bsn(struct net_device *dev)
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	return priv->bsn++;
-}
-
-int ieee802154_slave_register_notifier(struct net_device *dev,
-		struct notifier_block *nb)
-{
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
-	return blocking_notifier_chain_register(&priv->events, nb);
-}
-int ieee802154_slave_unregister_notifier(struct net_device *dev,
-		struct notifier_block *nb)
-{
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
-	return blocking_notifier_chain_unregister(&priv->events, nb);
-}
-int ieee802154_slave_event(struct net_device *dev, int event, void *data)
-{
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
-	return blocking_notifier_call_chain(&priv->events, event, data);
 }
 
 struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev)

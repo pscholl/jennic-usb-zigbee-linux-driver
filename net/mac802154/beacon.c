@@ -210,7 +210,6 @@ int parse_beacon_frame(struct sk_buff *skb, u8 *buf,
 	memcpy(&pd->addr, &mac_cb(skb)->da, sizeof(struct ieee802154_addr));
 
 	/* Supplying our nitifiers with data */
-	ieee802154_slave_event(skb->dev, IEEE802154_NOTIFIER_BEACON, pd);
 	ieee802154_nl_beacon_indic(skb->dev, pd->addr.pan_id,
 			pd->addr.short_addr);
 	/* FIXME: We don't cache PAN descriptors yet */

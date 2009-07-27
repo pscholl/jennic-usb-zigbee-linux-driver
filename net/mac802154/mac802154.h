@@ -68,14 +68,4 @@ int ieee802154_send_beacon_req(struct net_device *dev);
 
 struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev);
 
-/* FIXME: this interface should be rethought ! */
-struct notifier_block;
-int ieee802154_slave_register_notifier(struct net_device *dev,
-		struct notifier_block *nb);
-int ieee802154_slave_unregister_notifier(struct net_device *dev,
-		struct notifier_block *nb);
-int ieee802154_slave_event(struct net_device *dev,
-		int event, void *data);
-#define IEEE802154_NOTIFIER_BEACON		0x0
-
 #endif
