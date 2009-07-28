@@ -493,36 +493,6 @@ static struct rtnl_link_ops wpan_link_ops __read_mostly = {
 	.fill_info	= ieee802154_netdev_fill_info,
 };
 
-static int ieee802154_send_ack(struct sk_buff *skb)
-{
-	u16 fc = IEEE802154_FC_TYPE_ACK;
-	u8 *data;
-	struct sk_buff *ackskb;
-
-	BUG_ON(!skb || !skb->dev);
-	BUG_ON(!mac_cb_is_ackreq(skb));
-
-	ackskb = alloc_skb(LL_ALLOCATED_SPACE(skb->dev) + 3, GFP_ATOMIC);
-
-	skb_reserve(ackskb, LL_RESERVED_SPACE(skb->dev));
-
-	skb_reset_network_header(ackskb);
-
-	data = skb_push(ackskb, 3);
-	data[0] = fc & 0xff;
-	data[1] = (fc >> 8) & 0xff;
-	data[2] = mac_cb(skb)->seq;
-
-	skb_reset_mac_header(ackskb);
-
-	ackskb->dev = skb->dev;
-	pr_debug("ACK frame to %s device\n", skb->dev->name);
-	ackskb->protocol = htons(ETH_P_IEEE802154);
-	/* FIXME */
-
-	return dev_queue_xmit(ackskb);
-}
-
 static int ieee802154_process_beacon(struct net_device *dev,
 		struct sk_buff *skb)
 {
@@ -602,8 +572,8 @@ static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp,
 
 	skb->dev = ndp->dev;
 
-	if (skb->pkt_type == PACKET_HOST && mac_cb_is_ackreq(skb))
-		ieee802154_send_ack(skb);
+	if (skb->pkt_type == PACKET_HOST && mac_cb_is_ackreq(skb) && !(ndp->hw->hw.flags & IEEE802154_HW_AACK))
+		dev_warn(&ndp->dev->dev, "ACK requested, however AACK not supported.\n");
 
 	switch (mac_cb_type(skb)) {
 	case IEEE802154_FC_TYPE_BEACON:

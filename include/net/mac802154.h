@@ -61,9 +61,13 @@ struct ieee802154_dev {
  * @IEEE802154_HW_OMIT_CKSUM:
  *	Indicates that receiver omits FCS and transmitter will add
  *	FCS on it's own.
+ *
+ * @IEEE802154_HW_AACK:
+ * 	Indicates that receiver will autorespond with ACK frames.
  */
 enum ieee802154_hw_flags {
 	IEEE802154_HW_OMIT_CKSUM			= 1 << 0,
+	IEEE802154_HW_AACK				= 1 << 1,
 };
 
 struct sk_buff;
