@@ -42,16 +42,6 @@ struct fake_priv {
 	rwlock_t lock;
 };
 
-static int is_transmitting(struct ieee802154_dev *dev)
-{
-	return 0;
-}
-
-static int is_receiving(struct ieee802154_dev *dev)
-{
-	return 0;
-}
-
 static phy_status_t
 hw_ed(struct ieee802154_dev *dev, u8 *level)
 {
@@ -78,14 +68,6 @@ hw_state(struct ieee802154_dev *dev, phy_status_t state)
 		return PHY_SUCCESS;
 	} else if (priv->cur_state == state)
 		return state;
-	else if ((state == PHY_TRX_OFF || state == PHY_RX_ON) &&
-			is_transmitting(dev)) {
-		priv->pend_state = state;
-		return PHY_BUSY_TX;
-	} else if ((state == PHY_TRX_OFF || state == PHY_TX_ON) &&
-			is_receiving(dev)) {
-		priv->pend_state = state;
-		return PHY_BUSY_RX;
 	} else {
 		priv->cur_state = state;
 		return PHY_SUCCESS;
