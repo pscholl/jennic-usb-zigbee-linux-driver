@@ -758,7 +758,7 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	dev->parent = &spi->dev;
 	dev->extra_tx_headroom = 0;
 	dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
-	dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
+	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
 	lp->rstn = pdata->rstn;
 	lp->slp_tr = pdata->slp_tr;

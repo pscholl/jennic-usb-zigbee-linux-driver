@@ -49,7 +49,22 @@ struct ieee802154_dev {
 };
 
 /* Checksum is in hardware and is omitted from packet */
-#define IEEE802154_FLAGS_OMIT_CKSUM	(1 << 0)
+/**
+ * enum ieee802154_hw_flags - hardware flags
+ *
+ * These flags are used to indicate hardware capabilities to
+ * the stack. Generally, flags here should have their meaning
+ * done in a way that the simplest hardware doesn't need setting
+ * any particular flags. There are some exceptions to this rule,
+ * however, so you are advised to review these flags carefully.
+ *
+ * @IEEE802154_HW_OMIT_CKSUM:
+ *	Indicates that receiver omits FCS and transmitter will add
+ *	FCS on it's own.
+ */
+enum ieee802154_hw_flags {
+	IEEE802154_HW_OMIT_CKSUM			= 1 << 0,
+};
 
 struct sk_buff;
 

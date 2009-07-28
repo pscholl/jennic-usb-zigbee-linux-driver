@@ -60,7 +60,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ieee802154_netdev_priv *priv;
 	priv = netdev_priv(dev);
 
-	if (!(priv->hw->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
+	if (!(priv->hw->hw.flags & IEEE802154_HW_OMIT_CKSUM)) {
 		u16 crc = crc_ccitt(0, skb->data, skb->len);
 		u8 *data = skb_put(skb, 2);
 		data[0] = crc & 0xff;
@@ -781,7 +781,7 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 	BUILD_BUG_ON(sizeof(struct ieee802154_mac_cb) > sizeof(skb->cb));
 	pr_debug("%s()\n", __func__);
 
-	if (!(priv->hw.flags & IEEE802154_FLAGS_OMIT_CKSUM)) {
+	if (!(priv->hw.flags & IEEE802154_HW_OMIT_CKSUM)) {
 		u16 crc;
 
 		if (skb->len < 2) {

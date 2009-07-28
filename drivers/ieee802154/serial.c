@@ -799,7 +799,7 @@ ieee802154_tty_open(struct tty_struct *tty)
 	dev->channel_mask = 0x7ff;
 	/* it's 1st channel of 2.4 Ghz space */
 	dev->current_channel = 11;
-	dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
+	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
 	dev->parent = tty_get_device(tty);
 
