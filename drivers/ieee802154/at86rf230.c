@@ -432,7 +432,7 @@ at86rf230_ed(struct ieee802154_dev *dev, u8 *level)
 	return PHY_SUCCESS;
 }
 
-static phy_status_t
+static int
 at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 {
 	struct at86rf230_local *lp = dev->priv;
@@ -446,7 +446,7 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	    state != PHY_RX_ON &&
 	    state != PHY_TX_ON &&
 	    state != PHY_FORCE_TRX_OFF)
-		return PHY_INVAL;
+		return -EINVAL;
 
 	do {
 		rc = at86rf230_read_subreg(lp, SR_TRX_STATUS, &val);
@@ -456,9 +456,7 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	} while (val == STATE_TRANSITION_IN_PROGRESS);
 
 	if (val == state)
-		goto out;
-
-	/* FIXME: handle all non-standard states here!!! */
+		return 0;
 
 	/* state is equal to phy states */
 	rc = at86rf230_write_subreg(lp, SR_TRX_CMD, state);
@@ -473,14 +471,25 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	} while (val == STATE_TRANSITION_IN_PROGRESS);
 
 	if (val == state)
-		val = PHY_SUCCESS;
+		return 0;
 
-out:
-	return val;
+	return -EBUSY;
 
 err:
 	pr_err("%s error: %d\n", __func__, rc);
-	return PHY_ERROR;
+	return rc;
+}
+
+static int
+at86rf230_start(struct ieee802154_dev *dev)
+{
+	return at86rf230_state(dev, PHY_RX_ON);
+}
+
+static void
+at86rf230_stop(struct ieee802154_dev *dev)
+{
+	at86rf230_state(dev, PHY_FORCE_TRX_OFF);
 }
 
 static phy_status_t
@@ -519,16 +528,20 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	INIT_COMPLETION(lp->tx_complete);
 	spin_unlock_irqrestore(&lp->lock, flags);
 
-	rc = at86rf230_write_fbuf(lp, skb->data, skb->len);
+	rc = at86rf230_state(dev, PHY_TX_ON);
 	if (rc)
 		goto err;
+
+	rc = at86rf230_write_fbuf(lp, skb->data, skb->len);
+	if (rc)
+		goto err_rx;
 
 	if (gpio_is_valid(lp->slp_tr)) {
 		gpio_set_value(lp->slp_tr, 1);
 	} else {
 		rc = at86rf230_write_subreg(lp, SR_TRX_CMD, STATE_BUSY_TX);
 		if (rc)
-			goto err;
+			goto err_rx;
 	}
 
 	rc = wait_for_completion_interruptible(&lp->tx_complete);
@@ -536,9 +549,12 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	gpio_set_value(lp->slp_tr, 0);
 
 	if (rc < 0)
-		goto err;
+		goto err_rx;
 
 	return PHY_SUCCESS;
+
+err_rx:
+	at86rf230_state(dev, PHY_RX_ON);
 err:
 	spin_lock_irqsave(&lp->lock, flags);
 	lp->is_tx = 0;
@@ -582,8 +598,9 @@ static struct ieee802154_ops at86rf230_ops = {
 	.owner = THIS_MODULE,
 	.tx = at86rf230_tx,
 	.ed = at86rf230_ed,
-	.set_trx_state = at86rf230_state,
 	.set_channel = at86rf230_channel,
+	.start = at86rf230_start,
+	.stop = at86rf230_stop,
 };
 
 static void at86rf230_irqwork(struct work_struct *work)

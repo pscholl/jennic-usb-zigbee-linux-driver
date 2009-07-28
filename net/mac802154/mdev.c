@@ -46,19 +46,12 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 		}
 	}
 
-	res = xw->priv->ops->set_trx_state(&xw->priv->hw, PHY_TX_ON);
-	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
-		pr_debug("set_trx_state returned %d\n", res);
-		goto out;
-	}
-
 	res = xw->priv->ops->tx(&xw->priv->hw, xw->skb);
 
 out:
 	/* FIXME: result processing and/or requeue!!! */
 	dev_kfree_skb(xw->skb);
 
-	xw->priv->ops->set_trx_state(&xw->priv->hw, PHY_RX_ON);
 	kfree(xw);
 }
 
@@ -89,30 +82,31 @@ static int ieee802154_master_hard_start_xmit(struct sk_buff *skb,
 static int ieee802154_master_open(struct net_device *dev)
 {
 	struct ieee802154_priv *priv;
-	phy_status_t status;
+	int rc;
+
 	priv = netdev_priv(dev);
 	if (!priv) {
 		pr_debug("%s:%s: unable to get master private data\n",
 				__FILE__, __func__);
 		return -ENODEV;
 	}
-	status = priv->ops->set_trx_state(&priv->hw, PHY_RX_ON);
-	if (status != PHY_SUCCESS) {
-		pr_debug("set_trx_state returned %d\n", status);
-		return -EBUSY;
-	}
 
-	netif_start_queue(dev);
-	return 0;
+	rc = priv->ops->start(&priv->hw);
+
+	if (!rc)
+		netif_tx_start_all_queues(dev);
+
+	return rc;
 }
 
 static int ieee802154_master_close(struct net_device *dev)
 {
 	struct ieee802154_priv *priv;
-	netif_stop_queue(dev);
+
 	priv = netdev_priv(dev);
 
-	priv->ops->set_trx_state(&priv->hw, PHY_FORCE_TRX_OFF);
+	priv->ops->stop(&priv->hw);
+
 	return 0;
 }
 
@@ -204,7 +198,8 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 	BUG_ON(!ops);
 	BUG_ON(!ops->tx);
 	BUG_ON(!ops->ed);
-	BUG_ON(!ops->set_trx_state);
+	BUG_ON(!ops->start);
+	BUG_ON(!ops->stop);
 
 	if (!try_module_get(ops->owner)) {
 		free_netdev(dev);

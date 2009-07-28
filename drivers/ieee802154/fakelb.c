@@ -53,28 +53,6 @@ hw_ed(struct ieee802154_dev *dev, u8 *level)
 }
 
 static phy_status_t
-hw_state(struct ieee802154_dev *dev, phy_status_t state)
-{
-	struct fake_dev_priv *priv = dev->priv;
-	pr_debug("%s %d %d\n", __func__, priv->cur_state, state);
-	might_sleep();
-	if (state != PHY_TRX_OFF &&
-	    state != PHY_RX_ON &&
-	    state != PHY_TX_ON &&
-	    state != PHY_FORCE_TRX_OFF)
-		return PHY_INVAL;
-	else if (state == PHY_FORCE_TRX_OFF) {
-		priv->cur_state = PHY_TRX_OFF;
-		return PHY_SUCCESS;
-	} else if (priv->cur_state == state)
-		return state;
-	} else {
-		priv->cur_state = state;
-		return PHY_SUCCESS;
-	}
-}
-
-static phy_status_t
 hw_channel(struct ieee802154_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
@@ -117,12 +95,32 @@ hw_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	return PHY_SUCCESS;
 }
 
+static int
+hw_start(struct ieee802154_dev *dev) {
+	struct fake_dev_priv *priv = dev->priv;
+
+	if (priv->cur_state != PHY_TRX_OFF)
+		return -EBUSY;
+
+	priv->cur_state = PHY_RX_ON;
+
+	return 0;
+}
+
+static void
+hw_stop(struct ieee802154_dev *dev) {
+	struct fake_dev_priv *priv = dev->priv;
+
+	priv->cur_state = PHY_TRX_OFF;
+}
+
 static struct ieee802154_ops fake_ops = {
 	.owner = THIS_MODULE,
 	.tx = hw_tx,
 	.ed = hw_ed,
-	.set_trx_state = hw_state,
 	.set_channel = hw_channel,
+	.start = hw_start,
+	.stop = hw_stop,
 };
 
 static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
