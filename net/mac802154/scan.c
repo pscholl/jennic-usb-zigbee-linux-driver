@@ -73,7 +73,7 @@ static int scan_passive(struct scan_work *work, int channel, u8 duration)
 	while (j > 0)
 		j = schedule_timeout(j);
 
-	return PHY_SUCCESS;
+	return 0;
 }
 
 /* Active scan is periodic submission of beacon request
@@ -83,8 +83,8 @@ static int scan_active(struct scan_work *work, int channel, u8 duration)
 	int ret;
 	pr_debug("active scan channel %d duration %d\n", channel, duration);
 	ret = ieee802154_send_beacon_req(work->dev);
-	if (ret < 0)
-		return PHY_ERROR;
+	if (ret)
+		return ret;
 	return scan_passive(work, channel, duration);
 }
 
@@ -110,7 +110,7 @@ static void scanner(struct work_struct *work)
 			goto exit_error;
 
 		ret = sw->scan_ch(sw, i, sw->duration);
-		if (ret != PHY_SUCCESS)
+		if (ret)
 			goto exit_error;
 
 		sw->channels &= ~(1 << i);
