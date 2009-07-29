@@ -31,10 +31,11 @@
 
 struct fake_dev_priv {
 	struct ieee802154_dev *dev;
-	phy_status_t cur_state, pend_state;
 
 	struct list_head list;
 	struct fake_priv *fake;
+
+	unsigned int working : 1;
 };
 
 struct fake_priv {
@@ -65,6 +66,9 @@ static void
 hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
 {
 	struct sk_buff *newskb;
+
+	if (!priv->working)
+		return;
 
 	newskb = pskb_copy(skb, GFP_ATOMIC);
 
@@ -99,10 +103,10 @@ static int
 hw_start(struct ieee802154_dev *dev) {
 	struct fake_dev_priv *priv = dev->priv;
 
-	if (priv->cur_state != PHY_TRX_OFF)
+	if (!priv->working)
 		return -EBUSY;
 
-	priv->cur_state = PHY_RX_ON;
+	priv->working = 1;
 
 	return 0;
 }
@@ -111,7 +115,7 @@ static void
 hw_stop(struct ieee802154_dev *dev) {
 	struct fake_dev_priv *priv = dev->priv;
 
-	priv->cur_state = PHY_TRX_OFF;
+	priv->working = 0;
 }
 
 static struct ieee802154_ops fake_ops = {
