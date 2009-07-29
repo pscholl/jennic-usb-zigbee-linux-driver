@@ -442,12 +442,6 @@ at86rf230_state(struct ieee802154_dev *dev, int state)
 	pr_debug("%s %d\n", __func__/*, priv->cur_state*/, state);
 	might_sleep();
 
-	if (state != PHY_TRX_OFF &&
-	    state != PHY_RX_ON &&
-	    state != PHY_TX_ON &&
-	    state != PHY_FORCE_TRX_OFF)
-		return -EINVAL;
-
 	do {
 		rc = at86rf230_read_subreg(lp, SR_TRX_STATUS, &val);
 		if (rc)
@@ -483,13 +477,13 @@ err:
 static int
 at86rf230_start(struct ieee802154_dev *dev)
 {
-	return at86rf230_state(dev, PHY_RX_ON);
+	return at86rf230_state(dev, STATE_RX_ON);
 }
 
 static void
 at86rf230_stop(struct ieee802154_dev *dev)
 {
-	at86rf230_state(dev, PHY_FORCE_TRX_OFF);
+	at86rf230_state(dev, STATE_FORCE_TRX_OFF);
 }
 
 static int
@@ -528,7 +522,7 @@ at86rf230_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 	INIT_COMPLETION(lp->tx_complete);
 	spin_unlock_irqrestore(&lp->lock, flags);
 
-	rc = at86rf230_state(dev, PHY_TX_ON);
+	rc = at86rf230_state(dev, STATE_FORCE_TX_ON);
 	if (rc)
 		goto err;
 
@@ -550,12 +544,12 @@ at86rf230_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 	if (rc < 0)
 		goto err_rx;
 
-	rc = at86rf230_state(dev, PHY_RX_ON);
+	rc = at86rf230_state(dev, STATE_RX_ON);
 
 	return rc;
 
 err_rx:
-	at86rf230_state(dev, PHY_RX_ON);
+	at86rf230_state(dev, STATE_RX_ON);
 err:
 	spin_lock_irqsave(&lp->lock, flags);
 	lp->is_tx = 0;
