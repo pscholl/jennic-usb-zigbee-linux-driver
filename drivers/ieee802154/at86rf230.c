@@ -433,7 +433,7 @@ at86rf230_ed(struct ieee802154_dev *dev, u8 *level)
 }
 
 static int
-at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
+at86rf230_state(struct ieee802154_dev *dev, int state)
 {
 	struct at86rf230_local *lp = dev->priv;
 	int rc;
