@@ -54,6 +54,8 @@
 #define STATUS_BUSY_TX	7
 #define STATUS_ERR	8
 
+#define STATUS_WAIT	-1 /* waiting for the answer */
+
 /* We re-use PPP ioctl for our purposes */
 #define	PPPIOCGUNIT	_IOR('t', 86, int)	/* get ppp unit number */
 
@@ -105,7 +107,7 @@ struct zb_device {
 
 	/* command completition */
 	wait_queue_head_t	wq;
-	phy_status_t		status;
+	u8			status;
 	u8			ed;
 
 	/* Internal state */
@@ -140,7 +142,7 @@ _send_pending_data(struct zb_device *zbdev)
 	if (!tty)
 		return -ENODEV;
 
-	zbdev->status = PHY_INVAL;
+	zbdev->status = STATUS_WAIT;
 
 	/* Debug info */
 	printk(KERN_INFO "%s, %d bytes\n", __func__,
@@ -369,39 +371,13 @@ process_command(struct zb_device *zbdev)
 	kfree(zbdev->pending_data);
 	zbdev->pending_data = NULL;
 	zbdev->pending_size = 0;
-	if (zbdev->id != DATA_RECV_BLOCK)
-		switch (zbdev->param1) {
-		case STATUS_SUCCESS:
-			zbdev->status = PHY_SUCCESS;
-			break;
-		case STATUS_RX_ON:
-			zbdev->status = PHY_RX_ON;
-			break;
-		case STATUS_TX_ON:
-			zbdev->status = PHY_TX_ON;
-			break;
-		case STATUS_TRX_OFF:
-			zbdev->status = PHY_TRX_OFF;
-			break;
-		case STATUS_BUSY:
-			zbdev->status = PHY_BUSY;
-			break;
-		case STATUS_IDLE:
-			zbdev->status = PHY_IDLE;
-			break;
-		case STATUS_BUSY_RX:
-			zbdev->status = PHY_BUSY_RX;
-			break;
-		case STATUS_BUSY_TX:
-			zbdev->status = PHY_BUSY_TX;
-			break;
-		default:
-			printk(KERN_ERR
-				"%s: bad status received from firmware: %u\n",
-				__func__, zbdev->param1);
-			zbdev->status = PHY_ERROR;
-			break;
-		}
+	if (zbdev->id != DATA_RECV_BLOCK) {
+		/* XXX: w/around for old FW, REMOVE */
+		if (zbdev->param1 == STATUS_IDLE)
+			zbdev->status = STATUS_SUCCESS;
+		else
+			zbdev->status = zbdev->param1;
+	}
 
 	switch (zbdev->id) {
 	case RESP_ED:
@@ -580,15 +556,14 @@ ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 	 * but additional checking here won't kill, and gcc will
 	 * optimize this stuff anyway. */
 	BUG_ON((channel - 10) < 1 && (channel - 10) > 16);
-
 	ret = send_cmd2(zbdev, CMD_SET_CHANNEL, channel - 10);
 	if (ret)
 		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000)) > 0) {
-		if (zbdev->status != PHY_SUCCESS)
+		if (zbdev->status != STATUS_SUCCESS)
 			ret = -EBUSY;
 	} else
 		ret = -EINTR;
@@ -623,10 +598,10 @@ ieee802154_serial_ed(struct ieee802154_dev *dev, u8 *level)
 		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000)) > 0) {
 		*level = zbdev->ed;
-		if (zbdev->status != PHY_SUCCESS)
+		if (zbdev->status != STATUS_SUCCESS)
 			ret = -EBUSY;
 	} else
 		ret = -ETIMEDOUT;
@@ -659,9 +634,9 @@ ieee802154_serial_start(struct ieee802154_dev *dev)
 		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000)) > 0) {
-		if (zbdev->status != PHY_SUCCESS)
+		if (zbdev->status != STATUS_SUCCESS)
 			ret = -EBUSY;
 	} else
 		ret = -ETIMEDOUT;
@@ -692,7 +667,7 @@ ieee802154_serial_stop(struct ieee802154_dev *dev)
 	}
 
 	wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000));
 out:
 	mutex_unlock(&zbdev->mutex);
@@ -721,9 +696,9 @@ ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000)) > 0) {
-		if (zbdev->status != PHY_SUCCESS) {
+		if (zbdev->status != STATUS_SUCCESS) {
 			ret = -EBUSY;
 			goto out;
 		}
@@ -737,22 +712,25 @@ ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
-
-	if (ret != PHY_SUCCESS)
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != STATUS_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
 		goto out;
+	}
 
-	if (send_block(zbdev, skb->len, skb->data) != 0)
+	ret = send_block(zbdev, skb->len, skb->data);
+	if (ret)
 		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000)) > 0) {
-		if (zbdev->status != PHY_SUCCESS) {
+		if (zbdev->status != STATUS_SUCCESS) {
 			ret = -EBUSY;
 			goto out;
 		}
@@ -766,9 +744,9 @@ ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000)) > 0) {
-		if (zbdev->status != PHY_SUCCESS) {
+		if (zbdev->status != STATUS_SUCCESS) {
 			ret = -EBUSY;
 			goto out;
 		}
