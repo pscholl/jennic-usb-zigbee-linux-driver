@@ -72,7 +72,7 @@ hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
 }
 
 static int
-hw_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
+hw_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct fake_dev_priv *priv = dev->priv;
 	struct fake_priv *fake = priv->fake;
@@ -92,7 +92,7 @@ hw_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	}
 	read_unlock_bh(&fake->lock);
 
-	return PHY_SUCCESS;
+	return 0;
 }
 
 static int
@@ -116,7 +116,7 @@ hw_stop(struct ieee802154_dev *dev) {
 
 static struct ieee802154_ops fake_ops = {
 	.owner = THIS_MODULE,
-	.tx = hw_tx,
+	.xmit = hw_xmit,
 	.ed = hw_ed,
 	.set_channel = hw_channel,
 	.start = hw_start,

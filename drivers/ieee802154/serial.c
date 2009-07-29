@@ -677,8 +677,7 @@ ieee802154_serial_start(struct ieee802154_dev *dev)
 			ret = 0;
 		else
 			ret = -EBUSY;
-	}
-	else
+	} else
 		ret = -ETIMEDOUT;
 out:
 	mutex_unlock(&zbdev->mutex);
@@ -714,27 +713,42 @@ out:
 	pr_debug("%s end\n", __func__);
 }
 
-static phy_status_t
+static int
 ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct zb_device *zbdev;
-	phy_status_t ret;
+	int ret;
 
 	pr_debug("%s\n", __func__);
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __func__);
-		return PHY_INVAL;
+		return -EINVAL;
 	}
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
+		return -EINTR;
 
-	if (send_cmd(zbdev, CMD_CCA) != 0) {
-		ret = PHY_ERROR;
+	ret = send_cmd(zbdev, CMD_CCA);
+	if (ret)
+		goto out;
+
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != PHY_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
 		goto out;
 	}
+
+	ret = send_cmd2(zbdev, CMD_SET_STATE, TX_MODE);
+	if (ret)
+		goto out;
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
 				zbdev->status != PHY_INVAL,
@@ -746,47 +760,36 @@ ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 	if (ret != PHY_SUCCESS)
 		goto out;
 
-	if (send_cmd2(zbdev, CMD_SET_STATE, TX_MODE) != 0) {
-		ret = PHY_ERROR;
+	if (send_block(zbdev, skb->len, skb->data) != 0)
 		goto out;
-	}
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
 				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
-
-	if (ret != PHY_SUCCESS)
-		goto out;
-
-	if (send_block(zbdev, skb->len, skb->data) != 0) {
-		ret = PHY_ERROR;
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != PHY_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
 		goto out;
 	}
 
-	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
-
-	if (ret != PHY_SUCCESS)
+	ret = send_cmd2(zbdev, CMD_SET_STATE, RX_MODE);
+	if (ret)
 		goto out;
 
-	if (send_cmd2(zbdev, CMD_SET_STATE, RX_MODE) != 0) {
-		ret = PHY_ERROR;
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != PHY_INVAL,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != PHY_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
 		goto out;
 	}
-
-	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
 
 out:
 
@@ -801,7 +804,7 @@ out:
 
 static struct ieee802154_ops serial_ops = {
 	.owner = THIS_MODULE,
-	.tx = ieee802154_serial_xmit,
+	.xmit		= ieee802154_serial_xmit,
 	.ed = ieee802154_serial_ed,
 	.set_channel	= ieee802154_serial_set_channel,
 	.start		= ieee802154_serial_start,

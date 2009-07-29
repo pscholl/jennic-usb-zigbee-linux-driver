@@ -512,7 +512,7 @@ at86rf230_channel(struct ieee802154_dev *dev, int channel)
 }
 
 static int
-at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
+at86rf230_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct at86rf230_local *lp = dev->priv;
 	int rc;
@@ -544,14 +544,15 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 			goto err_rx;
 	}
 
-	rc = wait_for_completion_interruptible(&lp->tx_complete);
-
 	gpio_set_value(lp->slp_tr, 0);
 
+	rc = wait_for_completion_interruptible(&lp->tx_complete);
 	if (rc < 0)
 		goto err_rx;
 
-	return PHY_SUCCESS;
+	rc = at86rf230_state(dev, PHY_RX_ON);
+
+	return rc;
 
 err_rx:
 	at86rf230_state(dev, PHY_RX_ON);
@@ -560,7 +561,7 @@ err:
 	lp->is_tx = 0;
 	spin_unlock_irqrestore(&lp->lock, flags);
 
-	return PHY_ERROR;
+	return rc;
 }
 
 static int at86rf230_rx(struct at86rf230_local *lp)
@@ -596,7 +597,7 @@ static int at86rf230_rx(struct at86rf230_local *lp)
 
 static struct ieee802154_ops at86rf230_ops = {
 	.owner = THIS_MODULE,
-	.tx = at86rf230_tx,
+	.xmit = at86rf230_xmit,
 	.ed = at86rf230_ed,
 	.set_channel = at86rf230_channel,
 	.start = at86rf230_start,

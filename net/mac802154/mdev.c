@@ -35,7 +35,7 @@ struct xmit_work {
 static void ieee802154_xmit_worker(struct work_struct *work)
 {
 	struct xmit_work *xw = container_of(work, struct xmit_work, work);
-	phy_status_t res;
+	int res;
 
 	if (xw->priv->hw.current_channel != phy_cb(xw->skb)->chan) {
 		res = xw->priv->ops->set_channel(&xw->priv->hw,
@@ -46,7 +46,7 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 		}
 	}
 
-	res = xw->priv->ops->tx(&xw->priv->hw, xw->skb);
+	res = xw->priv->ops->xmit(&xw->priv->hw, xw->skb);
 
 out:
 	/* FIXME: result processing and/or requeue!!! */
@@ -196,7 +196,7 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 
 	BUG_ON(!dev);
 	BUG_ON(!ops);
-	BUG_ON(!ops->tx);
+	BUG_ON(!ops->xmit);
 	BUG_ON(!ops->ed);
 	BUG_ON(!ops->start);
 	BUG_ON(!ops->stop);
