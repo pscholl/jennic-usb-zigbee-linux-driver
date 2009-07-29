@@ -73,9 +73,7 @@ enum {
 	CMD_CCA			= 0x06, /* u8 id */
 	CMD_SET_STATE		= 0x07, /* u8 id, u8 flag */
 	DATA_XMIT_BLOCK		= 0x09, /* u8 id, u8 len, u8 data[len] */
-	DATA_XMIT_STREAM	= 0x0a, /* u8 id, u8 c */
 	RESP_RECV_BLOCK		= 0x0b, /* u8 id, u8 status */
-	RESP_RECV_STREAM	= 0x0c, /* u8 id, u8 status */
 
 	/* Firmware to Driver */
 	RESP_OPEN		= 0x81, /* u8 id, u8 status */
@@ -85,9 +83,7 @@ enum {
 	RESP_CCA		= 0x86, /* u8 id, u8 status */
 	RESP_SET_STATE		= 0x87, /* u8 id, u8 status */
 	RESP_XMIT_BLOCK		= 0x89, /* u8 id, u8 status */
-	RESP_XMIT_STREAM	= 0x8a, /* u8 id, u8 status */
 	DATA_RECV_BLOCK		= 0x8b, /* u8 id, u8 lq, u8 len, u8 data[len] */
-	DATA_RECV_STREAM	= 0x8c  /* u8 id, u8 c */
 };
 
 enum {
@@ -308,9 +304,7 @@ is_command(unsigned char c)
 	case RESP_CCA:
 	case RESP_SET_STATE:
 	case RESP_XMIT_BLOCK:
-	case RESP_XMIT_STREAM:
 	case DATA_RECV_BLOCK:
-	case DATA_RECV_STREAM:
 		return 1;
 	}
 	return 0;
@@ -333,10 +327,7 @@ _match_pending_id(struct zb_device *zbdev)
 			RESP_SET_STATE == zbdev->id) ||
 		(DATA_XMIT_BLOCK == zbdev->pending_id &&
 			RESP_XMIT_BLOCK == zbdev->id) ||
-		(DATA_XMIT_STREAM == zbdev->pending_id &&
-			RESP_XMIT_STREAM == zbdev->id) ||
-		DATA_RECV_BLOCK == zbdev->id ||
-		DATA_RECV_STREAM == zbdev->id);
+		DATA_RECV_BLOCK == zbdev->id);
 }
 
 static void serial_net_rx(struct zb_device *zbdev)
@@ -421,9 +412,6 @@ process_command(struct zb_device *zbdev)
 				zbdev->param1, zbdev->param2);
 		/* zbdev->param1 is LQ, zbdev->param2 is length */
 		serial_net_rx(zbdev);
-		break;
-	case DATA_RECV_STREAM:
-		/* TODO: update firmware to use this */
 		break;
 	}
 
