@@ -21,24 +21,6 @@
 #ifndef NET_MAC802154_H
 #define NET_MAC802154_H
 
-typedef enum {
-	PHY_BUSY = 0, /* cca */
-	PHY_BUSY_RX, /* state */
-	PHY_BUSY_TX, /* state */
-	PHY_FORCE_TRX_OFF,
-	PHY_IDLE, /* cca */
-	PHY_INVALID_PARAMETER, /* pib get/set */
-	PHY_RX_ON, /* state */
-	PHY_SUCCESS, /* ed */
-	PHY_TRX_OFF, /* cca, ed, state */
-	PHY_TX_ON, /* cca, ed, state */
-	PHY_UNSUPPORTED_ATTRIBUTE, /* pib get/set */
-	PHY_READ_ONLY, /* pib get/set */
-
-	PHY_INVAL = -1, /* all */
-	PHY_ERROR = -2, /* all */
-} phy_status_t;
-
 struct ieee802154_dev {
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
 	void	*priv;		/* driver-specific data */
