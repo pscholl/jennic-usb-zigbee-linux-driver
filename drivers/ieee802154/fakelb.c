@@ -42,14 +42,14 @@ struct fake_priv {
 	rwlock_t lock;
 };
 
-static phy_status_t
+static int
 hw_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
 	BUG_ON(!level);
 	*level = 0xbe;
-	return PHY_SUCCESS;
+	return 0;
 }
 
 static phy_status_t

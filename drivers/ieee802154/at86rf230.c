@@ -422,14 +422,14 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 	return status;
 }
 
-static phy_status_t
+static int
 at86rf230_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
 	BUG_ON(!level);
 	*level = 0xbe;
-	return PHY_SUCCESS;
+	return 0;
 }
 
 static int
