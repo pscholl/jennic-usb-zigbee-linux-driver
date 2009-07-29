@@ -40,7 +40,7 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 	if (xw->priv->hw.current_channel != phy_cb(xw->skb)->chan) {
 		res = xw->priv->ops->set_channel(&xw->priv->hw,
 				phy_cb(xw->skb)->chan);
-		if (res != PHY_SUCCESS) {
+		if (res) {
 			pr_debug("set_channel failed\n");
 			goto out;
 		}

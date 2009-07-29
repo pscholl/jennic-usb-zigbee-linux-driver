@@ -78,7 +78,7 @@ struct ieee802154_ops {
 	void		(*stop)(struct ieee802154_dev *dev); /* stop the device after last netdev close */
 	int		(*xmit)(struct ieee802154_dev *dev, struct sk_buff *skb); /* xmit one packet */
 	int		(*ed)(struct ieee802154_dev *dev, u8 *level);
-	phy_status_t (*set_channel)(struct ieee802154_dev *dev, int channel);
+	int		(*set_channel)(struct ieee802154_dev *dev, int channel);
 };
 
 struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size, struct ieee802154_ops *ops);

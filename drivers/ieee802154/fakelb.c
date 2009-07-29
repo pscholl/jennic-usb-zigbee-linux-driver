@@ -52,13 +52,13 @@ hw_ed(struct ieee802154_dev *dev, u8 *level)
 	return 0;
 }
 
-static phy_status_t
+static int
 hw_channel(struct ieee802154_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
 	dev->current_channel = channel;
-	return PHY_SUCCESS;
+	return 0;
 }
 
 static void

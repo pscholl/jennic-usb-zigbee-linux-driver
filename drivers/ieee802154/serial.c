@@ -567,22 +567,22 @@ static int _open_dev(struct zb_device *zbdev)
 }
 
 /* Valid channels: 1-16 */
-static phy_status_t
+static int
 ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 {
 	struct zb_device *zbdev;
-	phy_status_t ret;
+	int ret = 0;
 
 	pr_debug("%s %d\n", __func__, channel);
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __func__);
-		return PHY_INVAL;
+		return -EINVAL;
 	}
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
+		return -EINTR;
 	/* Our channels are actually from 11 to 26
 	 * We have IEEE802.15.4 channel no from 0 to 26.
 	 * channels 0-10 are not valid for us */
@@ -593,19 +593,19 @@ ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 	 * optimize this stuff anyway. */
 	BUG_ON((channel - 10) < 1 && (channel - 10) > 16);
 
-	if (send_cmd2(zbdev, CMD_SET_CHANNEL, channel - 10) != 0) {
-		ret = PHY_ERROR;
+	ret = send_cmd2(zbdev, CMD_SET_CHANNEL, channel - 10);
+	if (ret)
 		goto out;
-	}
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
 				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != PHY_SUCCESS)
+			ret = -EBUSY;
+	} else
+		ret = -EINTR;
 
-	if (ret == PHY_SUCCESS)
+	if (!ret)
 		zbdev->dev->current_channel = channel;
 out:
 	mutex_unlock(&zbdev->mutex);

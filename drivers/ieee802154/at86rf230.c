@@ -508,7 +508,7 @@ at86rf230_channel(struct ieee802154_dev *dev, int channel)
 	msleep(1); /* Wait for PLL */
 	dev->current_channel = channel;
 
-	return PHY_SUCCESS;
+	return 0;
 }
 
 static int

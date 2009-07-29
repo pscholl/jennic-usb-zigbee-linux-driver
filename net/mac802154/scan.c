@@ -99,14 +99,14 @@ static void scanner(struct work_struct *work)
 	struct scan_work *sw = container_of(work, struct scan_work, work);
 	struct ieee802154_priv *hw = ieee802154_slave_get_priv(sw->dev);
 	int i;
-	phy_status_t ret;
+	int ret;
 
 	for (i = 0; i < 27; i++) {
 		if (!(sw->channels & (1 << i)))
 			continue;
 
 		ret = hw->ops->set_channel(&hw->hw,  i);
-		if (ret != PHY_SUCCESS)
+		if (ret)
 			goto exit_error;
 
 		ret = sw->scan_ch(sw, i, sw->duration);
