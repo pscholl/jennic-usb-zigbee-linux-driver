@@ -54,11 +54,39 @@ enum ieee802154_hw_flags {
 
 struct sk_buff;
 
+/**
+ * struct ieee802154_ops - callbacks from mac802154 to the driver
+ *
+ * This structure contains various callbacks that the driver may
+ * handle or, in some cases, must handle, for example to transmit
+ * a frame.
+ *
+ * @start: Handler that 802.15.4 module calls for device initialisation.
+ * 	This function is called before the first interface is attached.
+ *
+ * @stop: Handler that 802.15.4 module calls for device cleanup
+ * 	This function is called after the last interface is removed.
+ *
+ * @tx: Handler that 802.15.4 module calls for each transmitted frame.
+ *      skb cntains the buffer starting from the IEEE 802.15.4 header.
+ *      The low-level driver should send the frame based on available
+ *      configuration.
+ *      This function should return zero or negative errno.
+ *
+ * @ed: Handler that 802.15.4 module calls for Energy Detection.
+ *      This function should place the value for detected energy
+ *      (usually device-dependant) in the level pointer and return
+ *      either zero or negative errno.
+ *
+ * @set_channel: Set radio for listening on specific channel.
+ *      Set the device for listening on specified channel.
+ *      Returns either zero, or negative errno.
+ */
 struct ieee802154_ops {
 	struct module	*owner;
-	int		(*start)(struct ieee802154_dev *dev); /* start the device before first netdev open */
-	void		(*stop)(struct ieee802154_dev *dev); /* stop the device after last netdev close */
-	int		(*xmit)(struct ieee802154_dev *dev, struct sk_buff *skb); /* xmit one packet */
+	int		(*start)(struct ieee802154_dev *dev);
+	void		(*stop)(struct ieee802154_dev *dev);
+	int		(*xmit)(struct ieee802154_dev *dev, struct sk_buff *skb);
 	int		(*ed)(struct ieee802154_dev *dev, u8 *level);
 	int		(*set_channel)(struct ieee802154_dev *dev, int channel);
 };
