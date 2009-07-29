@@ -492,7 +492,7 @@ at86rf230_stop(struct ieee802154_dev *dev)
 	at86rf230_state(dev, PHY_FORCE_TRX_OFF);
 }
 
-static phy_status_t
+static int
 at86rf230_channel(struct ieee802154_dev *dev, int channel)
 {
 	struct at86rf230_local *lp = dev->priv;
