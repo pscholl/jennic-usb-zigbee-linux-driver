@@ -103,7 +103,7 @@ static int
 hw_start(struct ieee802154_dev *dev) {
 	struct fake_dev_priv *priv = dev->priv;
 
-	if (!priv->working)
+	if (priv->working)
 		return -EBUSY;
 
 	priv->working = 1;
