@@ -39,22 +39,6 @@
 #include "beacon_hash.h"
 #include "mib.h"
 
-struct ieee802154_sub_if_data {
-	struct list_head list;
-	struct ieee802154_priv *hw;
-	struct net_device *dev;
-
-	u16 pan_id;
-	u16 short_addr;
-
-	u8 chan;
-
-	/* MAC BSN field */
-	u8 bsn;
-	/* MAC BSN field */
-	u8 dsn;
-};
-
 static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv;

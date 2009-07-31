@@ -44,6 +44,23 @@ struct ieee802154_priv {
 
 #define ieee802154_to_priv(_hw)	container_of(_hw, struct ieee802154_priv, hw)
 
+struct ieee802154_sub_if_data {
+	struct list_head list; /* the ieee802154_priv->slaves list */
+
+	struct ieee802154_priv *hw;
+	struct net_device *dev;
+
+	u16 pan_id;
+	u16 short_addr;
+
+	u8 chan;
+
+	/* MAC BSN field */
+	u8 bsn;
+	/* MAC BSN field */
+	u8 dsn;
+};
+
 void ieee802154_drop_slaves(struct ieee802154_dev *hw);
 
 void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb);
