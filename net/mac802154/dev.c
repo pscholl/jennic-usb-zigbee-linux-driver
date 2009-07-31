@@ -85,18 +85,18 @@ static int ieee802154_slave_open(struct net_device *dev)
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	int res = 0;
 
-	if (priv->hw->open_count == 0) {
+	if (priv->hw->open_count++ == 0) {
 		res = dev_open(priv->hw->netdev);
 		WARN_ON(res);
 		if (res)
 			goto err;
 	}
 
-	priv->hw->open_count ++;
-
 	netif_start_queue(dev);
 	return 0;
 err:
+	priv->hw->open_count --;
+
 	return res;
 }
 

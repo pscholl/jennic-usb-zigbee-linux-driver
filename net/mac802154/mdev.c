@@ -81,15 +81,17 @@ static int ieee802154_master_hard_start_xmit(struct sk_buff *skb,
 
 static int ieee802154_master_open(struct net_device *dev)
 {
-	struct ieee802154_priv *priv;
 	int rc;
+	struct ieee802154_priv *priv = netdev_priv(dev);
 
-	priv = netdev_priv(dev);
 	if (!priv) {
 		pr_debug("%s:%s: unable to get master private data\n",
 				__FILE__, __func__);
 		return -ENODEV;
 	}
+
+	if (!priv->open_count)
+		return -EOPNOTSUPP;
 
 	rc = priv->ops->start(&priv->hw);
 
@@ -101,9 +103,7 @@ static int ieee802154_master_open(struct net_device *dev)
 
 static int ieee802154_master_close(struct net_device *dev)
 {
-	struct ieee802154_priv *priv;
-
-	priv = netdev_priv(dev);
+	struct ieee802154_priv *priv = netdev_priv(dev);
 
 	priv->ops->stop(&priv->hw);
 
