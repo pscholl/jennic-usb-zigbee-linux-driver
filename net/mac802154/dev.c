@@ -39,7 +39,7 @@
 #include "beacon_hash.h"
 #include "mib.h"
 
-struct ieee802154_netdev_priv {
+struct ieee802154_sub_if_data {
 	struct list_head list;
 	struct ieee802154_priv *hw;
 	struct net_device *dev;
@@ -57,7 +57,7 @@ struct ieee802154_netdev_priv {
 
 static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv;
+	struct ieee802154_sub_if_data *priv;
 	priv = netdev_priv(dev);
 
 	if (!(priv->hw->hw.flags & IEEE802154_HW_OMIT_CKSUM)) {
@@ -82,7 +82,7 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 
 static int ieee802154_slave_open(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	int res = 0;
 
 	if (priv->hw->open_count == 0) {
@@ -102,7 +102,7 @@ err:
 
 static int ieee802154_slave_close(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	dev->priv_flags &= ~IFF_IEEE802154_COORD;
 
@@ -120,7 +120,7 @@ static int ieee802154_slave_close(struct net_device *dev)
 static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		int cmd)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	struct sockaddr_ieee802154 *sa =
 		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
 	switch (cmd) {
@@ -174,7 +174,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 	const struct ieee802154_addr *saddr = _saddr;
 	const struct ieee802154_addr *daddr = _daddr;
 	struct ieee802154_addr dev_addr;
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	fc = mac_cb_type(skb);
 	if (mac_cb_is_ackreq(skb))
@@ -384,7 +384,7 @@ static void ieee802154_netdev_setup(struct net_device *dev)
 void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
-	struct ieee802154_netdev_priv *ndp, *next;
+	struct ieee802154_sub_if_data *ndp, *next;
 
 	ASSERT_RTNL();
 
@@ -417,7 +417,7 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 					   struct nlattr *data[])
 {
 	struct net_device *mdev;
-	struct ieee802154_netdev_priv *priv;
+	struct ieee802154_sub_if_data *priv;
 	struct ieee802154_priv *ipriv;
 	int err;
 
@@ -462,7 +462,7 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 
 static void ieee802154_netdev_dellink(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *ndp;
+	struct ieee802154_sub_if_data *ndp;
 	ASSERT_RTNL();
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
@@ -491,7 +491,7 @@ static size_t ieee802154_netdev_get_size(const struct net_device *dev)
 static int ieee802154_netdev_fill_info(struct sk_buff *skb,
 					const struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, priv->chan);
 	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, priv->pan_id);
@@ -507,7 +507,7 @@ nla_put_failure:
 
 static struct rtnl_link_ops wpan_link_ops __read_mostly = {
 	.kind		= "wpan",
-	.priv_size	= sizeof(struct ieee802154_netdev_priv),
+	.priv_size	= sizeof(struct ieee802154_sub_if_data),
 	.setup		= ieee802154_netdev_setup,
 	.validate	= ieee802154_netdev_validate,
 	.newlink	= ieee802154_netdev_newlink,
@@ -551,7 +551,7 @@ static int ieee802154_process_data(struct net_device *dev, struct sk_buff *skb)
 	return netif_rx(skb);
 }
 
-static int ieee802154_subif_frame(struct ieee802154_netdev_priv *ndp,
+static int ieee802154_subif_frame(struct ieee802154_sub_if_data *ndp,
 		struct sk_buff *skb)
 {
 	pr_debug("%s Getting packet via slave interface %s\n",
@@ -768,7 +768,7 @@ exit_error:
 void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
-	struct ieee802154_netdev_priv *ndp, *prev = NULL;
+	struct ieee802154_sub_if_data *ndp, *prev = NULL;
 	int ret;
 
 	BUILD_BUG_ON(sizeof(struct ieee802154_mac_cb) > sizeof(skb->cb));
@@ -823,7 +823,7 @@ out:
 
 u16 ieee802154_dev_get_pan_id(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -832,7 +832,7 @@ u16 ieee802154_dev_get_pan_id(struct net_device *dev)
 
 u16 ieee802154_dev_get_short_addr(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -841,7 +841,7 @@ u16 ieee802154_dev_get_short_addr(struct net_device *dev)
 
 void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -849,7 +849,7 @@ void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
 }
 void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -857,7 +857,7 @@ void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 }
 void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -866,7 +866,7 @@ void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 
 u8 ieee802154_dev_get_dsn(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -875,7 +875,7 @@ u8 ieee802154_dev_get_dsn(struct net_device *dev)
 
 u8 ieee802154_dev_get_bsn(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -884,7 +884,7 @@ u8 ieee802154_dev_get_bsn(struct net_device *dev)
 
 struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev)
 {
-	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	return priv->hw;
