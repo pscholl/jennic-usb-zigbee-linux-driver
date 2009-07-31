@@ -104,6 +104,14 @@ static int ieee802154_master_open(struct net_device *dev)
 static int ieee802154_master_close(struct net_device *dev)
 {
 	struct ieee802154_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *sdata;
+
+	ASSERT_RTNL();
+
+	/* We are under RTNL, so it's fine to do this */
+	list_for_each_entry(sdata, &priv->slaves, list)
+		if (netif_running(sdata->dev))
+			dev_close(sdata->dev);
 
 	priv->ops->stop(&priv->hw);
 
