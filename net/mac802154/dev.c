@@ -384,18 +384,18 @@ static void ieee802154_netdev_setup(struct net_device *dev)
 void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
-	struct ieee802154_sub_if_data *ndp, *next;
+	struct ieee802154_sub_if_data *sdata, *next;
 
 	ASSERT_RTNL();
 
-	list_for_each_entry_safe(ndp, next, &priv->slaves, list) {
-		mutex_lock(&ndp->hw->slaves_mtx);
-		list_del(&ndp->list);
-		mutex_unlock(&ndp->hw->slaves_mtx);
+	list_for_each_entry_safe(sdata, next, &priv->slaves, list) {
+		mutex_lock(&sdata->hw->slaves_mtx);
+		list_del(&sdata->list);
+		mutex_unlock(&sdata->hw->slaves_mtx);
 
-		dev_put(ndp->hw->netdev);
+		dev_put(sdata->hw->netdev);
 
-		unregister_netdevice(ndp->dev);
+		unregister_netdevice(sdata->dev);
 	}
 }
 
@@ -462,21 +462,21 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 
 static void ieee802154_netdev_dellink(struct net_device *dev)
 {
-	struct ieee802154_sub_if_data *ndp;
+	struct ieee802154_sub_if_data *sdata;
 	ASSERT_RTNL();
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	ndp = netdev_priv(dev);
+	sdata = netdev_priv(dev);
 
-	mutex_lock(&ndp->hw->slaves_mtx);
-	list_del_rcu(&ndp->list);
-	mutex_unlock(&ndp->hw->slaves_mtx);
+	mutex_lock(&sdata->hw->slaves_mtx);
+	list_del_rcu(&sdata->list);
+	mutex_unlock(&sdata->hw->slaves_mtx);
 
-	dev_put(ndp->hw->netdev);
+	dev_put(sdata->hw->netdev);
 
 	synchronize_rcu();
-	unregister_netdevice(ndp->dev);
+	unregister_netdevice(sdata->dev);
 }
 
 static size_t ieee802154_netdev_get_size(const struct net_device *dev)
@@ -551,11 +551,11 @@ static int ieee802154_process_data(struct net_device *dev, struct sk_buff *skb)
 	return netif_rx(skb);
 }
 
-static int ieee802154_subif_frame(struct ieee802154_sub_if_data *ndp,
+static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 		struct sk_buff *skb)
 {
 	pr_debug("%s Getting packet via slave interface %s\n",
-				__func__, ndp->dev->name);
+				__func__, sdata->dev->name);
 
 	switch (mac_cb(skb)->da.addr_type) {
 	case IEEE802154_ADDR_NONE:
@@ -567,13 +567,13 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *ndp,
 			skb->pkt_type = PACKET_HOST;
 		break;
 	case IEEE802154_ADDR_LONG:
-		if (mac_cb(skb)->da.pan_id != ndp->pan_id &&
+		if (mac_cb(skb)->da.pan_id != sdata->pan_id &&
 		    mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
 			skb->pkt_type = PACKET_OTHERHOST;
-		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->dev_addr,
+		else if (!memcmp(mac_cb(skb)->da.hwaddr, sdata->dev->dev_addr,
 					IEEE802154_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
-		else if (!memcmp(mac_cb(skb)->da.hwaddr, ndp->dev->broadcast,
+		else if (!memcmp(mac_cb(skb)->da.hwaddr, sdata->dev->broadcast,
 					IEEE802154_ADDR_LEN))
 			/* FIXME: is this correct? */
 			skb->pkt_type = PACKET_BROADCAST;
@@ -581,10 +581,10 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *ndp,
 			skb->pkt_type = PACKET_OTHERHOST;
 		break;
 	case IEEE802154_ADDR_SHORT:
-		if (mac_cb(skb)->da.pan_id != ndp->pan_id &&
+		if (mac_cb(skb)->da.pan_id != sdata->pan_id &&
 		    mac_cb(skb)->da.pan_id != IEEE802154_PANID_BROADCAST)
 			skb->pkt_type = PACKET_OTHERHOST;
-		else if (mac_cb(skb)->da.short_addr == ndp->short_addr)
+		else if (mac_cb(skb)->da.short_addr == sdata->short_addr)
 			skb->pkt_type = PACKET_HOST;
 		else if (mac_cb(skb)->da.short_addr == IEEE802154_ADDR_BROADCAST)
 			skb->pkt_type = PACKET_BROADCAST;
@@ -593,20 +593,20 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *ndp,
 		break;
 	}
 
-	skb->dev = ndp->dev;
+	skb->dev = sdata->dev;
 
-	if (skb->pkt_type == PACKET_HOST && mac_cb_is_ackreq(skb) && !(ndp->hw->hw.flags & IEEE802154_HW_AACK))
-		dev_warn(&ndp->dev->dev, "ACK requested, however AACK not supported.\n");
+	if (skb->pkt_type == PACKET_HOST && mac_cb_is_ackreq(skb) && !(sdata->hw->hw.flags & IEEE802154_HW_AACK))
+		dev_warn(&sdata->dev->dev, "ACK requested, however AACK not supported.\n");
 
 	switch (mac_cb_type(skb)) {
 	case IEEE802154_FC_TYPE_BEACON:
-		return ieee802154_process_beacon(ndp->dev, skb);
+		return ieee802154_process_beacon(sdata->dev, skb);
 	case IEEE802154_FC_TYPE_ACK:
-		return ieee802154_process_ack(ndp->dev, skb);
+		return ieee802154_process_ack(sdata->dev, skb);
 	case IEEE802154_FC_TYPE_MAC_CMD:
-		return ieee802154_process_cmd(ndp->dev, skb);
+		return ieee802154_process_cmd(sdata->dev, skb);
 	case IEEE802154_FC_TYPE_DATA:
-		return ieee802154_process_data(ndp->dev, skb);
+		return ieee802154_process_data(sdata->dev, skb);
 	default:
 		pr_warning("ieee802154: Bad frame received (type = %d)\n",
 				mac_cb_type(skb));
@@ -768,7 +768,7 @@ exit_error:
 void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
-	struct ieee802154_sub_if_data *ndp, *prev = NULL;
+	struct ieee802154_sub_if_data *sdata, *prev = NULL;
 	int ret;
 
 	BUILD_BUG_ON(sizeof(struct ieee802154_mac_cb) > sizeof(skb->cb));
@@ -798,7 +798,7 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 	pr_debug("%s() frame %d\n", __func__, mac_cb_type(skb));
 
 	rcu_read_lock();
-	list_for_each_entry_rcu(ndp, &priv->slaves, list)
+	list_for_each_entry_rcu(sdata, &priv->slaves, list)
 	{
 		if (prev) {
 			struct sk_buff *skb2 = skb_clone(skb, GFP_ATOMIC);
@@ -806,7 +806,7 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb)
 				ieee802154_subif_frame(prev, skb2);
 		}
 
-		prev = ndp;
+		prev = sdata;
 	}
 
 	if (prev) {
