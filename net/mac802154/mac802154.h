@@ -27,6 +27,7 @@ struct ieee802154_priv {
 	struct ieee802154_ops	*ops;
 
 	struct net_device *netdev; /* mwpanX device */
+	int open_count;
 	/* As in mac80211 slaves list is modified:
 	 * 1) under the RTNL
 	 * 2) protected by slaves_mtx;

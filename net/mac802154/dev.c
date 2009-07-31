@@ -82,14 +82,37 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 
 static int ieee802154_slave_open(struct net_device *dev)
 {
+	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+	int res = 0;
+
+	if (priv->hw->open_count == 0) {
+		res = dev_open(priv->hw->netdev);
+		WARN_ON(res);
+		if (res)
+			goto err;
+	}
+
+	priv->hw->open_count ++;
+
 	netif_start_queue(dev);
 	return 0;
+err:
+	return res;
 }
 
 static int ieee802154_slave_close(struct net_device *dev)
 {
+	struct ieee802154_netdev_priv *priv = netdev_priv(dev);
+
 	dev->priv_flags &= ~IFF_IEEE802154_COORD;
+
 	netif_stop_queue(dev);
+
+	if ((--priv->hw->open_count) == 0) {
+		if (netif_running(priv->hw->netdev))
+			dev_close(priv->hw->netdev);
+	}
+
 	return 0;
 }
 
