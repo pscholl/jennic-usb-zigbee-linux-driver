@@ -822,8 +822,8 @@ ieee802154_tty_open(struct tty_struct *tty)
 	/* FIXME: why is this needed. Note don't use ldisc_ref here as the
 	   open path is before the ldisc is referencable */
 
-	if (tty->ldisc.ops->flush_buffer)
-		tty->ldisc.ops->flush_buffer(tty);
+	if (tty->ldisc->ops->flush_buffer)
+		tty->ldisc->ops->flush_buffer(tty);
 	tty_driver_flush_buffer(tty);
 
 	err = ieee802154_register_device(dev);
