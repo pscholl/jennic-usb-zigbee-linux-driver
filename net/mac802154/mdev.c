@@ -187,9 +187,7 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 	struct net_device *dev;
 	struct ieee802154_priv *priv;
 
-	dev = alloc_netdev(
-		((sizeof(struct ieee802154_priv) + NETDEV_ALIGN_CONST)
-			 & ~NETDEV_ALIGN_CONST) + priv_size,
+	dev = alloc_netdev(ALIGN(sizeof(*priv), NETDEV_ALIGN) + priv_size,
 			"mwpan%d", ieee802154_netdev_setup_master);
 	if (!dev) {
 		printk(KERN_ERR
@@ -198,9 +196,7 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 	}
 	priv = netdev_priv(dev);
 	priv->netdev = dev;
-	priv->hw.priv = (char *)priv +
-		((sizeof(struct  ieee802154_priv) +
-		 NETDEV_ALIGN_CONST) & ~NETDEV_ALIGN_CONST);
+	priv->hw.priv = (char *)priv + ALIGN(sizeof(*priv), NETDEV_ALIGN);
 
 	BUG_ON(!dev);
 	BUG_ON(!ops);
