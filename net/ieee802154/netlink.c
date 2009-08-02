@@ -75,7 +75,7 @@ static int ieee802154_nl_finish(struct sk_buff *msg)
 	/* XXX: nlh is right at the start of msg */
 	void *hdr = genlmsg_data(NLMSG_DATA(msg->data));
 
-	if (!genlmsg_end(msg, hdr))
+	if (genlmsg_end(msg, hdr) < 0)
 		goto out;
 
 	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id,
@@ -261,6 +261,35 @@ nla_put_failure:
 	return -ENOBUFS;
 }
 EXPORT_SYMBOL(ieee802154_nl_scan_confirm);
+
+static int ieee802154_nl_fill_iface(struct sk_buff *msg, u32 pid,
+	u32 seq, int flags, struct net_device *dev)
+{
+	void *hdr;
+
+	pr_debug("%s\n", __func__);
+
+	hdr = genlmsg_put(msg, 0, seq, &ieee802154_coordinator_family, flags,
+		IEEE802154_LIST_IFACE);
+	if (!hdr)
+		goto out;
+
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
+
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN,
+		dev->dev_addr);
+	NLA_PUT_U16(msg, IEEE802154_ATTR_SHORT_ADDR,
+		ieee802154_mlme_ops(dev)->get_short_addr(dev));
+	NLA_PUT_U16(msg, IEEE802154_ATTR_PAN_ID,
+		ieee802154_mlme_ops(dev)->get_pan_id(dev));
+	return genlmsg_end(msg, hdr);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out:
+	return -EMSGSIZE;
+}
 
 /* Requests from userspace */
 static struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
@@ -479,41 +508,25 @@ static int ieee802154_list_iface(struct sk_buff *skb,
 
 	pr_debug("%s\n", __func__);
 
+	dev = ieee802154_nl_get_dev(info);
+	if (!dev)
+		return -ENODEV;
+
         msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
         if (!msg)
-                goto out_err;
-
-	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
-		char name[IFNAMSIZ + 1];
-		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME],
-				sizeof(name));
-		dev = dev_get_by_name(&init_net, name);
-	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX])
-		dev = dev_get_by_index(&init_net,
-			nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
-	if (!dev) {
-		rc = -ENODEV;
-		goto out_free;
-	}
-
-	if (dev->type != ARPHRD_IEEE802154 &&
-	    dev->type != ARPHRD_IEEE802154_PHY) {
-		rc = -EINVAL;
-		goto out_dev;
-	}
+                goto out_dev;
 
 	rc = ieee802154_nl_fill_iface(msg, info->snd_pid, info->snd_seq, 0, dev);
-	if (rc)
-		goto out_dev;
+	if (rc < 0)
+		goto out_free;
 
 	dev_put(dev);
 
 	return genlmsg_unicast(msg, info->snd_pid);
-out_dev:
-	dev_put(dev);
 out_free:
 	nlmsg_free(msg);
-out_err:
+out_dev:
+	dev_put(dev);
         return rc;
 
 }
@@ -530,11 +543,11 @@ static int ieee802154_dump_iface(struct sk_buff *skb,
 
         idx = 0;
         for_each_netdev(net, dev) {
-                if (idx < s_idx || ((dev->type != ARPHRD_IEEE802154) &&
-				(dev->type != ARPHRD_IEEE802154_PHY)))
+                if (idx < s_idx || (dev->type != ARPHRD_IEEE802154))
                         goto cont;
+
 		if (ieee802154_nl_fill_iface(skb, NETLINK_CB(cb->skb).pid,
-			cb->nlh->nlmsg_seq, NLM_F_MULTI, dev) <= 0)
+			cb->nlh->nlmsg_seq, NLM_F_MULTI, dev) < 0)
                         break;
 cont:
                 idx++;
@@ -567,6 +580,7 @@ static struct genl_ops ieee802154_coordinator_ops[] = {
 	IEEE802154_OP(IEEE802154_DISASSOCIATE_REQ, ieee802154_disassociate_req),
 	IEEE802154_OP(IEEE802154_SCAN_REQ, ieee802154_scan_req),
 	IEEE802154_OP(IEEE802154_START_REQ, ieee802154_start_req),
+	IEEE802154_DUMP(IEEE802154_LIST_IFACE, ieee802154_list_iface, ieee802154_dump_iface),
 };
 
 static int __init ieee802154_nl_init(void)
