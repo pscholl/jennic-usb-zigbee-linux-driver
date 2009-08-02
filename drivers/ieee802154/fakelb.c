@@ -169,7 +169,6 @@ static void ieee802154fake_del_priv(struct fake_dev_priv *priv)
 
 	ieee802154_unregister_device(priv->dev);
 	ieee802154_free_device(priv->dev);
-	kfree(priv);
 }
 
 static ssize_t
