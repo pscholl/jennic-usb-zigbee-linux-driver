@@ -322,6 +322,8 @@ static int ieee802154_mlme_start_req(struct net_device *dev,
 	else
 		dev->priv_flags &= ~IFF_IEEE802154_COORD;
 
+	ieee802154_nl_start_confirm(dev, IEEE802154_SUCCESS);
+
 	return 0;
 }
 
