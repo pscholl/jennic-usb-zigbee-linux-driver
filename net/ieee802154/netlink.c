@@ -468,34 +468,81 @@ static int ieee802154_scan_req(struct sk_buff *skb, struct genl_info *info)
 	return ret;
 }
 
-void nl802154_unregister_ops(struct genl_ops *ops, int size)
+static int ieee802154_list_iface(struct sk_buff *skb,
+	struct genl_info *info)
 {
-	int i;
+	/* Request for interface name, index, type, IEEE address,
+	   PAN Id, short address */
+        struct sk_buff *msg;
+	struct net_device *dev = NULL;
+	int rc = -ENOBUFS;
 
-	for (i = 0; i < size; i++)
-		genl_register_ops(&ieee802154_coordinator_family, &ops[i]);
-}
-EXPORT_SYMBOL(nl802154_unregister_ops);
+	pr_debug("%s\n", __func__);
 
-int nl802154_register_ops(struct genl_ops *ops, int size)
-{
-	int i;
-	int rc;
+        msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+        if (!msg)
+                goto out_err;
 
-	for (i = 0; i < size; i++) {
-		rc = genl_register_ops(&ieee802154_coordinator_family, &ops[i]);
-		if (rc)
-			goto fail;
+	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
+		char name[IFNAMSIZ + 1];
+		nla_strlcpy(name, info->attrs[IEEE802154_ATTR_DEV_NAME],
+				sizeof(name));
+		dev = dev_get_by_name(&init_net, name);
+	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX])
+		dev = dev_get_by_index(&init_net,
+			nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
+	if (!dev) {
+		rc = -ENODEV;
+		goto out_free;
 	}
 
-	return 0;
+	if (dev->type != ARPHRD_IEEE802154 &&
+	    dev->type != ARPHRD_IEEE802154_PHY) {
+		rc = -EINVAL;
+		goto out_dev;
+	}
 
-fail:
-	nl802154_unregister_ops(ops, i);
+	rc = ieee802154_nl_fill_iface(msg, info->snd_pid, info->snd_seq, 0, dev);
+	if (rc)
+		goto out_dev;
 
-	return rc;
+	dev_put(dev);
+
+	return genlmsg_unicast(msg, info->snd_pid);
+out_dev:
+	dev_put(dev);
+out_free:
+	nlmsg_free(msg);
+out_err:
+        return rc;
+
 }
-EXPORT_SYMBOL(nl802154_register_ops);
+
+static int ieee802154_dump_iface(struct sk_buff *skb,
+	struct netlink_callback *cb)
+{
+        struct net *net = sock_net(skb->sk);
+        struct net_device *dev;
+        int idx;
+        int s_idx = cb->args[0];
+
+	pr_debug("%s\n", __func__);
+
+        idx = 0;
+        for_each_netdev(net, dev) {
+                if (idx < s_idx || ((dev->type != ARPHRD_IEEE802154) &&
+				(dev->type != ARPHRD_IEEE802154_PHY)))
+                        goto cont;
+		if (ieee802154_nl_fill_iface(skb, NETLINK_CB(cb->skb).pid,
+			cb->nlh->nlmsg_seq, NLM_F_MULTI, dev) <= 0)
+                        break;
+cont:
+                idx++;
+        }
+        cb->args[0] = idx;
+
+        return skb->len;
+}
 
 #define IEEE802154_OP(_cmd, _func)			\
 	{						\
@@ -525,6 +572,7 @@ static struct genl_ops ieee802154_coordinator_ops[] = {
 static int __init ieee802154_nl_init(void)
 {
 	int rc;
+	int i;
 
 	rc = genl_register_family(&ieee802154_coordinator_family);
 	if (rc)
@@ -541,10 +589,12 @@ static int __init ieee802154_nl_init(void)
 		goto fail;
 
 
-	rc = nl802154_register_ops(ieee802154_coordinator_ops,
-			ARRAY_SIZE(ieee802154_coordinator_ops));
-	if (rc)
-		goto fail;
+	for (i = 0; i < ARRAY_SIZE(ieee802154_coordinator_ops); i++) {
+		rc = genl_register_ops(&ieee802154_coordinator_family,
+				&ieee802154_coordinator_ops[i]);
+		if (rc)
+			goto fail;
+	}
 
 	return 0;
 
@@ -556,12 +606,6 @@ module_init(ieee802154_nl_init);
 
 static void __exit ieee802154_nl_exit(void)
 {
-	/*
-	 * This unregister is strictly not necessary here, as all 
-	 * ops and mc groups will be unregistered by family unregister
-	 */
-	nl802154_unregister_ops(ieee802154_coordinator_ops,
-			ARRAY_SIZE(ieee802154_coordinator_ops));
 	genl_unregister_family(&ieee802154_coordinator_family);
 }
 module_exit(ieee802154_nl_exit);
