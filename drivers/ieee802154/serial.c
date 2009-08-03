@@ -148,7 +148,8 @@ _send_pending_data(struct zb_device *zbdev)
 	printk(KERN_INFO "%s, %d bytes\n", __func__,
 			zbdev->pending_size);
 #ifdef DEBUG
-	print_hex_dump_bytes("send_pending_data ", DUMP_PREFIX_NONE, zbdev->pending_data, zbdev->pending_size);
+	print_hex_dump_bytes("send_pending_data ", DUMP_PREFIX_NONE,
+			zbdev->pending_data, zbdev->pending_size);
 #endif
 
 	if (tty->driver->ops->write(tty, zbdev->pending_data,
@@ -662,9 +663,8 @@ ieee802154_serial_stop(struct ieee802154_dev *dev)
 		return;
 
 
-	if (send_cmd2(zbdev, CMD_SET_STATE, FORCE_TRX_OFF) != 0) {
+	if (send_cmd2(zbdev, CMD_SET_STATE, FORCE_TRX_OFF) != 0)
 		goto out;
-	}
 
 	wait_event_interruptible_timeout(zbdev->wq,
 				zbdev->status != STATUS_WAIT,
@@ -794,9 +794,8 @@ ieee802154_tty_open(struct tty_struct *tty)
 		return -EBUSY;
 
 	dev = ieee802154_alloc_device(sizeof(*zbdev), &serial_ops);
-	if (!dev) {
+	if (!dev)
 		return -ENOMEM;
-	}
 
 	zbdev = dev->priv;
 	zbdev->dev = dev;
@@ -933,7 +932,8 @@ ieee802154_tty_receive(struct tty_struct *tty, const unsigned char *buf,
 	printk(KERN_INFO "%s, received %d bytes\n", __func__,
 			count);
 #ifdef DEBUG
-	print_hex_dump_bytes("ieee802154_tty_receive ", DUMP_PREFIX_NONE, buf, count);
+	print_hex_dump_bytes("ieee802154_tty_receive ", DUMP_PREFIX_NONE,
+			buf, count);
 #endif
 
 	/* Actual processing */
