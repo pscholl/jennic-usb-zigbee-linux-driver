@@ -189,7 +189,7 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 
 	dev = alloc_netdev(
 		((sizeof(struct ieee802154_priv) + NETDEV_ALIGN_CONST)
-			 &~ NETDEV_ALIGN_CONST) + priv_size,
+			 & ~NETDEV_ALIGN_CONST) + priv_size,
 			"mwpan%d", ieee802154_netdev_setup_master);
 	if (!dev) {
 		printk(KERN_ERR

@@ -79,7 +79,7 @@ static int ieee802154_slave_open(struct net_device *dev)
 	netif_start_queue(dev);
 	return 0;
 err:
-	priv->hw->open_count --;
+	priv->hw->open_count--;
 
 	return res;
 }
@@ -513,7 +513,8 @@ static int ieee802154_process_beacon(struct net_device *dev,
 		ret = NET_RX_DROP;
 		goto fail;
 	}
-	dev_dbg(&dev->dev, "got beacon from pan %04x\n", mac_cb(skb)->sa.pan_id);
+	dev_dbg(&dev->dev, "got beacon from pan %04x\n",
+			mac_cb(skb)->sa.pan_id);
 	ieee802154_beacon_hash_add(&mac_cb(skb)->sa);
 	ieee802154_beacon_hash_dump();
 	ret = NET_RX_SUCCESS;
@@ -570,7 +571,8 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 			skb->pkt_type = PACKET_OTHERHOST;
 		else if (mac_cb(skb)->da.short_addr == sdata->short_addr)
 			skb->pkt_type = PACKET_HOST;
-		else if (mac_cb(skb)->da.short_addr == IEEE802154_ADDR_BROADCAST)
+		else if (mac_cb(skb)->da.short_addr ==
+					IEEE802154_ADDR_BROADCAST)
 			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
@@ -579,8 +581,10 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 
 	skb->dev = sdata->dev;
 
-	if (skb->pkt_type == PACKET_HOST && mac_cb_is_ackreq(skb) && !(sdata->hw->hw.flags & IEEE802154_HW_AACK))
-		dev_warn(&sdata->dev->dev, "ACK requested, however AACK not supported.\n");
+	if (skb->pkt_type == PACKET_HOST && mac_cb_is_ackreq(skb) &&
+			!(sdata->hw->hw.flags & IEEE802154_HW_AACK))
+		dev_warn(&sdata->dev->dev,
+			"ACK requested, however AACK not supported.\n");
 
 	switch (mac_cb_type(skb)) {
 	case IEEE802154_FC_TYPE_BEACON:

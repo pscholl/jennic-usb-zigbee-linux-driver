@@ -86,12 +86,15 @@ struct ieee802154_ops {
 	struct module	*owner;
 	int		(*start)(struct ieee802154_dev *dev);
 	void		(*stop)(struct ieee802154_dev *dev);
-	int		(*xmit)(struct ieee802154_dev *dev, struct sk_buff *skb);
+	int		(*xmit)(struct ieee802154_dev *dev,
+						struct sk_buff *skb);
 	int		(*ed)(struct ieee802154_dev *dev, u8 *level);
-	int		(*set_channel)(struct ieee802154_dev *dev, int channel);
+	int		(*set_channel)(struct ieee802154_dev *dev,
+						int channel);
 };
 
-struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size, struct ieee802154_ops *ops);
+struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
+						struct ieee802154_ops *ops);
 int ieee802154_register_device(struct ieee802154_dev *dev);
 void ieee802154_unregister_device(struct ieee802154_dev *dev);
 void ieee802154_free_device(struct ieee802154_dev *dev);
