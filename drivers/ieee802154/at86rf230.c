@@ -31,7 +31,7 @@
 #include <linux/spi/at86rf230.h>
 #include <linux/rtnetlink.h> /* FIXME: hack for slave instantiation */
 
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 struct at86rf230_local {
 	struct spi_device *spi;
@@ -422,18 +422,18 @@ at86rf230_read_fbuf(struct at86rf230_local *lp, u8 *data, u8 *len, u8 *lqi)
 	return status;
 }
 
-static phy_status_t
+static int
 at86rf230_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
 	BUG_ON(!level);
 	*level = 0xbe;
-	return PHY_SUCCESS;
+	return 0;
 }
 
-static phy_status_t
-at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
+static int
+at86rf230_state(struct ieee802154_dev *dev, int state)
 {
 	struct at86rf230_local *lp = dev->priv;
 	int rc;
@@ -441,12 +441,6 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 
 	pr_debug("%s %d\n", __func__/*, priv->cur_state*/, state);
 	might_sleep();
-
-	if (state != PHY_TRX_OFF &&
-	    state != PHY_RX_ON &&
-	    state != PHY_TX_ON &&
-	    state != PHY_FORCE_TRX_OFF)
-		return PHY_INVAL;
 
 	do {
 		rc = at86rf230_read_subreg(lp, SR_TRX_STATUS, &val);
@@ -456,9 +450,7 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	} while (val == STATE_TRANSITION_IN_PROGRESS);
 
 	if (val == state)
-		goto out;
-
-	/* FIXME: handle all non-standard states here!!! */
+		return 0;
 
 	/* state is equal to phy states */
 	rc = at86rf230_write_subreg(lp, SR_TRX_CMD, state);
@@ -473,17 +465,28 @@ at86rf230_state(struct ieee802154_dev *dev, phy_status_t state)
 	} while (val == STATE_TRANSITION_IN_PROGRESS);
 
 	if (val == state)
-		val = PHY_SUCCESS;
+		return 0;
 
-out:
-	return val;
+	return -EBUSY;
 
 err:
 	pr_err("%s error: %d\n", __func__, rc);
-	return PHY_ERROR;
+	return rc;
 }
 
-static phy_status_t
+static int
+at86rf230_start(struct ieee802154_dev *dev)
+{
+	return at86rf230_state(dev, STATE_RX_ON);
+}
+
+static void
+at86rf230_stop(struct ieee802154_dev *dev)
+{
+	at86rf230_state(dev, STATE_FORCE_TRX_OFF);
+}
+
+static int
 at86rf230_channel(struct ieee802154_dev *dev, int channel)
 {
 	struct at86rf230_local *lp = dev->priv;
@@ -499,11 +502,11 @@ at86rf230_channel(struct ieee802154_dev *dev, int channel)
 	msleep(1); /* Wait for PLL */
 	dev->current_channel = channel;
 
-	return PHY_SUCCESS;
+	return 0;
 }
 
 static int
-at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
+at86rf230_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct at86rf230_local *lp = dev->priv;
 	int rc;
@@ -519,32 +522,40 @@ at86rf230_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	INIT_COMPLETION(lp->tx_complete);
 	spin_unlock_irqrestore(&lp->lock, flags);
 
-	rc = at86rf230_write_fbuf(lp, skb->data, skb->len);
+	rc = at86rf230_state(dev, STATE_FORCE_TX_ON);
 	if (rc)
 		goto err;
+
+	rc = at86rf230_write_fbuf(lp, skb->data, skb->len);
+	if (rc)
+		goto err_rx;
 
 	if (gpio_is_valid(lp->slp_tr)) {
 		gpio_set_value(lp->slp_tr, 1);
 	} else {
 		rc = at86rf230_write_subreg(lp, SR_TRX_CMD, STATE_BUSY_TX);
 		if (rc)
-			goto err;
+			goto err_rx;
 	}
-
-	rc = wait_for_completion_interruptible(&lp->tx_complete);
 
 	gpio_set_value(lp->slp_tr, 0);
 
+	rc = wait_for_completion_interruptible(&lp->tx_complete);
 	if (rc < 0)
-		goto err;
+		goto err_rx;
 
-	return PHY_SUCCESS;
+	rc = at86rf230_state(dev, STATE_RX_ON);
+
+	return rc;
+
+err_rx:
+	at86rf230_state(dev, STATE_RX_ON);
 err:
 	spin_lock_irqsave(&lp->lock, flags);
 	lp->is_tx = 0;
 	spin_unlock_irqrestore(&lp->lock, flags);
 
-	return PHY_ERROR;
+	return rc;
 }
 
 static int at86rf230_rx(struct at86rf230_local *lp)
@@ -580,43 +591,12 @@ static int at86rf230_rx(struct at86rf230_local *lp)
 
 static struct ieee802154_ops at86rf230_ops = {
 	.owner = THIS_MODULE,
-	.tx = at86rf230_tx,
+	.xmit = at86rf230_xmit,
 	.ed = at86rf230_ed,
-	.set_trx_state = at86rf230_state,
 	.set_channel = at86rf230_channel,
+	.start = at86rf230_start,
+	.stop = at86rf230_stop,
 };
-
-static int at86rf230_register(struct at86rf230_local *lp)
-{
-	int rc = -ENOMEM;
-
-	lp->dev = ieee802154_alloc_device();
-	if (!lp->dev)
-		goto err_alloc;
-
-	lp->dev->priv = lp;
-	lp->dev->parent = &lp->spi->dev;
-	lp->dev->extra_tx_headroom = 0;
-	lp->dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
-	lp->dev->flags = IEEE802154_FLAGS_OMIT_CKSUM;
-
-	rc = ieee802154_register_device(lp->dev, &at86rf230_ops);
-	if (rc)
-		goto err_register;
-
-	return 0;
-
-err_register:
-	ieee802154_free_device(lp->dev);
-err_alloc:
-	return rc;
-}
-
-static void at86rf230_unregister(struct at86rf230_local *lp)
-{
-	ieee802154_unregister_device(lp->dev);
-	ieee802154_free_device(lp->dev);
-}
 
 static void at86rf230_irqwork(struct work_struct *work)
 {
@@ -759,29 +739,38 @@ static int at86rf230_resume(struct spi_device *spi)
 
 static int __devinit at86rf230_probe(struct spi_device *spi)
 {
-	struct at86rf230_local *lp = kzalloc(sizeof *lp, GFP_KERNEL);
+	struct ieee802154_dev *dev;
+	struct at86rf230_local *lp;
 	u8 man_id_0, man_id_1;
 	int rc;
 	const char *chip;
 	int supported = 0;
 	struct at86rf230_platform_data *pdata = spi->dev.platform_data;
 
-	if (!lp)
-		return -ENOMEM;
-
 	if (!pdata) {
 		dev_err(&spi->dev, "no platform_data\n");
-		rc = -EINVAL;
-		goto err;
+		return -EINVAL;
 	}
 
 	if (!spi->irq) {
 		dev_err(&spi->dev, "no IRQ specified\n");
-		rc = -EINVAL;
-		goto err;
+		return -EINVAL;
 	}
 
+	dev = ieee802154_alloc_device(sizeof(*lp), &at86rf230_ops);
+	if (!dev)
+		return -ENOMEM;
+
+	lp = dev->priv;
+	lp->dev = dev;
+
 	lp->spi = spi;
+
+	dev->priv = lp;
+	dev->parent = &spi->dev;
+	dev->extra_tx_headroom = 0;
+	dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
+	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
 	lp->rstn = pdata->rstn;
 	lp->slp_tr = pdata->slp_tr;
@@ -874,13 +863,13 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 
 	dev_dbg(&spi->dev, "registered at86rf230\n");
 
-	rc = at86rf230_register(lp);
+	rc = ieee802154_register_device(lp->dev);
 	if (rc)
 		goto err_irq;
 
 	return rc;
 
-	at86rf230_unregister(lp);
+	ieee802154_unregister_device(lp->dev);
 err_irq:
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
@@ -890,10 +879,9 @@ err_gpio_dir:
 err_slp_tr:
 	gpio_free(lp->rstn);
 err_rstn:
-err:
 	spi_set_drvdata(spi, NULL);
 	mutex_destroy(&lp->bmux);
-	kfree(lp);
+	ieee802154_free_device(lp->dev);
 	return rc;
 }
 
@@ -901,7 +889,7 @@ static int __devexit at86rf230_remove(struct spi_device *spi)
 {
 	struct at86rf230_local *lp = spi_get_drvdata(spi);
 
-	at86rf230_unregister(lp);
+	ieee802154_unregister_device(lp->dev);
 
 	free_irq(spi->irq, lp);
 	flush_work(&lp->irqwork);
@@ -912,7 +900,7 @@ static int __devexit at86rf230_remove(struct spi_device *spi)
 
 	spi_set_drvdata(spi, NULL);
 	mutex_destroy(&lp->bmux);
-	kfree(lp);
+	ieee802154_free_device(lp->dev);
 
 	dev_dbg(&spi->dev, "unregistered at86rf230\n");
 	return 0;

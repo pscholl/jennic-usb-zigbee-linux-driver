@@ -24,11 +24,11 @@
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
 #include <linux/if_arp.h>
-#include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/mac802154.h>
-#include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/netdevice.h>
-#include <net/ieee802154/nl802154.h>
+#include <net/af_ieee802154.h>
+#include <net/mac802154.h>
+#include <net/ieee802154.h>
+#include <net/ieee802154_netdev.h>
+#include <net/nl802154.h>
 
 #include "mac802154.h"
 #include "beacon.h"
@@ -321,6 +321,8 @@ static int ieee802154_mlme_start_req(struct net_device *dev,
 		dev->priv_flags |= IFF_IEEE802154_COORD;
 	else
 		dev->priv_flags &= ~IFF_IEEE802154_COORD;
+
+	ieee802154_nl_start_confirm(dev, IEEE802154_SUCCESS);
 
 	return 0;
 }

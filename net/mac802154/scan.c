@@ -27,11 +27,11 @@
 #include <linux/sched.h>
 #include <linux/netdevice.h>
 
-#include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/mac802154.h>
-#include <net/ieee802154/nl802154.h>
-#include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/netdevice.h>
+#include <net/af_ieee802154.h>
+#include <net/mac802154.h>
+#include <net/nl802154.h>
+#include <net/ieee802154.h>
+#include <net/ieee802154_netdev.h>
 
 #include "mac802154.h"
 #include "beacon.h"
@@ -63,42 +63,17 @@ static int scan_ed(struct scan_work *work, int channel, u8 duration)
 	return ret;
 }
 
-struct scan_data {
-	struct notifier_block nb;
-	struct list_head scan_head;
-};
-
-static int beacon_notifier(struct notifier_block *p,
-		unsigned long event, void *data)
-{
-	struct ieee802154_pandsc *pd = data;
-	struct scan_data *sd = container_of(p, struct scan_data, nb);
-	switch (event) {
-	case IEEE802154_NOTIFIER_BEACON:
-		/* TODO: add item to list here */
-		pr_debug("got a beacon frame addr_type %d pan_id %d\n",
-				pd->addr.addr_type, pd->addr.pan_id);
-		break;
-	}
-	return 0;
-}
-
-
 static int scan_passive(struct scan_work *work, int channel, u8 duration)
 {
 	unsigned long j;
-	struct scan_data *data = kzalloc(sizeof(struct scan_data), GFP_KERNEL);
 	pr_debug("passive scan channel %d duration %d\n", channel, duration);
-	data->nb.notifier_call = beacon_notifier;
-	ieee802154_slave_register_notifier(work->dev, &data->nb);
+
 	/* Hope 2 msecs will be enough for scan */
 	j = msecs_to_jiffies(2);
 	while (j > 0)
 		j = schedule_timeout(j);
 
-	ieee802154_slave_unregister_notifier(work->dev, &data->nb);
-	kfree(data);
-	return PHY_SUCCESS;
+	return 0;
 }
 
 /* Active scan is periodic submission of beacon request
@@ -108,8 +83,8 @@ static int scan_active(struct scan_work *work, int channel, u8 duration)
 	int ret;
 	pr_debug("active scan channel %d duration %d\n", channel, duration);
 	ret = ieee802154_send_beacon_req(work->dev);
-	if (ret < 0)
-		return PHY_ERROR;
+	if (ret)
+		return ret;
 	return scan_passive(work, channel, duration);
 }
 
@@ -124,18 +99,18 @@ static void scanner(struct work_struct *work)
 	struct scan_work *sw = container_of(work, struct scan_work, work);
 	struct ieee802154_priv *hw = ieee802154_slave_get_priv(sw->dev);
 	int i;
-	phy_status_t ret;
+	int ret;
 
 	for (i = 0; i < 27; i++) {
 		if (!(sw->channels & (1 << i)))
 			continue;
 
 		ret = hw->ops->set_channel(&hw->hw,  i);
-		if (ret != PHY_SUCCESS)
+		if (ret)
 			goto exit_error;
 
 		ret = sw->scan_ch(sw, i, sw->duration);
-		if (ret != PHY_SUCCESS)
+		if (ret)
 			goto exit_error;
 
 		sw->channels &= ~(1 << i);

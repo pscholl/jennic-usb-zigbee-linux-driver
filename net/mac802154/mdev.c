@@ -21,8 +21,8 @@
 #include <linux/if_arp.h>
 #include <net/route.h>
 
-#include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/mac802154.h>
+#include <net/af_ieee802154.h>
+#include <net/mac802154.h>
 
 #include "mac802154.h"
 
@@ -35,30 +35,23 @@ struct xmit_work {
 static void ieee802154_xmit_worker(struct work_struct *work)
 {
 	struct xmit_work *xw = container_of(work, struct xmit_work, work);
-	phy_status_t res;
+	int res;
 
 	if (xw->priv->hw.current_channel != phy_cb(xw->skb)->chan) {
 		res = xw->priv->ops->set_channel(&xw->priv->hw,
 				phy_cb(xw->skb)->chan);
-		if (res != PHY_SUCCESS) {
+		if (res) {
 			pr_debug("set_channel failed\n");
 			goto out;
 		}
 	}
 
-	res = xw->priv->ops->set_trx_state(&xw->priv->hw, PHY_TX_ON);
-	if (res != PHY_SUCCESS && res != PHY_TX_ON) {
-		pr_debug("set_trx_state returned %d\n", res);
-		goto out;
-	}
-
-	res = xw->priv->ops->tx(&xw->priv->hw, xw->skb);
+	res = xw->priv->ops->xmit(&xw->priv->hw, xw->skb);
 
 out:
 	/* FIXME: result processing and/or requeue!!! */
 	dev_kfree_skb(xw->skb);
 
-	xw->priv->ops->set_trx_state(&xw->priv->hw, PHY_RX_ON);
 	kfree(xw);
 }
 
@@ -88,31 +81,40 @@ static int ieee802154_master_hard_start_xmit(struct sk_buff *skb,
 
 static int ieee802154_master_open(struct net_device *dev)
 {
-	struct ieee802154_priv *priv;
-	phy_status_t status;
-	priv = netdev_priv(dev);
+	int rc;
+	struct ieee802154_priv *priv = netdev_priv(dev);
+
 	if (!priv) {
 		pr_debug("%s:%s: unable to get master private data\n",
 				__FILE__, __func__);
 		return -ENODEV;
 	}
-	status = priv->ops->set_trx_state(&priv->hw, PHY_RX_ON);
-	if (status != PHY_SUCCESS) {
-		pr_debug("set_trx_state returned %d\n", status);
-		return -EBUSY;
-	}
 
-	netif_start_queue(dev);
-	return 0;
+	if (!priv->open_count)
+		return -EOPNOTSUPP;
+
+	rc = priv->ops->start(&priv->hw);
+
+	if (!rc)
+		netif_tx_start_all_queues(dev);
+
+	return rc;
 }
 
 static int ieee802154_master_close(struct net_device *dev)
 {
-	struct ieee802154_priv *priv;
-	netif_stop_queue(dev);
-	priv = netdev_priv(dev);
+	struct ieee802154_priv *priv = netdev_priv(dev);
+	struct ieee802154_sub_if_data *sdata;
 
-	priv->ops->set_trx_state(&priv->hw, PHY_FORCE_TRX_OFF);
+	ASSERT_RTNL();
+
+	/* We are under RTNL, so it's fine to do this */
+	list_for_each_entry(sdata, &priv->slaves, list)
+		if (netif_running(sdata->dev))
+			dev_close(sdata->dev);
+
+	priv->ops->stop(&priv->hw);
+
 	return 0;
 }
 
@@ -179,12 +181,15 @@ static void ieee802154_netdev_setup_master(struct net_device *dev)
 	dev->netdev_ops = &ieee802154_master_ops;
 }
 
-struct ieee802154_dev *ieee802154_alloc_device(void)
+struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
+		struct ieee802154_ops *ops)
 {
 	struct net_device *dev;
 	struct ieee802154_priv *priv;
 
-	dev = alloc_netdev(sizeof(struct ieee802154_priv),
+	dev = alloc_netdev(
+		((sizeof(struct ieee802154_priv) + NETDEV_ALIGN_CONST)
+			 & ~NETDEV_ALIGN_CONST) + priv_size,
 			"mwpan%d", ieee802154_netdev_setup_master);
 	if (!dev) {
 		printk(KERN_ERR
@@ -192,7 +197,24 @@ struct ieee802154_dev *ieee802154_alloc_device(void)
 		return NULL;
 	}
 	priv = netdev_priv(dev);
-	priv->hw.netdev = dev;
+	priv->netdev = dev;
+	priv->hw.priv = (char *)priv +
+		((sizeof(struct  ieee802154_priv) +
+		 NETDEV_ALIGN_CONST) & ~NETDEV_ALIGN_CONST);
+
+	BUG_ON(!dev);
+	BUG_ON(!ops);
+	BUG_ON(!ops->xmit);
+	BUG_ON(!ops->ed);
+	BUG_ON(!ops->start);
+	BUG_ON(!ops->stop);
+
+	if (!try_module_get(ops->owner)) {
+		free_netdev(dev);
+		return NULL;
+	}
+
+	priv->ops = ops;
 
 	INIT_LIST_HEAD(&priv->slaves);
 	mutex_init(&priv->slaves_mtx);
@@ -206,30 +228,20 @@ void ieee802154_free_device(struct ieee802154_dev *hw)
 	struct ieee802154_priv *priv = ieee802154_to_priv(hw);
 
 	BUG_ON(!list_empty(&priv->slaves));
-	BUG_ON(!priv->hw.netdev);
+	BUG_ON(!priv->netdev);
 
-	free_netdev(priv->hw.netdev);
+	module_put(priv->ops->owner);
+
+	free_netdev(priv->netdev);
 }
 EXPORT_SYMBOL(ieee802154_free_device);
 
-int ieee802154_register_device(struct ieee802154_dev *dev,
-		struct ieee802154_ops *ops)
+int ieee802154_register_device(struct ieee802154_dev *dev)
 {
 	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
-	struct net_device *ndev = priv->hw.netdev;
+	struct net_device *ndev = priv->netdev;
 
 	int rc;
-
-	if (!try_module_get(ops->owner))
-		return -EFAULT;
-
-	BUG_ON(!dev);
-	BUG_ON(!ops);
-	BUG_ON(!ops->tx);
-	BUG_ON(!ops->ed);
-	BUG_ON(!ops->set_trx_state);
-
-	priv->ops = ops;
 
 	rtnl_lock();
 	if (strchr(ndev->name, '%')) {
@@ -262,7 +274,6 @@ out_wq:
 	destroy_workqueue(priv->dev_workqueue);
 out_unlock:
 	rtnl_unlock();
-	module_put(ops->owner);
 	return rc;
 }
 EXPORT_SYMBOL(ieee802154_register_device);
@@ -277,11 +288,9 @@ void ieee802154_unregister_device(struct ieee802154_dev *dev)
 	rtnl_lock();
 
 	ieee802154_drop_slaves(dev);
-	unregister_netdevice(priv->hw.netdev);
+	unregister_netdevice(priv->netdev);
 
 	rtnl_unlock();
-
-	module_put(priv->ops->owner);
 }
 EXPORT_SYMBOL(ieee802154_unregister_device);
 

@@ -29,9 +29,9 @@
 #include <linux/kernel.h>
 #include <linux/completion.h>
 #include <linux/tty.h>
-#include <linux/netdevice.h>
 #include <linux/skbuff.h>
-#include <net/ieee802154/mac802154.h>
+#include <linux/sched.h>
+#include <net/mac802154.h>
 
 
 /* NOTE: be sure to use here the same values as in the firmware */
@@ -54,6 +54,8 @@
 #define STATUS_BUSY_TX	7
 #define STATUS_ERR	8
 
+#define STATUS_WAIT	-1 /* waiting for the answer */
+
 /* We re-use PPP ioctl for our purposes */
 #define	PPPIOCGUNIT	_IOR('t', 86, int)	/* get ppp unit number */
 
@@ -73,9 +75,7 @@ enum {
 	CMD_CCA			= 0x06, /* u8 id */
 	CMD_SET_STATE		= 0x07, /* u8 id, u8 flag */
 	DATA_XMIT_BLOCK		= 0x09, /* u8 id, u8 len, u8 data[len] */
-	DATA_XMIT_STREAM	= 0x0a, /* u8 id, u8 c */
 	RESP_RECV_BLOCK		= 0x0b, /* u8 id, u8 status */
-	RESP_RECV_STREAM	= 0x0c, /* u8 id, u8 status */
 
 	/* Firmware to Driver */
 	RESP_OPEN		= 0x81, /* u8 id, u8 status */
@@ -85,9 +85,7 @@ enum {
 	RESP_CCA		= 0x86, /* u8 id, u8 status */
 	RESP_SET_STATE		= 0x87, /* u8 id, u8 status */
 	RESP_XMIT_BLOCK		= 0x89, /* u8 id, u8 status */
-	RESP_XMIT_STREAM	= 0x8a, /* u8 id, u8 status */
 	DATA_RECV_BLOCK		= 0x8b, /* u8 id, u8 lq, u8 len, u8 data[len] */
-	DATA_RECV_STREAM	= 0x8c  /* u8 id, u8 c */
 };
 
 enum {
@@ -109,7 +107,7 @@ struct zb_device {
 
 	/* command completition */
 	wait_queue_head_t	wq;
-	phy_status_t		status;
+	u8			status;
 	u8			ed;
 
 	/* Internal state */
@@ -144,13 +142,14 @@ _send_pending_data(struct zb_device *zbdev)
 	if (!tty)
 		return -ENODEV;
 
-	zbdev->status = PHY_INVAL;
+	zbdev->status = STATUS_WAIT;
 
 	/* Debug info */
 	printk(KERN_INFO "%s, %d bytes\n", __func__,
 			zbdev->pending_size);
 #ifdef DEBUG
-	print_hex_dump_bytes("send_pending_data ", DUMP_PREFIX_NONE, zbdev->pending_data, zbdev->pending_size);
+	print_hex_dump_bytes("send_pending_data ", DUMP_PREFIX_NONE,
+			zbdev->pending_data, zbdev->pending_size);
 #endif
 
 	if (tty->driver->ops->write(tty, zbdev->pending_data,
@@ -308,9 +307,7 @@ is_command(unsigned char c)
 	case RESP_CCA:
 	case RESP_SET_STATE:
 	case RESP_XMIT_BLOCK:
-	case RESP_XMIT_STREAM:
 	case DATA_RECV_BLOCK:
-	case DATA_RECV_STREAM:
 		return 1;
 	}
 	return 0;
@@ -333,10 +330,7 @@ _match_pending_id(struct zb_device *zbdev)
 			RESP_SET_STATE == zbdev->id) ||
 		(DATA_XMIT_BLOCK == zbdev->pending_id &&
 			RESP_XMIT_BLOCK == zbdev->id) ||
-		(DATA_XMIT_STREAM == zbdev->pending_id &&
-			RESP_XMIT_STREAM == zbdev->id) ||
-		DATA_RECV_BLOCK == zbdev->id ||
-		DATA_RECV_STREAM == zbdev->id);
+		DATA_RECV_BLOCK == zbdev->id);
 }
 
 static void serial_net_rx(struct zb_device *zbdev)
@@ -378,39 +372,13 @@ process_command(struct zb_device *zbdev)
 	kfree(zbdev->pending_data);
 	zbdev->pending_data = NULL;
 	zbdev->pending_size = 0;
-	if (zbdev->id != DATA_RECV_BLOCK)
-		switch (zbdev->param1) {
-		case STATUS_SUCCESS:
-			zbdev->status = PHY_SUCCESS;
-			break;
-		case STATUS_RX_ON:
-			zbdev->status = PHY_RX_ON;
-			break;
-		case STATUS_TX_ON:
-			zbdev->status = PHY_TX_ON;
-			break;
-		case STATUS_TRX_OFF:
-			zbdev->status = PHY_TRX_OFF;
-			break;
-		case STATUS_BUSY:
-			zbdev->status = PHY_BUSY;
-			break;
-		case STATUS_IDLE:
-			zbdev->status = PHY_IDLE;
-			break;
-		case STATUS_BUSY_RX:
-			zbdev->status = PHY_BUSY_RX;
-			break;
-		case STATUS_BUSY_TX:
-			zbdev->status = PHY_BUSY_TX;
-			break;
-		default:
-			printk(KERN_ERR
-				"%s: bad status received from firmware: %u\n",
-				__func__, zbdev->param1);
-			zbdev->status = PHY_ERROR;
-			break;
-		}
+	if (zbdev->id != DATA_RECV_BLOCK) {
+		/* XXX: w/around for old FW, REMOVE */
+		if (zbdev->param1 == STATUS_IDLE)
+			zbdev->status = STATUS_SUCCESS;
+		else
+			zbdev->status = zbdev->param1;
+	}
 
 	switch (zbdev->id) {
 	case RESP_ED:
@@ -421,9 +389,6 @@ process_command(struct zb_device *zbdev)
 				zbdev->param1, zbdev->param2);
 		/* zbdev->param1 is LQ, zbdev->param2 is length */
 		serial_net_rx(zbdev);
-		break;
-	case DATA_RECV_STREAM:
-		/* TODO: update firmware to use this */
 		break;
 	}
 
@@ -567,22 +532,22 @@ static int _open_dev(struct zb_device *zbdev)
 }
 
 /* Valid channels: 1-16 */
-static phy_status_t
+static int
 ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 {
 	struct zb_device *zbdev;
-	phy_status_t ret;
+	int ret = 0;
 
 	pr_debug("%s %d\n", __func__, channel);
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __func__);
-		return PHY_INVAL;
+		return -EINVAL;
 	}
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
+		return -EINTR;
 	/* Our channels are actually from 11 to 26
 	 * We have IEEE802.15.4 channel no from 0 to 26.
 	 * channels 0-10 are not valid for us */
@@ -592,20 +557,19 @@ ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 	 * but additional checking here won't kill, and gcc will
 	 * optimize this stuff anyway. */
 	BUG_ON((channel - 10) < 1 && (channel - 10) > 16);
-
-	if (send_cmd2(zbdev, CMD_SET_CHANNEL, channel - 10) != 0) {
-		ret = PHY_ERROR;
+	ret = send_cmd2(zbdev, CMD_SET_CHANNEL, channel - 10);
+	if (ret)
 		goto out;
-	}
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != STATUS_SUCCESS)
+			ret = -EBUSY;
+	} else
+		ret = -EINTR;
 
-	if (ret == PHY_SUCCESS)
+	if (!ret)
 		zbdev->dev->current_channel = channel;
 out:
 	mutex_unlock(&zbdev->mutex);
@@ -613,35 +577,35 @@ out:
 	return ret;
 }
 
-static phy_status_t
+static int
 ieee802154_serial_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	struct zb_device *zbdev;
-	phy_status_t ret;
+	int ret = 0;
 
 	pr_debug("%s\n", __func__);
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __func__);
-		return PHY_INVAL;
+		return -EINVAL;
 	}
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
+		return -EINTR;
 
-	if (send_cmd(zbdev, CMD_ED) != 0) {
-		ret = PHY_ERROR;
+	ret = send_cmd(zbdev, CMD_ED);
+	if (ret)
 		goto out;
-	}
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
+				zbdev->status != STATUS_WAIT,
 				msecs_to_jiffies(1000)) > 0) {
 		*level = zbdev->ed;
-		ret = zbdev->status;
+		if (zbdev->status != STATUS_SUCCESS)
+			ret = -EBUSY;
 	} else
-		ret = PHY_ERROR;
+		ret = -ETIMEDOUT;
 out:
 
 	mutex_unlock(&zbdev->mutex);
@@ -649,102 +613,148 @@ out:
 	return ret;
 }
 
-static phy_status_t
-ieee802154_serial_set_state(struct ieee802154_dev *dev, phy_status_t state)
+static int
+ieee802154_serial_start(struct ieee802154_dev *dev)
 {
 	struct zb_device *zbdev;
-	unsigned char flag;
-	phy_status_t ret;
+	int ret = 0;
 
-	pr_debug("%s %d\n", __func__, state);
+	pr_debug("%s\n", __func__);
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __func__);
-		return PHY_INVAL;
+		return -EINVAL;
 	}
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
+		return -EINTR;
 
-	switch (state) {
-	case PHY_RX_ON:
-		flag = RX_MODE;
-		break;
-	case PHY_TX_ON:
-		flag = TX_MODE;
-		break;
-	case PHY_TRX_OFF:
-		flag = IDLE_MODE;
-		break;
-	case PHY_FORCE_TRX_OFF:
-		flag = FORCE_TRX_OFF;
-		break;
-	default:
-		ret = PHY_INVAL;
+	ret = send_cmd2(zbdev, CMD_SET_STATE, RX_MODE);
+	if (ret)
 		goto out;
-	}
-
-	if (send_cmd2(zbdev, CMD_SET_STATE, flag) != 0) {
-		ret = PHY_ERROR;
-		goto out;
-	}
 
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != STATUS_SUCCESS)
+			ret = -EBUSY;
+	} else
+		ret = -ETIMEDOUT;
 out:
 	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n", __func__);
 	return ret;
 }
 
-static phy_status_t
+static void
+ieee802154_serial_stop(struct ieee802154_dev *dev)
+{
+	struct zb_device *zbdev;
+	pr_debug("%s\n", __func__);
+
+	zbdev = dev->priv;
+	if (NULL == zbdev) {
+		printk(KERN_ERR "%s: wrong phy\n", __func__);
+		return;
+	}
+
+	if (mutex_lock_interruptible(&zbdev->mutex))
+		return;
+
+
+	if (send_cmd2(zbdev, CMD_SET_STATE, FORCE_TRX_OFF) != 0)
+		goto out;
+
+	wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000));
+out:
+	mutex_unlock(&zbdev->mutex);
+	pr_debug("%s end\n", __func__);
+}
+
+static int
 ieee802154_serial_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct zb_device *zbdev;
-	phy_status_t ret;
+	int ret;
 
 	pr_debug("%s\n", __func__);
 
 	zbdev = dev->priv;
 	if (NULL == zbdev) {
 		printk(KERN_ERR "%s: wrong phy\n", __func__);
-		return PHY_INVAL;
+		return -EINVAL;
 	}
 
 	if (mutex_lock_interruptible(&zbdev->mutex))
-		return PHY_ERROR;
+		return -EINTR;
 
-	if (send_cmd(zbdev, CMD_CCA) != 0) {
-		ret = PHY_ERROR;
+	ret = send_cmd(zbdev, CMD_CCA);
+	if (ret)
+		goto out;
+
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != STATUS_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
 		goto out;
 	}
 
-	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
-
-	if (ret != PHY_SUCCESS)
+	ret = send_cmd2(zbdev, CMD_SET_STATE, TX_MODE);
+	if (ret)
 		goto out;
 
-	if (send_block(zbdev, skb->len, skb->data) != 0) {
-		ret = PHY_ERROR;
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != STATUS_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
 		goto out;
 	}
 
+	ret = send_block(zbdev, skb->len, skb->data);
+	if (ret)
+		goto out;
+
 	if (wait_event_interruptible_timeout(zbdev->wq,
-				zbdev->status != PHY_INVAL,
-				msecs_to_jiffies(1000)) > 0)
-		ret = zbdev->status;
-	else
-		ret = PHY_ERROR;
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != STATUS_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
+	ret = send_cmd2(zbdev, CMD_SET_STATE, RX_MODE);
+	if (ret)
+		goto out;
+
+	if (wait_event_interruptible_timeout(zbdev->wq,
+				zbdev->status != STATUS_WAIT,
+				msecs_to_jiffies(1000)) > 0) {
+		if (zbdev->status != STATUS_SUCCESS) {
+			ret = -EBUSY;
+			goto out;
+		}
+	} else {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
 out:
 
 	mutex_unlock(&zbdev->mutex);
@@ -758,10 +768,11 @@ out:
 
 static struct ieee802154_ops serial_ops = {
 	.owner = THIS_MODULE,
-	.tx = ieee802154_serial_xmit,
-	.ed = ieee802154_serial_ed,
-	.set_trx_state = ieee802154_serial_set_state,
+	.xmit		= ieee802154_serial_xmit,
+	.ed		= ieee802154_serial_ed,
 	.set_channel	= ieee802154_serial_set_channel,
+	.start		= ieee802154_serial_start,
+	.stop		= ieee802154_serial_stop,
 };
 
 /*
@@ -772,41 +783,35 @@ static int
 ieee802154_tty_open(struct tty_struct *tty)
 {
 	struct zb_device *zbdev = tty->disc_data;
+	struct ieee802154_dev *dev;
 	int err;
 
 	pr_debug("Openning ldisc\n");
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
 
-	if (zbdev)
+	if (tty->disc_data)
 		return -EBUSY;
 
-	/* Allocate device structure */
-	zbdev = kzalloc(sizeof(struct zb_device), GFP_KERNEL);
-	if (NULL == zbdev) {
-		printk(KERN_ERR "%s: can't allocate zb_device structure.\n",
-				__func__);
+	dev = ieee802154_alloc_device(sizeof(*zbdev), &serial_ops);
+	if (!dev)
 		return -ENOMEM;
-	}
+
+	zbdev = dev->priv;
+	zbdev->dev = dev;
+
 	mutex_init(&zbdev->mutex);
 	init_completion(&zbdev->open_done);
 	init_waitqueue_head(&zbdev->wq);
 
-	zbdev->dev = ieee802154_alloc_device();
-	if (!zbdev->dev) {
-		err = -ENOMEM;
-		goto out_free_zb;
-	}
-
-	zbdev->dev->priv		= zbdev;
-	zbdev->dev->extra_tx_headroom	= 0;
+	dev->extra_tx_headroom = 0;
 	/* only 2.4 GHz band */
-	zbdev->dev->channel_mask	= 0x7ff;
+	dev->channel_mask = 0x7ff;
 	/* it's 1st channel of 2.4 Ghz space */
-	zbdev->dev->current_channel	= 11;
-	zbdev->dev->flags		= IEEE802154_FLAGS_OMIT_CKSUM;
+	dev->current_channel = 11;
+	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
-	zbdev->dev->parent = tty_get_device(tty);
+	dev->parent = tty_get_device(tty);
 
 	zbdev->tty = tty_kref_get(tty);
 	cleanup(zbdev);
@@ -821,7 +826,7 @@ ieee802154_tty_open(struct tty_struct *tty)
 		tty->ldisc.ops->flush_buffer(tty);
 	tty_driver_flush_buffer(tty);
 
-	err = ieee802154_register_device(zbdev->dev, &serial_ops);
+	err = ieee802154_register_device(dev);
 	/* we put it only after it has a chance to be get by network core */
 	if (zbdev->dev->parent)
 		put_device(zbdev->dev->parent);
@@ -840,8 +845,6 @@ out_free:
 	zbdev->tty = NULL;
 
 	ieee802154_free_device(zbdev->dev);
-out_free_zb:
-	kfree(zbdev);
 
 	return err;
 }
@@ -874,7 +877,6 @@ ieee802154_tty_close(struct tty_struct *tty)
 	tty_driver_flush_buffer(tty);
 
 	ieee802154_free_device(zbdev->dev);
-	kfree(zbdev);
 }
 
 /*
@@ -896,7 +898,6 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file,
 		unsigned int cmd, unsigned long arg)
 {
 	struct zb_device *zbdev;
-	void __user *argp = (void __user *) arg;
 
 	pr_debug("cmd = 0x%x\n", cmd);
 
@@ -907,13 +908,6 @@ ieee802154_tty_ioctl(struct tty_struct *tty, struct file *file,
 	}
 
 	switch (cmd) {
-	case PPPIOCGUNIT:
-		/* TODO: some error checking */
-		BUG_ON(!zbdev->dev->netdev);
-		if (copy_to_user(argp, zbdev->dev->netdev->name,
-					strlen(zbdev->dev->netdev->name)))
-			return -EFAULT;
-		return 0;
 	case TCFLSH:
 		return tty_perform_flush(tty, arg);
 	default:
@@ -938,7 +932,8 @@ ieee802154_tty_receive(struct tty_struct *tty, const unsigned char *buf,
 	printk(KERN_INFO "%s, received %d bytes\n", __func__,
 			count);
 #ifdef DEBUG
-	print_hex_dump_bytes("ieee802154_tty_receive ", DUMP_PREFIX_NONE, buf, count);
+	print_hex_dump_bytes("ieee802154_tty_receive ", DUMP_PREFIX_NONE,
+			buf, count);
 #endif
 
 	/* Actual processing */

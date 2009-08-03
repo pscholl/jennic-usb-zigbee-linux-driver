@@ -25,6 +25,9 @@
 struct ieee802154_priv {
 	struct ieee802154_dev	hw;
 	struct ieee802154_ops	*ops;
+
+	struct net_device *netdev; /* mwpanX device */
+	int open_count;
 	/* As in mac80211 slaves list is modified:
 	 * 1) under the RTNL
 	 * 2) protected by slaves_mtx;
@@ -40,6 +43,23 @@ struct ieee802154_priv {
 };
 
 #define ieee802154_to_priv(_hw)	container_of(_hw, struct ieee802154_priv, hw)
+
+struct ieee802154_sub_if_data {
+	struct list_head list; /* the ieee802154_priv->slaves list */
+
+	struct ieee802154_priv *hw;
+	struct net_device *dev;
+
+	u16 pan_id;
+	u16 short_addr;
+
+	u8 chan;
+
+	/* MAC BSN field */
+	u8 bsn;
+	/* MAC BSN field */
+	u8 dsn;
+};
 
 void ieee802154_drop_slaves(struct ieee802154_dev *hw);
 
@@ -65,15 +85,5 @@ int ieee802154_process_cmd(struct net_device *dev, struct sk_buff *skb);
 int ieee802154_send_beacon_req(struct net_device *dev);
 
 struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev);
-
-/* FIXME: this interface should be rethought ! */
-struct notifier_block;
-int ieee802154_slave_register_notifier(struct net_device *dev,
-		struct notifier_block *nb);
-int ieee802154_slave_unregister_notifier(struct net_device *dev,
-		struct notifier_block *nb);
-int ieee802154_slave_event(struct net_device *dev,
-		int event, void *data);
-#define IEEE802154_NOTIFIER_BEACON		0x0
 
 #endif

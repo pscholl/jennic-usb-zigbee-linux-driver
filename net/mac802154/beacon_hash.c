@@ -25,7 +25,7 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 
-#include <net/ieee802154/af_ieee802154.h>
+#include <net/af_ieee802154.h>
 
 #include "beacon_hash.h"
 

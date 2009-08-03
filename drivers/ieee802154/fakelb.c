@@ -27,14 +27,15 @@
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 struct fake_dev_priv {
 	struct ieee802154_dev *dev;
-	phy_status_t cur_state, pend_state;
 
 	struct list_head list;
 	struct fake_priv *fake;
+
+	unsigned int working:1;
 };
 
 struct fake_priv {
@@ -42,63 +43,23 @@ struct fake_priv {
 	rwlock_t lock;
 };
 
-static int is_transmitting(struct ieee802154_dev *dev)
-{
-	return 0;
-}
-
-static int is_receiving(struct ieee802154_dev *dev)
-{
-	return 0;
-}
-
-static phy_status_t
+static int
 hw_ed(struct ieee802154_dev *dev, u8 *level)
 {
 	pr_debug("%s\n", __func__);
 	might_sleep();
 	BUG_ON(!level);
 	*level = 0xbe;
-	return PHY_SUCCESS;
+	return 0;
 }
 
-static phy_status_t
-hw_state(struct ieee802154_dev *dev, phy_status_t state)
-{
-	struct fake_dev_priv *priv = dev->priv;
-	pr_debug("%s %d %d\n", __func__, priv->cur_state, state);
-	might_sleep();
-	if (state != PHY_TRX_OFF &&
-	    state != PHY_RX_ON &&
-	    state != PHY_TX_ON &&
-	    state != PHY_FORCE_TRX_OFF)
-		return PHY_INVAL;
-	else if (state == PHY_FORCE_TRX_OFF) {
-		priv->cur_state = PHY_TRX_OFF;
-		return PHY_SUCCESS;
-	} else if (priv->cur_state == state)
-		return state;
-	else if ((state == PHY_TRX_OFF || state == PHY_RX_ON) &&
-			is_transmitting(dev)) {
-		priv->pend_state = state;
-		return PHY_BUSY_TX;
-	} else if ((state == PHY_TRX_OFF || state == PHY_TX_ON) &&
-			is_receiving(dev)) {
-		priv->pend_state = state;
-		return PHY_BUSY_RX;
-	} else {
-		priv->cur_state = state;
-		return PHY_SUCCESS;
-	}
-}
-
-static phy_status_t
+static int
 hw_channel(struct ieee802154_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
 	dev->current_channel = channel;
-	return PHY_SUCCESS;
+	return 0;
 }
 
 static void
@@ -106,13 +67,16 @@ hw_deliver(struct fake_dev_priv *priv, struct sk_buff *skb)
 {
 	struct sk_buff *newskb;
 
+	if (!priv->working)
+		return;
+
 	newskb = pskb_copy(skb, GFP_ATOMIC);
 
 	ieee802154_rx_irqsafe(priv->dev, newskb, 0xcc);
 }
 
 static int
-hw_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
+hw_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 {
 	struct fake_dev_priv *priv = dev->priv;
 	struct fake_priv *fake = priv->fake;
@@ -127,41 +91,62 @@ hw_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 		struct fake_dev_priv *dp;
 		list_for_each_entry(dp, &priv->fake->list, list)
 			if (dp != priv &&
-			    dp->dev->current_channel == priv->dev->current_channel)
+			    dp->dev->current_channel ==
+					priv->dev->current_channel)
 				hw_deliver(dp, skb);
 	}
 	read_unlock_bh(&fake->lock);
 
-	return PHY_SUCCESS;
+	return 0;
+}
+
+static int
+hw_start(struct ieee802154_dev *dev) {
+	struct fake_dev_priv *priv = dev->priv;
+
+	if (priv->working)
+		return -EBUSY;
+
+	priv->working = 1;
+
+	return 0;
+}
+
+static void
+hw_stop(struct ieee802154_dev *dev) {
+	struct fake_dev_priv *priv = dev->priv;
+
+	priv->working = 0;
 }
 
 static struct ieee802154_ops fake_ops = {
 	.owner = THIS_MODULE,
-	.tx = hw_tx,
+	.xmit = hw_xmit,
 	.ed = hw_ed,
-	.set_trx_state = hw_state,
 	.set_channel = hw_channel,
+	.start = hw_start,
+	.stop = hw_stop,
 };
 
 static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 {
 	struct fake_dev_priv *priv;
 	int err = -ENOMEM;
+	struct ieee802154_dev *ieee;
 
-	priv = kzalloc(sizeof(struct fake_dev_priv), GFP_KERNEL);
-	if (!priv)
-		goto err_alloc;
+	ieee = ieee802154_alloc_device(sizeof(*priv), &fake_ops);
+	if (!dev)
+		goto err_alloc_dev;
+
+	priv = ieee->priv;
+	priv->dev = ieee;
 
 	INIT_LIST_HEAD(&priv->list);
-
-	priv->dev = ieee802154_alloc_device();
-	if (!priv->dev)
-		goto err_alloc_dev;
-	priv->dev->priv = priv;
-	priv->dev->parent = dev;
 	priv->fake = fake;
 
-	err = ieee802154_register_device(priv->dev, &fake_ops);
+	ieee->parent = dev;
+
+	err = ieee802154_register_device(ieee);
 	if (err)
 		goto err_reg;
 
@@ -174,8 +159,6 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 err_reg:
 	ieee802154_free_device(priv->dev);
 err_alloc_dev:
-	kfree(priv);
-err_alloc:
 	return err;
 }
 
@@ -187,7 +170,6 @@ static void ieee802154fake_del_priv(struct fake_dev_priv *priv)
 
 	ieee802154_unregister_device(priv->dev);
 	ieee802154_free_device(priv->dev);
-	kfree(priv);
 }
 
 static ssize_t

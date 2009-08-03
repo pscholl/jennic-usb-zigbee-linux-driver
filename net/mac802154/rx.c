@@ -25,7 +25,7 @@
 #include <linux/workqueue.h>
 #include <linux/netdevice.h>
 
-#include <net/ieee802154/mac802154.h>
+#include <net/mac802154.h>
 
 #include "mac802154.h"
 
@@ -38,7 +38,7 @@ static void __ieee802154_rx_prepare(struct ieee802154_dev *dev,
 
 	phy_cb(skb)->lqi = lqi;
 
-	skb->dev = priv->hw.netdev;
+	skb->dev = priv->netdev;
 
 	skb->iif = skb->dev->ifindex;
 

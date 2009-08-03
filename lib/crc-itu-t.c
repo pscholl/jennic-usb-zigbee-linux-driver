@@ -64,23 +64,6 @@ u16 crc_itu_t(u16 crc, const u8 *buffer, size_t len)
 }
 EXPORT_SYMBOL(crc_itu_t);
 
-/**
- * crc_itu_t_bitreversed - Compute the CRC-ITU-T for the bit-reversed data buffer;
- *
- * @crc:     previous CRC value
- * @buffer:  data pointer
- * @len:     number of bytes in the buffer
- *
- * Returns the updated CRC value
- */
-u16 crc_itu_t_bitreversed(u16 crc, const u8 *buffer, size_t len)
-{
-	while (len--)
-		crc = crc_itu_t_bitreversed_byte(crc, *buffer++);
-	return crc;
-}
-EXPORT_SYMBOL(crc_itu_t_bitreversed);
-
 MODULE_DESCRIPTION("CRC ITU-T V.41 calculations");
 MODULE_LICENSE("GPL");
 

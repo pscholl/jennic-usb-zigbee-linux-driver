@@ -29,9 +29,10 @@
 #include <net/genetlink.h>
 #include <net/sock.h>
 #include <linux/nl802154.h>
-#include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/nl802154.h>
-#include <net/ieee802154/netdevice.h>
+#include <net/af_ieee802154.h>
+#include <net/nl802154.h>
+#include <net/ieee802154.h>
+#include <net/ieee802154_netdev.h>
 
 static unsigned int ieee802154_seq_num;
 
@@ -75,7 +76,7 @@ static int ieee802154_nl_finish(struct sk_buff *msg)
 	/* XXX: nlh is right at the start of msg */
 	void *hdr = genlmsg_data(NLMSG_DATA(msg->data));
 
-	if (!genlmsg_end(msg, hdr))
+	if (genlmsg_end(msg, hdr) < 0)
 		goto out;
 
 	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id,
@@ -262,6 +263,60 @@ nla_put_failure:
 }
 EXPORT_SYMBOL(ieee802154_nl_scan_confirm);
 
+int ieee802154_nl_start_confirm(struct net_device *dev, u8 status)
+{
+	struct sk_buff *msg;
+
+	pr_debug("%s\n", __func__);
+
+	msg = ieee802154_nl_create(0, IEEE802154_START_CONF);
+	if (!msg)
+		return -ENOBUFS;
+
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN,
+			dev->dev_addr);
+
+	NLA_PUT_U8(msg, IEEE802154_ATTR_STATUS, status);
+
+	return ieee802154_nl_finish(msg);
+
+nla_put_failure:
+	nlmsg_free(msg);
+	return -ENOBUFS;
+}
+EXPORT_SYMBOL(ieee802154_nl_start_confirm);
+
+static int ieee802154_nl_fill_iface(struct sk_buff *msg, u32 pid,
+	u32 seq, int flags, struct net_device *dev)
+{
+	void *hdr;
+
+	pr_debug("%s\n", __func__);
+
+	hdr = genlmsg_put(msg, 0, seq, &ieee802154_coordinator_family, flags,
+		IEEE802154_LIST_IFACE);
+	if (!hdr)
+		goto out;
+
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
+	NLA_PUT_U32(msg, IEEE802154_ATTR_DEV_INDEX, dev->ifindex);
+
+	NLA_PUT(msg, IEEE802154_ATTR_HW_ADDR, IEEE802154_ADDR_LEN,
+		dev->dev_addr);
+	NLA_PUT_U16(msg, IEEE802154_ATTR_SHORT_ADDR,
+		ieee802154_mlme_ops(dev)->get_short_addr(dev));
+	NLA_PUT_U16(msg, IEEE802154_ATTR_PAN_ID,
+		ieee802154_mlme_ops(dev)->get_pan_id(dev));
+	return genlmsg_end(msg, hdr);
+
+nla_put_failure:
+	genlmsg_cancel(msg, hdr);
+out:
+	return -EMSGSIZE;
+}
+
 /* Requests from userspace */
 static struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
 {
@@ -274,7 +329,7 @@ static struct net_device *ieee802154_nl_get_dev(struct genl_info *info)
 		dev = dev_get_by_name(&init_net, name);
 	} else if (info->attrs[IEEE802154_ATTR_DEV_INDEX])
 		dev = dev_get_by_index(&init_net,
-				nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
+			nla_get_u32(info->attrs[IEEE802154_ATTR_DEV_INDEX]));
 	else
 		return NULL;
 
@@ -433,6 +488,12 @@ static int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 	blx = nla_get_u8(info->attrs[IEEE802154_ATTR_BAT_EXT]);
 	coord_realign = nla_get_u8(info->attrs[IEEE802154_ATTR_COORD_REALIGN]);
 
+	if (addr.short_addr == IEEE802154_ADDR_BROADCAST) {
+		ieee802154_nl_start_confirm(dev, IEEE802154_NO_SHORT_ADDRESS);
+		dev_put(dev);
+		return -EINVAL;
+	}
+
 	ret = ieee802154_mlme_ops(dev)->start_req(dev, &addr, channel,
 		bcn_ord, sf_ord, pan_coord, blx, coord_realign);
 
@@ -468,34 +529,66 @@ static int ieee802154_scan_req(struct sk_buff *skb, struct genl_info *info)
 	return ret;
 }
 
-void nl802154_unregister_ops(struct genl_ops *ops, int size)
+static int ieee802154_list_iface(struct sk_buff *skb,
+	struct genl_info *info)
 {
-	int i;
+	/* Request for interface name, index, type, IEEE address,
+	   PAN Id, short address */
+	struct sk_buff *msg;
+	struct net_device *dev = NULL;
+	int rc = -ENOBUFS;
 
-	for (i = 0; i < size; i++)
-		genl_register_ops(&ieee802154_coordinator_family, &ops[i]);
-}
-EXPORT_SYMBOL(nl802154_unregister_ops);
+	pr_debug("%s\n", __func__);
 
-int nl802154_register_ops(struct genl_ops *ops, int size)
-{
-	int i;
-	int rc;
+	dev = ieee802154_nl_get_dev(info);
+	if (!dev)
+		return -ENODEV;
 
-	for (i = 0; i < size; i++) {
-		rc = genl_register_ops(&ieee802154_coordinator_family, &ops[i]);
-		if (rc)
-			goto fail;
-	}
+	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	if (!msg)
+		goto out_dev;
 
-	return 0;
+	rc = ieee802154_nl_fill_iface(msg, info->snd_pid, info->snd_seq,
+			0, dev);
+	if (rc < 0)
+		goto out_free;
 
-fail:
-	nl802154_unregister_ops(ops, i);
+	dev_put(dev);
 
+	return genlmsg_unicast(msg, info->snd_pid);
+out_free:
+	nlmsg_free(msg);
+out_dev:
+	dev_put(dev);
 	return rc;
+
 }
-EXPORT_SYMBOL(nl802154_register_ops);
+
+static int ieee802154_dump_iface(struct sk_buff *skb,
+	struct netlink_callback *cb)
+{
+	struct net *net = sock_net(skb->sk);
+	struct net_device *dev;
+	int idx;
+	int s_idx = cb->args[0];
+
+	pr_debug("%s\n", __func__);
+
+	idx = 0;
+	for_each_netdev(net, dev) {
+		if (idx < s_idx || (dev->type != ARPHRD_IEEE802154))
+			goto cont;
+
+		if (ieee802154_nl_fill_iface(skb, NETLINK_CB(cb->skb).pid,
+			cb->nlh->nlmsg_seq, NLM_F_MULTI, dev) < 0)
+			break;
+cont:
+		idx++;
+	}
+	cb->args[0] = idx;
+
+	return skb->len;
+}
 
 #define IEEE802154_OP(_cmd, _func)			\
 	{						\
@@ -520,11 +613,14 @@ static struct genl_ops ieee802154_coordinator_ops[] = {
 	IEEE802154_OP(IEEE802154_DISASSOCIATE_REQ, ieee802154_disassociate_req),
 	IEEE802154_OP(IEEE802154_SCAN_REQ, ieee802154_scan_req),
 	IEEE802154_OP(IEEE802154_START_REQ, ieee802154_start_req),
+	IEEE802154_DUMP(IEEE802154_LIST_IFACE, ieee802154_list_iface,
+							ieee802154_dump_iface),
 };
 
 static int __init ieee802154_nl_init(void)
 {
 	int rc;
+	int i;
 
 	rc = genl_register_family(&ieee802154_coordinator_family);
 	if (rc)
@@ -541,10 +637,12 @@ static int __init ieee802154_nl_init(void)
 		goto fail;
 
 
-	rc = nl802154_register_ops(ieee802154_coordinator_ops,
-			ARRAY_SIZE(ieee802154_coordinator_ops));
-	if (rc)
-		goto fail;
+	for (i = 0; i < ARRAY_SIZE(ieee802154_coordinator_ops); i++) {
+		rc = genl_register_ops(&ieee802154_coordinator_family,
+				&ieee802154_coordinator_ops[i]);
+		if (rc)
+			goto fail;
+	}
 
 	return 0;
 
@@ -556,12 +654,6 @@ module_init(ieee802154_nl_init);
 
 static void __exit ieee802154_nl_exit(void)
 {
-	/*
-	 * This unregister is strictly not necessary here, as all 
-	 * ops and mc groups will be unregistered by family unregister
-	 */
-	nl802154_unregister_ops(ieee802154_coordinator_ops,
-			ARRAY_SIZE(ieee802154_coordinator_ops));
 	genl_unregister_family(&ieee802154_coordinator_family);
 }
 module_exit(ieee802154_nl_exit);
