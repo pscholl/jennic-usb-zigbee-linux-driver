@@ -35,7 +35,7 @@ struct fake_dev_priv {
 	struct list_head list;
 	struct fake_priv *fake;
 
-	unsigned int working : 1;
+	unsigned int working:1;
 };
 
 struct fake_priv {
@@ -91,7 +91,8 @@ hw_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 		struct fake_dev_priv *dp;
 		list_for_each_entry(dp, &priv->fake->list, list)
 			if (dp != priv &&
-			    dp->dev->current_channel == priv->dev->current_channel)
+			    dp->dev->current_channel ==
+					priv->dev->current_channel)
 				hw_deliver(dp, skb);
 	}
 	read_unlock_bh(&fake->lock);
