@@ -558,10 +558,6 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 		else if (!memcmp(mac_cb(skb)->da.hwaddr, sdata->dev->dev_addr,
 					IEEE802154_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
-		else if (!memcmp(mac_cb(skb)->da.hwaddr, sdata->dev->broadcast,
-					IEEE802154_ADDR_LEN))
-			/* FIXME: is this correct? */
-			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
 		break;
