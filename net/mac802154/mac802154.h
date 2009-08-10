@@ -22,6 +22,7 @@
 #ifndef MAC802154_H
 #define MAC802154_H
 
+#include <linux/spinlock.h>
 struct ieee802154_priv {
 	struct ieee802154_dev	hw;
 	struct ieee802154_ops	*ops;
@@ -49,6 +50,8 @@ struct ieee802154_sub_if_data {
 
 	struct ieee802154_priv *hw;
 	struct net_device *dev;
+
+	rwlock_t mib_lock;
 
 	u16 pan_id;
 	u16 short_addr;
