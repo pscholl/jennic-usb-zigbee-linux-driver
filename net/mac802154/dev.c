@@ -146,6 +146,13 @@ static int ieee802154_slave_mac_addr(struct net_device *dev, void *p)
 	return 0;
 }
 
+static void ieee802154_haddr_copy_swap(u8 *dest, const u8 *src)
+{
+	int i;
+	for (i = 0; i < IEEE802154_ADDR_LEN; i++)
+		dest[IEEE802154_ADDR_LEN - i - 1] = src[i];
+}
+
 static int ieee802154_header_create(struct sk_buff *skb,
 			   struct net_device *dev,
 			   unsigned short type, const void *_daddr,
@@ -197,7 +204,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 			head[pos++] = daddr->short_addr & 0xff;
 			head[pos++] = daddr->short_addr >> 8;
 		} else {
-			memcpy(head + pos, daddr->hwaddr, IEEE802154_ADDR_LEN);
+			ieee802154_haddr_copy_swap(head + pos, daddr->hwaddr);
 			pos += IEEE802154_ADDR_LEN;
 		}
 	}
@@ -218,7 +225,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 			head[pos++] = saddr->short_addr & 0xff;
 			head[pos++] = saddr->short_addr >> 8;
 		} else {
-			memcpy(head + pos, saddr->hwaddr, IEEE802154_ADDR_LEN);
+			ieee802154_haddr_copy_swap(head + pos, saddr->hwaddr);
 			pos += IEEE802154_ADDR_LEN;
 		}
 	}
@@ -558,10 +565,6 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 		else if (!memcmp(mac_cb(skb)->da.hwaddr, sdata->dev->dev_addr,
 					IEEE802154_ADDR_LEN))
 			skb->pkt_type = PACKET_HOST;
-		else if (!memcmp(mac_cb(skb)->da.hwaddr, sdata->dev->broadcast,
-					IEEE802154_ADDR_LEN))
-			/* FIXME: is this correct? */
-			skb->pkt_type = PACKET_BROADCAST;
 		else
 			skb->pkt_type = PACKET_OTHERHOST;
 		break;
