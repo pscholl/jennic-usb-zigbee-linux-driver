@@ -532,9 +532,12 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 
 static size_t ieee802154_netdev_get_size(const struct net_device *dev)
 {
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	return	nla_total_size(2) +	/* IFLA_WPAN_CHANNEL */
 		nla_total_size(2) +	/* IFLA_WPAN_PAN_ID */
 		nla_total_size(2) +	/* IFLA_WPAN_SHORT_ADDR */
+					/* IFLA_WPAN_PHY */
+		nla_total_size(strlen(wpan_phy_name(priv->hw->phy)) + 1) +
 		nla_total_size(2) +	/* IFLA_WPAN_COORD_SHORT_ADDR */
 		nla_total_size(8);	/* IFLA_WPAN_COORD_EXT_ADDR */
 }
@@ -549,6 +552,7 @@ static int ieee802154_netdev_fill_info(struct sk_buff *skb,
 	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, priv->chan);
 	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, priv->pan_id);
 	NLA_PUT_U16(skb, IFLA_WPAN_SHORT_ADDR, priv->short_addr);
+	NLA_PUT_STRING(skb, IFLA_WPAN_PHY, wpan_phy_name(priv->hw->phy));
 	/* TODO: IFLA_WPAN_COORD_SHORT_ADDR */
 	/* TODO: IFLA_WPAN_COORD_EXT_ADDR */
 
@@ -563,6 +567,8 @@ nla_put_failure:
 
 static struct rtnl_link_ops wpan_link_ops __read_mostly = {
 	.kind		= "wpan",
+	.maxtype	= IFLA_WPAN_MAX,
+	/* TODO: policy */
 	.priv_size	= sizeof(struct ieee802154_sub_if_data),
 	.setup		= ieee802154_netdev_setup,
 	.validate	= ieee802154_netdev_validate,
@@ -980,7 +986,7 @@ static int __init ieee802154_dev_init(void)
 {
 	return rtnl_link_register(&wpan_link_ops);
 }
-module_init(ieee802154_dev_init);
+subsys_initcall(ieee802154_dev_init);
 
 static void __exit ieee802154_dev_exit(void)
 {
