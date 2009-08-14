@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Siemens AG
+ * Copyright (C) 2007, 2008, 2009 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -23,11 +23,13 @@
 #define MAC802154_H
 
 #include <linux/spinlock.h>
+
 struct ieee802154_priv {
 	struct ieee802154_dev	hw;
 	struct ieee802154_ops	*ops;
 
-	struct net_device *netdev; /* mwpanX device */
+	struct wpan_phy *phy;
+
 	int open_count;
 	/* As in mac80211 slaves list is modified:
 	 * 1) under the RTNL

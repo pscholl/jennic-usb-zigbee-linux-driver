@@ -33,15 +33,49 @@
 #include <net/mac802154.h>
 #include <net/ieee802154_netdev.h>
 #include <net/ieee802154.h>
+#include <net/wpan-phy.h>
 
 #include "mac802154.h"
 #include "beacon.h"
 #include "beacon_hash.h"
 #include "mib.h"
 
+struct xmit_work {
+	struct sk_buff *skb;
+	struct work_struct work;
+	struct ieee802154_priv *priv;
+	u8 chan;
+};
+
+static void ieee802154_xmit_worker(struct work_struct *work)
+{
+	struct xmit_work *xw = container_of(work, struct xmit_work, work);
+	int res;
+
+	if (xw->priv->hw.current_channel != xw->chan) {
+		res = xw->priv->ops->set_channel(&xw->priv->hw,
+				xw->chan);
+		if (res) {
+			pr_debug("set_channel failed\n");
+			goto out;
+		}
+	}
+
+	res = xw->priv->ops->xmit(&xw->priv->hw, xw->skb);
+
+out:
+	/* FIXME: result processing and/or requeue!!! */
+	dev_kfree_skb(xw->skb);
+
+	kfree(xw);
+}
+
+
 static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv;
+	struct xmit_work *work;
+
 	priv = netdev_priv(dev);
 
 	if (!(priv->hw->hw.flags & IEEE802154_HW_OMIT_CKSUM)) {
@@ -51,19 +85,32 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		data[1] = crc >> 8;
 	}
 
-	read_lock(&priv->mib_lock);
-	phy_cb(skb)->chan = priv->chan;
-	read_unlock(&priv->mib_lock);
-
 	skb->iif = dev->ifindex;
-	skb->dev = priv->hw->netdev;
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
-	dev->trans_start = jiffies;
-	dev_queue_xmit(skb);
 
-	return 0;
+	if (skb_cow_head(skb, priv->hw->hw.extra_tx_headroom)) {
+		dev_kfree_skb(skb);
+		return NETDEV_TX_OK;
+	}
+
+	work = kzalloc(sizeof(struct xmit_work), GFP_ATOMIC);
+	if (!work)
+		return NETDEV_TX_BUSY;
+
+	INIT_WORK(&work->work, ieee802154_xmit_worker);
+	work->skb = skb;
+	work->priv = priv->hw;
+
+	read_lock_bh(&priv->mib_lock);
+	work->chan = priv->chan;
+	read_unlock_bh(&priv->mib_lock);
+
+
+	queue_work(priv->hw->dev_workqueue, &work->work);
+
+	return NETDEV_TX_OK;
 }
 
 static int ieee802154_slave_open(struct net_device *dev)
@@ -72,7 +119,7 @@ static int ieee802154_slave_open(struct net_device *dev)
 	int res = 0;
 
 	if (priv->hw->open_count++ == 0) {
-		res = dev_open(priv->hw->netdev);
+		res = priv->hw->ops->start(&priv->hw->hw);
 		WARN_ON(res);
 		if (res)
 			goto err;
@@ -94,10 +141,8 @@ static int ieee802154_slave_close(struct net_device *dev)
 
 	netif_stop_queue(dev);
 
-	if ((--priv->hw->open_count) == 0) {
-		if (netif_running(priv->hw->netdev))
-			dev_close(priv->hw->netdev);
-	}
+	if ((--priv->hw->open_count) == 0)
+		priv->hw->ops->stop(&priv->hw->hw);
 
 	return 0;
 }
@@ -401,8 +446,6 @@ void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 		list_del(&sdata->list);
 		mutex_unlock(&sdata->hw->slaves_mtx);
 
-		dev_put(sdata->hw->netdev);
-
 		unregister_netdevice(sdata->dev);
 	}
 }
@@ -424,22 +467,24 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 					   struct nlattr *tb[],
 					   struct nlattr *data[])
 {
-	struct net_device *mdev;
 	struct ieee802154_sub_if_data *priv;
 	struct ieee802154_priv *ipriv;
+	struct wpan_phy *phy;
+	char *name;
 	int err;
 
-	if (!tb[IFLA_LINK])
-		return -EOPNOTSUPP;
-
-	mdev = __dev_get_by_index(dev_net(dev), nla_get_u32(tb[IFLA_LINK]));
-	if (!mdev)
-		return -ENODEV;
-
-	if (mdev->type != ARPHRD_IEEE802154_PHY)
+	if (!data || !data[IFLA_WPAN_PHY])
 		return -EINVAL;
 
-	ipriv = netdev_priv(mdev);
+	name = nla_data(data[IFLA_WPAN_PHY]);
+	if (name[nla_len(data[IFLA_WPAN_PHY]) - 1] != '\0')
+		return -EINVAL; /* phy name should be null-terminated */
+
+	phy = wpan_phy_find(name);
+	if (!phy)
+		return -ENODEV;
+
+	ipriv = wpan_phy_priv(phy);
 
 	priv = netdev_priv(dev);
 	priv->dev = dev;
@@ -453,11 +498,9 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	priv->pan_id = IEEE802154_PANID_BROADCAST;
 	priv->short_addr = IEEE802154_ADDR_BROADCAST;
 
-	dev_hold(ipriv->netdev);
-
 	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
 
-	SET_NETDEV_DEV(dev, &ipriv->netdev->dev);
+	SET_NETDEV_DEV(dev, &ipriv->phy->dev);
 
 	err = register_netdevice(dev);
 	if (err < 0)
@@ -482,8 +525,6 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 	mutex_lock(&sdata->hw->slaves_mtx);
 	list_del_rcu(&sdata->list);
 	mutex_unlock(&sdata->hw->slaves_mtx);
-
-	dev_put(sdata->hw->netdev);
 
 	synchronize_rcu();
 	unregister_netdevice(sdata->dev);

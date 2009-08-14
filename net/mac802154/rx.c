@@ -32,15 +32,9 @@
 static void __ieee802154_rx_prepare(struct ieee802154_dev *dev,
 		struct sk_buff *skb, u8 lqi)
 {
-	struct ieee802154_priv *priv = ieee802154_to_priv(dev);
-
 	BUG_ON(!skb);
 
 	phy_cb(skb)->lqi = lqi;
-
-	skb->dev = priv->netdev;
-
-	skb->iif = skb->dev->ifindex;
 
 	skb->protocol = htons(ETH_P_IEEE802154);
 
@@ -49,12 +43,7 @@ static void __ieee802154_rx_prepare(struct ieee802154_dev *dev,
 
 void ieee802154_rx(struct ieee802154_dev *dev, struct sk_buff *skb, u8 lqi)
 {
-	struct sk_buff *skb2;
-
 	__ieee802154_rx_prepare(dev, skb, lqi);
-
-	skb2 = skb_clone(skb, GFP_KERNEL);
-	netif_rx(skb2);
 
 	ieee802154_subif_rx(dev, skb);
 }
@@ -70,9 +59,6 @@ static void ieee802154_rx_worker(struct work_struct *work)
 {
 	struct rx_work *rw = container_of(work, struct rx_work, work);
 	struct sk_buff *skb = rw->skb;
-
-	struct sk_buff *skb2 = skb_clone(skb, GFP_KERNEL);
-	netif_rx(skb2);
 
 	ieee802154_subif_rx(rw->dev, skb);
 	kfree(rw);
