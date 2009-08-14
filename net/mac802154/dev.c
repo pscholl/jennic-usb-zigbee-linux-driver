@@ -324,7 +324,7 @@ static int ieee802154_header_parse(const struct sk_buff *skb,
 
 		if (hdr + IEEE802154_ADDR_LEN > tail)
 			goto malformed;
-		memcpy(addr->hwaddr, hdr, IEEE802154_ADDR_LEN);
+		ieee802154_haddr_copy_swap(addr->hwaddr, hdr);
 		hdr += IEEE802154_ADDR_LEN;
 		break;
 
@@ -661,7 +661,7 @@ static void fetch_skb_u64(struct sk_buff *skb, void *data)
 {
 	BUG_ON(skb->len < IEEE802154_ADDR_LEN);
 
-	memcpy(data, skb->data, IEEE802154_ADDR_LEN);
+	ieee802154_haddr_copy_swap(data, skb->data);
 	skb_pull(skb, IEEE802154_ADDR_LEN);
 }
 
