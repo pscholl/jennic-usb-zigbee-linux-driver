@@ -70,17 +70,6 @@ void ieee802154_drop_slaves(struct ieee802154_dev *hw);
 
 void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb);
 
-struct ieee802154_phy_cb {
-	u8 lqi;
-	u8 chan;
-};
-
-static inline struct ieee802154_phy_cb *phy_cb(struct sk_buff *skb)
-{
-	return (struct ieee802154_phy_cb *)skb->cb;
-}
-
-
 extern struct ieee802154_mlme_ops mac802154_mlme;
 
 int ieee802154_mlme_scan_req(struct net_device *dev,

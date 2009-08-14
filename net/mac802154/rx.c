@@ -25,7 +25,9 @@
 #include <linux/workqueue.h>
 #include <linux/netdevice.h>
 
+#include <net/af_ieee802154.h>
 #include <net/mac802154.h>
+#include <net/ieee802154_netdev.h>
 
 #include "mac802154.h"
 
@@ -34,7 +36,7 @@ static void __ieee802154_rx_prepare(struct ieee802154_dev *dev,
 {
 	BUG_ON(!skb);
 
-	phy_cb(skb)->lqi = lqi;
+	mac_cb(skb)->lqi = lqi;
 
 	skb->protocol = htons(ETH_P_IEEE802154);
 
