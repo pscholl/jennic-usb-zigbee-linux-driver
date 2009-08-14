@@ -111,7 +111,7 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
 	int err = -ENOIOCTLCMD;
 
-	read_lock(&priv->mib_lock);
+	read_lock_bh(&priv->mib_lock);
 
 	switch (cmd) {
 	case SIOCGIFADDR:
@@ -145,7 +145,7 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		err = 0;
 		break;
 	}
-	read_unlock(&priv->mib_lock);
+	read_unlock_bh(&priv->mib_lock);
 	return err;
 }
 
@@ -193,7 +193,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 		return -EINVAL;
 
 	if (!saddr) {
-		read_lock(&priv->mib_lock);
+		read_lock_bh(&priv->mib_lock);
 		if (priv->short_addr == IEEE802154_ADDR_BROADCAST ||
 		    priv->short_addr == IEEE802154_ADDR_UNDEF ||
 		    priv->pan_id == IEEE802154_PANID_BROADCAST) {
@@ -208,7 +208,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 		dev_addr.pan_id = priv->pan_id;
 		saddr = &dev_addr;
 
-		read_unlock(&priv->mib_lock);
+		read_unlock_bh(&priv->mib_lock);
 	}
 
 	if (daddr->addr_type != IEEE802154_ADDR_NONE) {
@@ -503,7 +503,7 @@ static int ieee802154_netdev_fill_info(struct sk_buff *skb,
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
-	read_lock(&priv->mib_lock);
+	read_lock_bh(&priv->mib_lock);
 
 	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, priv->chan);
 	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, priv->pan_id);
@@ -511,12 +511,12 @@ static int ieee802154_netdev_fill_info(struct sk_buff *skb,
 	/* TODO: IFLA_WPAN_COORD_SHORT_ADDR */
 	/* TODO: IFLA_WPAN_COORD_EXT_ADDR */
 
-	read_unlock(&priv->mib_lock);
+	read_unlock_bh(&priv->mib_lock);
 
 	return 0;
 
 nla_put_failure:
-	read_unlock(&priv->mib_lock);
+	read_unlock_bh(&priv->mib_lock);
 	return -EMSGSIZE;
 }
 
@@ -847,9 +847,9 @@ u16 ieee802154_dev_get_pan_id(struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	read_lock(&priv->mib_lock);
+	read_lock_bh(&priv->mib_lock);
 	ret = priv->pan_id;
-	read_unlock(&priv->mib_lock);
+	read_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
@@ -861,9 +861,9 @@ u16 ieee802154_dev_get_short_addr(struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	read_lock(&priv->mib_lock);
+	read_lock_bh(&priv->mib_lock);
 	ret = priv->short_addr;
-	read_unlock(&priv->mib_lock);
+	read_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
@@ -874,9 +874,9 @@ void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock(&priv->mib_lock);
+	write_lock_bh(&priv->mib_lock);
 	priv->pan_id = val;
-	write_unlock(&priv->mib_lock);
+	write_unlock_bh(&priv->mib_lock);
 }
 void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 {
@@ -884,9 +884,9 @@ void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock(&priv->mib_lock);
+	write_lock_bh(&priv->mib_lock);
 	priv->short_addr = val;
-	write_unlock(&priv->mib_lock);
+	write_unlock_bh(&priv->mib_lock);
 }
 void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 {
@@ -894,9 +894,9 @@ void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock(&priv->mib_lock);
+	write_lock_bh(&priv->mib_lock);
 	priv->chan = val;
-	write_unlock(&priv->mib_lock);
+	write_unlock_bh(&priv->mib_lock);
 }
 
 u8 ieee802154_dev_get_dsn(struct net_device *dev)
@@ -906,9 +906,9 @@ u8 ieee802154_dev_get_dsn(struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock(&priv->mib_lock);
+	write_lock_bh(&priv->mib_lock);
 	ret = priv->dsn++;
-	write_unlock(&priv->mib_lock);
+	write_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
@@ -920,9 +920,9 @@ u8 ieee802154_dev_get_bsn(struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock(&priv->mib_lock);
+	write_lock_bh(&priv->mib_lock);
 	ret = priv->bsn++;
-	write_unlock(&priv->mib_lock);
+	write_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
