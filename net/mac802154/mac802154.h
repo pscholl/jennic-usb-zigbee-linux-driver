@@ -59,6 +59,7 @@ struct ieee802154_sub_if_data {
 	u16 short_addr;
 
 	u8 chan;
+	u8 page;
 
 	/* MAC BSN field */
 	u8 bsn;
@@ -73,7 +74,7 @@ void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb);
 extern struct ieee802154_mlme_ops mac802154_mlme;
 
 int ieee802154_mlme_scan_req(struct net_device *dev,
-		u8 type, u32 channels, u8 duration);
+		u8 type, u32 channels, u8 page, u8 duration);
 
 int ieee802154_process_cmd(struct net_device *dev, struct sk_buff *skb);
 int ieee802154_send_beacon_req(struct net_device *dev);

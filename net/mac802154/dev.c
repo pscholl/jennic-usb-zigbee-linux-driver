@@ -946,6 +946,17 @@ void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 	write_unlock_bh(&priv->mib_lock);
 }
 
+void ieee802154_dev_set_page(struct net_device *dev, u8 page)
+{
+	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
+
+	BUG_ON(dev->type != ARPHRD_IEEE802154);
+
+	write_lock_bh(&priv->mib_lock);
+	priv->page = page;
+	write_unlock_bh(&priv->mib_lock);
+}
+
 u8 ieee802154_dev_get_dsn(struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);

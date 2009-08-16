@@ -50,6 +50,7 @@ struct scan_work {
 
 	u8 type;
 	u32 channels;
+	u8 page;
 	u8 duration;
 };
 
@@ -117,7 +118,7 @@ static void scanner(struct work_struct *work)
 	}
 
 	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_SUCCESS, sw->type,
-			sw->channels, sw->edl/*, NULL */);
+			sw->channels, sw->page, sw->edl/*, NULL */);
 
 	kfree(sw);
 
@@ -125,7 +126,7 @@ static void scanner(struct work_struct *work)
 
 exit_error:
 	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_INVALID_PARAMETER,
-			sw->type, sw->channels, NULL/*, NULL */);
+			sw->type, sw->channels, sw->page, NULL/*, NULL */);
 	kfree(sw);
 	return;
 }
@@ -140,7 +141,7 @@ exit_error:
  * @return 0 if request is ok, errno otherwise.
  */
 int ieee802154_mlme_scan_req(struct net_device *dev,
-		u8 type, u32 channels, u8 duration)
+		u8 type, u32 channels, u8 page, u8 duration)
 {
 	struct ieee802154_priv *hw = ieee802154_slave_get_priv(dev);
 	struct scan_work *work;
@@ -158,6 +159,7 @@ int ieee802154_mlme_scan_req(struct net_device *dev,
 
 	work->dev = dev;
 	work->channels = channels;
+	work->page = page;
 	work->duration = duration;
 	work->type = type;
 
@@ -186,7 +188,7 @@ int ieee802154_mlme_scan_req(struct net_device *dev,
 
 inval:
 	ieee802154_nl_scan_confirm(dev, IEEE802154_INVALID_PARAMETER, type,
-			channels, NULL/*, NULL */);
+			channels, page, NULL/*, NULL */);
 	return -EINVAL;
 }
 
