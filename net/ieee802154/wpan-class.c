@@ -22,21 +22,34 @@
 
 #include <net/wpan-phy.h>
 
-#define MASTER_SHOW(field, format_string)				\
-static ssize_t field ## _show(struct device *dev,			\
+#define MASTER_SHOW_COMPLEX(name, format_string, args...)		\
+static ssize_t name ## _show(struct device *dev,			\
 			    struct device_attribute *attr, char *buf)	\
 {									\
 	struct wpan_phy *phy = container_of(dev, struct wpan_phy, dev);	\
+	int ret;							\
 									\
-	return sprintf(buf, format_string "\n", phy->field);		\
-}									\
+	mutex_lock(&phy->pib_lock);					\
+	ret = sprintf(buf, format_string "\n", args);			\
+	mutex_unlock(&phy->pib_lock);					\
+	return ret;							\
+}
 
-MASTER_SHOW(channel, "%d");
-MASTER_SHOW(channel_mask, "%#x");
+#define MASTER_SHOW(field, format_string)				\
+	MASTER_SHOW_COMPLEX(field, format_string, phy->field)
+
+MASTER_SHOW(current_channel, "%d");
+MASTER_SHOW(channels_supported, "%#x");
+MASTER_SHOW_COMPLEX(transmit_power, "%d +- %d dB",
+	((signed char) (phy->transmit_power << 2)) >> 2,
+	(phy->transmit_power >> 6) ? (phy->transmit_power >> 6) * 3 : 1 );
+MASTER_SHOW(cca_mode, "%d");
 
 static struct device_attribute pmib_attrs[] = {
-	__ATTR_RO(channel),
-	__ATTR_RO(channel_mask),
+	__ATTR_RO(current_channel),
+	__ATTR_RO(channels_supported),
+	__ATTR_RO(transmit_power),
+	__ATTR_RO(cca_mode),
 	{},
 };
 
@@ -95,6 +108,8 @@ struct wpan_phy *wpan_phy_alloc(size_t priv_size)
 		return NULL;
 	}
 	mutex_unlock(&wpan_phy_mutex);
+
+	mutex_init(&phy->pib_lock);
 
 	device_initialize(&phy->dev);
 	dev_set_name(&phy->dev, "wpan-phy%d", phy->idx);

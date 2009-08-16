@@ -22,12 +22,21 @@
 #define WPAN_PHY_H
 
 #include <linux/netdevice.h>
+#include <linux/mutex.h>
 
 struct wpan_phy {
-/*	u8 channel_page; */
-	u8 channel;
+	struct mutex pib_lock;
 
-	u32 channel_mask;
+	/*
+	 * This is a PIB acording to 802.15.4-2006.
+	 * We do not provide timing-related variables, as they
+	 * aren't used outside of driver
+	 */
+	u8 current_channel;
+	u32 channels_supported;
+	u8 transmit_power;
+	u8 cca_mode;
+/*	u8 current_page; */
 
 	struct device dev;
 	int idx;
