@@ -30,6 +30,7 @@
 #include <net/ieee802154_netdev.h>
 #include <net/ieee802154.h>
 #include <net/nl802154.h>
+#include <net/wpan-phy.h>
 
 /**
  * fake_get_pan_id - Retrieve the PAN ID of the device.
@@ -290,6 +291,14 @@ static const struct net_device_ops fake_ops = {
 	.ndo_set_mac_address	= ieee802154_fake_mac_addr,
 };
 
+static void ieee802154_fake_destruct(struct net_device *dev)
+{
+	struct wpan_phy *phy = container_of(dev->dev.parent, struct wpan_phy, dev);
+
+	wpan_phy_unregister(phy);
+	free_netdev(dev);
+	wpan_phy_free(phy);
+}
 
 static void ieee802154_fake_setup(struct net_device *dev)
 {
@@ -302,17 +311,26 @@ static void ieee802154_fake_setup(struct net_device *dev)
 	dev->type		= ARPHRD_IEEE802154;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
+	dev->destructor		= ieee802154_fake_destruct;
 }
 
 
 static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 {
-	struct net_device *dev =
-		alloc_netdev(0, "hardwpan%d", ieee802154_fake_setup);
+	struct net_device *dev;
+	struct wpan_phy *phy = wpan_phy_alloc(0);
 	int err;
 
-	if (!dev)
+	if (!phy)
 		return -ENOMEM;
+
+	dev = alloc_netdev(0, "hardwpan%d", ieee802154_fake_setup);
+	if (!dev) {
+		wpan_phy_free(phy);
+		return -ENOMEM;
+	}
+
+	phy->dev.platform_data = dev;
 
 	memcpy(dev->dev_addr, "\xba\xbe\xca\xfe\xde\xad\xbe\xef",
 			dev->addr_len);
@@ -331,14 +349,17 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 			goto out;
 	}
 
-	SET_NETDEV_DEV(dev, &pdev->dev);
+	SET_NETDEV_DEV(dev, &phy->dev);
 
 	platform_set_drvdata(pdev, dev);
+
+	err = wpan_phy_register(&pdev->dev, phy);
+	if (err)
+		goto out;
 
 	err = register_netdev(dev);
 	if (err < 0)
 		goto out;
-
 
 	dev_info(&pdev->dev, "Added ieee802154 HardMAC hardware\n");
 	return 0;
@@ -352,7 +373,6 @@ static int __devexit ieee802154fake_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	unregister_netdev(dev);
-	free_netdev(dev);
 	return 0;
 }
 
