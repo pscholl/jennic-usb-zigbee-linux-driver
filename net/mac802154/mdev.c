@@ -209,11 +209,6 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 	BUG_ON(!ops->start);
 	BUG_ON(!ops->stop);
 
-	if (!try_module_get(ops->owner)) {
-		free_netdev(dev);
-		return NULL;
-	}
-
 	priv->ops = ops;
 
 	INIT_LIST_HEAD(&priv->slaves);
@@ -229,8 +224,6 @@ void ieee802154_free_device(struct ieee802154_dev *hw)
 
 	BUG_ON(!list_empty(&priv->slaves));
 	BUG_ON(!priv->netdev);
-
-	module_put(priv->ops->owner);
 
 	free_netdev(priv->netdev);
 }

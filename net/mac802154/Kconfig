@@ -8,10 +8,10 @@ config MAC802154
 	  only PHY level of IEEE 802.15.4 standard).
 
 	  Note: this implementation is neither certified, nor feature
-	  complete! We do not garantee that it is compatible w/ other
+	  complete! We do not guarantee that it is compatible w/ other
 	  implementations, etc.
 
 	  If you plan to use HardMAC IEEE 802.15.4 devices, you can
-          say N here. Alternatievly you can say M to compile it as
+	  say N here. Alternatievly you can say M to compile it as
 	  module.
 

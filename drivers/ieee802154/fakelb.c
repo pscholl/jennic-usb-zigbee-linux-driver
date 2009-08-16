@@ -273,4 +273,6 @@ static __exit void fake_exit(void)
 module_init(fake_init);
 module_exit(fake_exit);
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Dmitry Eremin-Solenikov, Sergey Lapin");
+
 

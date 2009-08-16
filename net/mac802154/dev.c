@@ -51,7 +51,9 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		data[1] = crc >> 8;
 	}
 
+	read_lock(&priv->mib_lock);
 	phy_cb(skb)->chan = priv->chan;
+	read_unlock(&priv->mib_lock);
 
 	skb->iif = dev->ifindex;
 	skb->dev = priv->hw->netdev;
@@ -107,17 +109,25 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	struct sockaddr_ieee802154 *sa =
 		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
+	int err = -ENOIOCTLCMD;
+
+	read_lock(&priv->mib_lock);
+
 	switch (cmd) {
 	case SIOCGIFADDR:
 		if (priv->pan_id == IEEE802154_PANID_BROADCAST ||
-		    priv->short_addr == IEEE802154_ADDR_BROADCAST)
-			return -EADDRNOTAVAIL;
+		    priv->short_addr == IEEE802154_ADDR_BROADCAST) {
+			err = -EADDRNOTAVAIL;
+			break;
+		}
 
 		sa->family = AF_IEEE802154;
 		sa->addr.addr_type = IEEE802154_ADDR_SHORT;
 		sa->addr.pan_id = priv->pan_id;
 		sa->addr.short_addr = priv->short_addr;
-		return 0;
+
+		err = 0;
+		break;
 	case SIOCSIFADDR:
 		dev_warn(&dev->dev,
 			"Using DEBUGing ioctl SIOCSIFADDR isn't recommened!\n");
@@ -125,14 +135,18 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		    sa->addr.addr_type != IEEE802154_ADDR_SHORT ||
 		    sa->addr.pan_id == IEEE802154_PANID_BROADCAST ||
 		    sa->addr.short_addr == IEEE802154_ADDR_BROADCAST ||
-		    sa->addr.short_addr == IEEE802154_ADDR_UNDEF)
-			return -EINVAL;
+		    sa->addr.short_addr == IEEE802154_ADDR_UNDEF) {
+			err = -EINVAL;
+			break;
+		}
 
 		priv->pan_id = sa->addr.pan_id;
 		priv->short_addr = sa->addr.short_addr;
-		return 0;
+		err = 0;
+		break;
 	}
-	return -ENOIOCTLCMD;
+	read_unlock(&priv->mib_lock);
+	return err;
 }
 
 static int ieee802154_slave_mac_addr(struct net_device *dev, void *p)
@@ -179,6 +193,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 		return -EINVAL;
 
 	if (!saddr) {
+		read_lock(&priv->mib_lock);
 		if (priv->short_addr == IEEE802154_ADDR_BROADCAST ||
 		    priv->short_addr == IEEE802154_ADDR_UNDEF ||
 		    priv->pan_id == IEEE802154_PANID_BROADCAST) {
@@ -192,6 +207,8 @@ static int ieee802154_header_create(struct sk_buff *skb,
 
 		dev_addr.pan_id = priv->pan_id;
 		saddr = &dev_addr;
+
+		read_unlock(&priv->mib_lock);
 	}
 
 	if (daddr->addr_type != IEEE802154_ADDR_NONE) {
@@ -428,6 +445,8 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	priv->dev = dev;
 	priv->hw = ipriv;
 
+	rwlock_init(&priv->mib_lock);
+
 	get_random_bytes(&priv->bsn, 1);
 	get_random_bytes(&priv->dsn, 1);
 
@@ -484,15 +503,20 @@ static int ieee802154_netdev_fill_info(struct sk_buff *skb,
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 
+	read_lock(&priv->mib_lock);
+
 	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, priv->chan);
 	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, priv->pan_id);
 	NLA_PUT_U16(skb, IFLA_WPAN_SHORT_ADDR, priv->short_addr);
 	/* TODO: IFLA_WPAN_COORD_SHORT_ADDR */
 	/* TODO: IFLA_WPAN_COORD_EXT_ADDR */
 
+	read_unlock(&priv->mib_lock);
+
 	return 0;
 
 nla_put_failure:
+	read_unlock(&priv->mib_lock);
 	return -EMSGSIZE;
 }
 
@@ -549,6 +573,8 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 	pr_debug("%s Getting packet via slave interface %s\n",
 				__func__, sdata->dev->name);
 
+	read_lock(&sdata->mib_lock);
+
 	switch (mac_cb(skb)->da.addr_type) {
 	case IEEE802154_ADDR_NONE:
 		if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_NONE)
@@ -581,6 +607,8 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 			skb->pkt_type = PACKET_OTHERHOST;
 		break;
 	}
+
+	read_unlock(&sdata->mib_lock);
 
 	skb->dev = sdata->dev;
 
@@ -815,19 +843,29 @@ out:
 u16 ieee802154_dev_get_pan_id(struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
+	u16 ret;
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	return priv->pan_id;
+	read_lock(&priv->mib_lock);
+	ret = priv->pan_id;
+	read_unlock(&priv->mib_lock);
+
+	return ret;
 }
 
 u16 ieee802154_dev_get_short_addr(struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
+	u16 ret;
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	return priv->short_addr;
+	read_lock(&priv->mib_lock);
+	ret = priv->short_addr;
+	read_unlock(&priv->mib_lock);
+
+	return ret;
 }
 
 void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
@@ -836,7 +874,9 @@ void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
+	write_lock(&priv->mib_lock);
 	priv->pan_id = val;
+	write_unlock(&priv->mib_lock);
 }
 void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 {
@@ -844,7 +884,9 @@ void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
+	write_lock(&priv->mib_lock);
 	priv->short_addr = val;
+	write_unlock(&priv->mib_lock);
 }
 void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 {
@@ -852,25 +894,37 @@ void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
+	write_lock(&priv->mib_lock);
 	priv->chan = val;
+	write_unlock(&priv->mib_lock);
 }
 
 u8 ieee802154_dev_get_dsn(struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
+	u16 ret;
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	return priv->dsn++;
+	write_lock(&priv->mib_lock);
+	ret = priv->dsn++;
+	write_unlock(&priv->mib_lock);
+
+	return ret;
 }
 
 u8 ieee802154_dev_get_bsn(struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
+	u16 ret;
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	return priv->bsn++;
+	write_lock(&priv->mib_lock);
+	ret = priv->bsn++;
+	write_unlock(&priv->mib_lock);
+
+	return ret;
 }
 
 struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev)
