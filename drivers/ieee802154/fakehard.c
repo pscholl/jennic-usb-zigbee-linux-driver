@@ -32,6 +32,11 @@
 #include <net/nl802154.h>
 #include <net/wpan-phy.h>
 
+struct wpan_phy *net_to_phy(struct net_device *dev)
+{
+	return container_of(dev->dev.parent, struct wpan_phy, dev);
+}
+
 /**
  * fake_get_pan_id - Retrieve the PAN ID of the device.
  * @dev: The network device to retrieve the PAN of.
@@ -116,6 +121,12 @@ static u8 fake_get_bsn(struct net_device *dev)
 static int fake_assoc_req(struct net_device *dev,
 		struct ieee802154_addr *addr, u8 channel, u8 cap)
 {
+	struct wpan_phy *phy = net_to_phy(dev);
+
+	mutex_lock(&phy->pib_lock);
+	phy->current_channel = channel;
+	mutex_unlock(&phy->pib_lock);
+
 	/* We simply emulate it here */
 	return ieee802154_nl_assoc_confirm(dev, fake_get_short_addr(dev),
 			IEEE802154_SUCCESS);
@@ -184,6 +195,12 @@ static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
 				u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
 				u8 coord_realign)
 {
+	struct wpan_phy *phy = net_to_phy(dev);
+
+	mutex_lock(&phy->pib_lock);
+	phy->current_channel = channel;
+	mutex_unlock(&phy->pib_lock);
+
 	/* We don't emulate beacons here at all, so START should fail */
 	ieee802154_nl_start_confirm(dev, IEEE802154_INVALID_PARAMETER);
 	return 0;
@@ -293,7 +310,7 @@ static const struct net_device_ops fake_ops = {
 
 static void ieee802154_fake_destruct(struct net_device *dev)
 {
-	struct wpan_phy *phy = container_of(dev->dev.parent, struct wpan_phy, dev);
+	struct wpan_phy *phy = net_to_phy(dev);
 
 	wpan_phy_unregister(phy);
 	free_netdev(dev);
@@ -335,6 +352,9 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 	memcpy(dev->dev_addr, "\xba\xbe\xca\xfe\xde\xad\xbe\xef",
 			dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
+
+	phy->channels_supported = (1 << 27) - 1;
+	phy->transmit_power = 0xbf;
 
 	dev->netdev_ops = &fake_ops;
 	dev->ml_priv = &fake_mlme;
