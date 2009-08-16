@@ -39,6 +39,7 @@ static ssize_t name ## _show(struct device *dev,			\
 	MASTER_SHOW_COMPLEX(field, format_string, phy->field)
 
 MASTER_SHOW(current_channel, "%d");
+MASTER_SHOW(current_page, "%d");
 MASTER_SHOW(channels_supported, "%#x");
 MASTER_SHOW_COMPLEX(transmit_power, "%d +- %d dB",
 	((signed char) (phy->transmit_power << 2)) >> 2,
@@ -47,6 +48,7 @@ MASTER_SHOW(cca_mode, "%d");
 
 static struct device_attribute pmib_attrs[] = {
 	__ATTR_RO(current_channel),
+	__ATTR_RO(current_page),
 	__ATTR_RO(channels_supported),
 	__ATTR_RO(transmit_power),
 	__ATTR_RO(cca_mode),

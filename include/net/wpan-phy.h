@@ -33,10 +33,10 @@ struct wpan_phy {
 	 * aren't used outside of driver
 	 */
 	u8 current_channel;
+	u8 current_page;
 	u32 channels_supported;
 	u8 transmit_power;
 	u8 cca_mode;
-/*	u8 current_page; */
 
 	struct device dev;
 	int idx;
