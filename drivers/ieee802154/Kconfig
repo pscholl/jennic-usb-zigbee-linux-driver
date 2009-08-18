@@ -15,8 +15,28 @@ config IEEE802154_FAKEHARD
 	depends on  IEEE802154_DRIVERS
 	---help---
 	  Say Y here to enable the fake driver that serves as an example
-          of HardMAC device driver.
+	  of HardMAC device driver.
 
-          This driver can also be built as a module. To do so say M here.
+	  This driver can also be built as a module. To do so say M here.
 	  The module will be called 'fakehard'.
+
+
+config IEEE802154_FAKELB
+	depends on IEEE802154_DRIVERS && MAC802154
+	tristate "Fake LR-WPAN driver with several interconnected devices"
+	---help---
+	  Say Y here to enable the fake driver that can emulate a net
+	  of several interconnected radio devices.
+
+	  This driver can also be built as a module. To do so say M here.
+	  The module will be called 'fakelb'.
+
+config IEEE802154_SERIAL
+	depends on IEEE802154_DRIVERS && MAC802154
+	tristate "Simple LR-WPAN UART driver"
+
+config IEEE802154_AT86RF230
+	depends on IEEE802154_DRIVERS && MAC802154
+	tristate "AT86RF230 transceiver driver"
+	depends on SPI
 

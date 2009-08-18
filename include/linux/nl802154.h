@@ -69,7 +69,7 @@ enum {
 
 #define IEEE802154_ATTR_MAX (__IEEE802154_ATTR_MAX - 1)
 
-extern struct nla_policy ieee802154_policy[];
+extern const struct nla_policy ieee802154_policy[];
 
 /* commands */
 /* REQ should be responded with CONF
@@ -110,6 +110,8 @@ enum {
 	IEEE802154_GTS_CONF, /* Not supported yet */
 	IEEE802154_RX_ENABLE_REQ, /* Not supported yet */
 	IEEE802154_RX_ENABLE_CONF, /* Not supported yet */
+
+	IEEE802154_LIST_IFACE,
 
 	__IEEE802154_CMD_MAX,
 };

@@ -180,6 +180,8 @@ source "net/econet/Kconfig"
 source "net/wanrouter/Kconfig"
 source "net/phonet/Kconfig"
 source "net/ieee802154/Kconfig"
+source "net/mac802154/Kconfig"
+source "net/zigbee/Kconfig"
 source "net/sched/Kconfig"
 source "net/dcb/Kconfig"
 

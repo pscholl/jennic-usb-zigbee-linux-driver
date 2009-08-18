@@ -1,0 +1,7 @@
+config ZIGBEE 
+	tristate "ZigBee Low-Rate Wireless Personal Area Networks support (EXPERIMENTAL)"
+	depends on EXPERIMENTAL && BROKEN
+	---help---
+	  
+	Say Y here to compile ZigBee support into the kernel or say M to
+	  compile it as modules.

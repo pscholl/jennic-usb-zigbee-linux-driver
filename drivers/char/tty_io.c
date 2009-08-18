@@ -2974,6 +2974,26 @@ dev_t tty_devnum(struct tty_struct *tty)
 }
 EXPORT_SYMBOL(tty_devnum);
 
+static int dev_match_devt(struct device *dev, void *data)
+{
+	dev_t *devt = data;
+	return dev->devt == *devt;
+}
+
+/**
+ * 	tty_get_device - get a device corresponding to tty
+ * 	@tty: the struct that describes the tty device
+ *
+ * 	Returns a pointer to the struct device for this tty device
+ * 	(or NULL in case of error).
+ */
+struct device *tty_get_device(struct tty_struct *tty)
+{
+	dev_t devt = tty_devnum(tty);
+	return class_find_device(tty_class, NULL, &devt, dev_match_devt);
+}
+EXPORT_SYMBOL(tty_get_device);
+
 void proc_clear_tty(struct task_struct *p)
 {
 	unsigned long flags;

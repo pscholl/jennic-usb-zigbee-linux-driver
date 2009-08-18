@@ -24,6 +24,7 @@
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/at73c213.h>
+#include <linux/spi/at86rf230.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
 #include <linux/clk.h>
@@ -90,6 +91,11 @@ static struct at91_udc_data __initdata ek_udc_data = {
 /*
  * SPI devices.
  */
+static struct at86rf230_platform_data rf231_pdata = {
+	.rstn		= AT91_PIN_PB10,
+	.slp_tr		= AT91_PIN_PB11,
+	.dig2		= AT91_PIN_PB12,
+};
 static struct spi_board_info ek_spi_devices[] = {
 #if !defined(CONFIG_MMC_AT91)
 	{	/* DataFlash chip */
@@ -107,6 +113,14 @@ static struct spi_board_info ek_spi_devices[] = {
 	},
 #endif
 #endif
+	{
+		.modalias	= "at86rf230",
+		.chip_select	= 3,
+		.max_speed_hz	= 3 * 1000 * 1000,
+		.bus_num	= 1,
+		.irq		= AT91_PIN_PB13,
+		.platform_data	= &rf231_pdata,
+	},
 };
 
 
