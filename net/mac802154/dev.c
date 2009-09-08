@@ -71,7 +71,7 @@ out:
 }
 
 
-static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv;
 	struct xmit_work *work;
