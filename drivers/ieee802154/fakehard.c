@@ -257,7 +257,7 @@ static int ieee802154_fake_close(struct net_device *dev)
 	return 0;
 }
 
-static int ieee802154_fake_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	skb->iif = dev->ifindex;
 	skb->dev = dev;
@@ -268,7 +268,7 @@ static int ieee802154_fake_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	/* FIXME: do hardware work here ... */
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 
