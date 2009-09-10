@@ -639,7 +639,7 @@ static struct genl_ops ieee802154_coordinator_ops[] = {
 							ieee802154_dump_iface),
 };
 
-static int __init ieee802154_nl_init(void)
+int __init ieee802154_nl_init(void)
 {
 	int rc;
 	int i;
@@ -672,14 +672,9 @@ fail:
 	genl_unregister_family(&ieee802154_coordinator_family);
 	return rc;
 }
-module_init(ieee802154_nl_init);
 
-static void __exit ieee802154_nl_exit(void)
+void __exit ieee802154_nl_exit(void)
 {
 	genl_unregister_family(&ieee802154_coordinator_family);
 }
-module_exit(ieee802154_nl_exit);
-
-MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("ieee 802.15.4 configuration interface");
 
