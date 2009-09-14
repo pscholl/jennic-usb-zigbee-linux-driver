@@ -44,6 +44,7 @@ struct xmit_work {
 	struct sk_buff *skb;
 	struct work_struct work;
 	struct ieee802154_priv *priv;
+	u8 page;
 	u8 chan;
 };
 
@@ -105,6 +106,7 @@ static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *d
 
 	read_lock_bh(&priv->mib_lock);
 	work->chan = priv->chan;
+	work->page = priv->page;
 	read_unlock_bh(&priv->mib_lock);
 
 
@@ -501,6 +503,10 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
 
 	SET_NETDEV_DEV(dev, &ipriv->phy->dev);
+
+	/* We have stored the reference in the net_device,
+	 * so drop this reference */
+	wpan_phy_put(phy);
 
 	err = register_netdevice(dev);
 	if (err < 0)
