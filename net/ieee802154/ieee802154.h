@@ -39,7 +39,7 @@ void __exit ieee802154_nl_exit(void);
 	}
 
 struct sk_buff *ieee802154_nl_create(int flags, u8 req);
-int ieee802154_nl_finish(struct sk_buff *msg);
+int ieee802154_nl_mcast(struct sk_buff *msg, unsigned int group);
 
 extern struct genl_family nl802154_family;
 int nl802154_mac_register(void);

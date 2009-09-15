@@ -39,14 +39,6 @@ struct genl_family nl802154_family = {
 	.maxattr	= IEEE802154_ATTR_MAX,
 };
 
-static struct genl_multicast_group ieee802154_coord_mcgrp = {
-	.name		= IEEE802154_MCAST_COORD_NAME,
-};
-
-static struct genl_multicast_group ieee802154_beacon_mcgrp = {
-	.name		= IEEE802154_MCAST_BEACON_NAME,
-};
-
 /* Requests to userspace */
 struct sk_buff *ieee802154_nl_create(int flags, u8 req)
 {
@@ -69,7 +61,7 @@ struct sk_buff *ieee802154_nl_create(int flags, u8 req)
 	return msg;
 }
 
-int ieee802154_nl_finish(struct sk_buff *msg)
+int ieee802154_nl_mcast(struct sk_buff *msg, unsigned int group)
 {
 	/* XXX: nlh is right at the start of msg */
 	void *hdr = genlmsg_data(NLMSG_DATA(msg->data));
@@ -77,8 +69,7 @@ int ieee802154_nl_finish(struct sk_buff *msg)
 	if (genlmsg_end(msg, hdr) < 0)
 		goto out;
 
-	return genlmsg_multicast(msg, 0, ieee802154_coord_mcgrp.id,
-			GFP_ATOMIC);
+	return genlmsg_multicast(msg, 0, group, GFP_ATOMIC);
 out:
 	nlmsg_free(msg);
 	return -ENOBUFS;
@@ -89,16 +80,6 @@ int __init ieee802154_nl_init(void)
 	int rc;
 
 	rc = genl_register_family(&nl802154_family);
-	if (rc)
-		goto fail;
-
-	rc = genl_register_mc_group(&nl802154_family,
-			&ieee802154_coord_mcgrp);
-	if (rc)
-		goto fail;
-
-	rc = genl_register_mc_group(&nl802154_family,
-			&ieee802154_beacon_mcgrp);
 	if (rc)
 		goto fail;
 
