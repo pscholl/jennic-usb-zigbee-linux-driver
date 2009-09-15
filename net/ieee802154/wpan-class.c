@@ -113,7 +113,8 @@ int wpan_phy_for_each(int (*fn)(struct wpan_phy *phy, void *data),
 		.data = data,
 	};
 
-	return class_for_each_device(&wpan_phy_class, NULL, &wpid, wpan_phy_iter);
+	return class_for_each_device(&wpan_phy_class, NULL,
+			&wpid, wpan_phy_iter);
 }
 EXPORT_SYMBOL(wpan_phy_for_each);
 
