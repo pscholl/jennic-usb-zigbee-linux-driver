@@ -115,9 +115,8 @@ static int ieee802154_dump_phy_iter(struct wpan_phy *phy, void *_data)
 
 	pr_debug("%s\n", __func__);
 
-	if (data->idx++ < data->s_idx) {
+	if (data->idx++ < data->s_idx)
 		return 0;
-	}
 
 	rc = ieee802154_nl_fill_phy(data->skb,
 			NETLINK_CB(data->cb->skb).pid,
