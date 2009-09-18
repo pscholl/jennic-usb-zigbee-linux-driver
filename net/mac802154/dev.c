@@ -53,7 +53,10 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 	struct xmit_work *xw = container_of(work, struct xmit_work, work);
 	int res;
 
-	if (xw->priv->hw.current_channel != xw->chan) {
+	BUG_ON(xw->chan == (u8)-1);
+
+	mutex_lock(&xw->priv->phy->pib_lock);
+	if (xw->priv->phy->current_channel != xw->chan) {
 		res = xw->priv->ops->set_channel(&xw->priv->hw,
 				xw->chan);
 		if (res) {
@@ -65,6 +68,8 @@ static void ieee802154_xmit_worker(struct work_struct *work)
 	res = xw->priv->ops->xmit(&xw->priv->hw, xw->skb);
 
 out:
+	mutex_unlock(&xw->priv->phy->pib_lock);
+
 	/* FIXME: result processing and/or requeue!!! */
 	dev_kfree_skb(xw->skb);
 

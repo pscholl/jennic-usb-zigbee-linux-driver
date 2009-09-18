@@ -25,9 +25,9 @@
 #include <linux/timer.h>
 #include <linux/platform_device.h>
 #include <linux/netdevice.h>
-#include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
 #include <net/mac802154.h>
+#include <net/wpan-phy.h>
 
 struct fake_dev_priv {
 	struct ieee802154_dev *dev;
@@ -58,7 +58,7 @@ hw_channel(struct ieee802154_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
-	dev->current_channel = channel;
+	dev->phy->current_channel = channel;
 	return 0;
 }
 
@@ -91,8 +91,8 @@ hw_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 		struct fake_dev_priv *dp;
 		list_for_each_entry(dp, &priv->fake->list, list)
 			if (dp != priv &&
-			    dp->dev->current_channel ==
-					priv->dev->current_channel)
+			    dp->dev->phy->current_channel ==
+					priv->dev->phy->current_channel)
 				hw_deliver(dp, skb);
 	}
 	read_unlock_bh(&fake->lock);

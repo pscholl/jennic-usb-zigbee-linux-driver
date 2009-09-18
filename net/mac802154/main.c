@@ -41,7 +41,7 @@ struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,
 	}
 
 	priv = wpan_phy_priv(phy);
-	priv->phy = phy;
+	priv->hw.phy = priv->phy = phy;
 
 	priv->hw.priv = (char *)priv + ALIGN(sizeof(*priv), NETDEV_ALIGN);
 

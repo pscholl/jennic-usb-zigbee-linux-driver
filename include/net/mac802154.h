@@ -22,12 +22,15 @@
 #define NET_MAC802154_H
 
 struct ieee802154_dev {
+	/* filled by the driver */
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
-	void	*priv;		/* driver-specific data */
 	u32	channel_mask;
-	u8	current_channel;
 	u32	flags; /* Flags for device to set */
 	struct device *parent;
+
+	/* filled by mac802154 core */
+	void	*priv;		/* driver-specific data */
+	struct wpan_phy *phy;
 };
 
 /* Checksum is in hardware and is omitted from packet */

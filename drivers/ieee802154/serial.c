@@ -32,6 +32,7 @@
 #include <linux/skbuff.h>
 #include <linux/sched.h>
 #include <net/mac802154.h>
+#include <net/wpan-phy.h>
 
 
 /* NOTE: be sure to use here the same values as in the firmware */
@@ -570,7 +571,7 @@ ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 		ret = -EINTR;
 
 	if (!ret)
-		zbdev->dev->current_channel = channel;
+		zbdev->dev->phy->current_channel = channel;
 out:
 	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n", __func__);
@@ -808,7 +809,6 @@ ieee802154_tty_open(struct tty_struct *tty)
 	/* only 2.4 GHz band */
 	dev->channel_mask = 0x7ff;
 	/* it's 1st channel of 2.4 Ghz space */
-	dev->current_channel = 11;
 	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
 	dev->parent = tty_get_device(tty);
