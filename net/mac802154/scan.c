@@ -32,6 +32,7 @@
 #include <net/nl802154.h>
 #include <net/ieee802154.h>
 #include <net/ieee802154_netdev.h>
+#include <net/wpan-phy.h>
 
 #include "mac802154.h"
 #include "beacon.h"
@@ -59,7 +60,9 @@ static int scan_ed(struct scan_work *work, int channel, u8 duration)
 	int ret;
 	struct ieee802154_priv *hw = ieee802154_slave_get_priv(work->dev);
 	pr_debug("ed scan channel %d duration %d\n", channel, duration);
+	mutex_lock(&hw->phy->pib_lock);
 	ret = hw->ops->ed(&hw->hw, &work->edl[channel]);
+	mutex_unlock(&hw->phy->pib_lock);
 	pr_debug("ed scan channel %d value %d\n", channel, work->edl[channel]);
 	return ret;
 }
@@ -106,7 +109,9 @@ static void scanner(struct work_struct *work)
 		if (!(sw->channels & (1 << i)))
 			continue;
 
+		mutex_lock(&hw->phy->pib_lock);
 		ret = hw->ops->set_channel(&hw->hw,  i);
+		mutex_unlock(&hw->phy->pib_lock);
 		if (ret)
 			goto exit_error;
 
