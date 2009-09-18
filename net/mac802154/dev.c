@@ -84,6 +84,9 @@ static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *d
 
 	priv = netdev_priv(dev);
 
+	if (priv->chan == (u8)-1) /* not init */
+		return NETDEV_TX_OK;
+
 	if (!(priv->hw->hw.flags & IEEE802154_HW_OMIT_CKSUM)) {
 		u16 crc = crc_ccitt(0, skb->data, skb->len);
 		u8 *data = skb_put(skb, 2);
@@ -496,6 +499,9 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	priv = netdev_priv(dev);
 	priv->dev = dev;
 	priv->hw = ipriv;
+
+	priv->chan = -1; /* not initialized */
+	priv->page = 0; /* for compat */
 
 	rwlock_init(&priv->mib_lock);
 
