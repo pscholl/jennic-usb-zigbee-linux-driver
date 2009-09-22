@@ -355,28 +355,14 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 			dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
 
-	/* 868 MHz BPSK	802.15.4-2003 */
-	phy->channels_supported[0] |= 1;
-	/* 915 MHz BPSK	802.15.4-2003 */
-	phy->channels_supported[0] |= 0x7fe;
+	/*
+	 * For now we'd like to emulate 2.4 GHz-only device,
+	 * both O-QPSK and CSS
+	 */
 	/* 2.4 GHz O-QPSK 802.15.4-2003 */
 	phy->channels_supported[0] |= 0x7FFF800;
-	/* 868 MHz ASK 802.15.4-2006 */
-	phy->channels_supported[1] |= 1;
-	/* 915 MHz ASK 802.15.4-2006 */
-	phy->channels_supported[1] |= 0x7fe;
-	/* 868 MHz O-QPSK 802.15.4-2006 */
-	phy->channels_supported[2] |= 1;
-	/* 915 MHz O-QPSK 802.15.4-2006 */
-	phy->channels_supported[2] |= 0x7fe;
 	/* 2.4 GHz CSS 802.15.4a-2007 */
 	phy->channels_supported[3] |= 0x3fff;
-	/* UWB Sub-gigahertz 802.15.4a-2007 */
-	phy->channels_supported[4] |= 1;
-	/* UWB Low band 802.15.4a-2007 */
-	phy->channels_supported[4] |= 0x1e;
-	/* UWB High band 802.15.4a-2007 */
-	phy->channels_supported[4] |= 0xffe0;
 
 	phy->transmit_power = 0xbf;
 
