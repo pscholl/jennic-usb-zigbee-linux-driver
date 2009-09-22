@@ -155,7 +155,7 @@ int ieee802154_mlme_scan_req(struct net_device *dev,
 
 	if (duration > 14)
 		goto inval;
-	if (channels & hw->hw.channel_mask)
+	if (channels & ~hw->phy->channels_supported[page])
 		goto inval;
 
 	work = kzalloc(sizeof(struct scan_work), GFP_KERNEL);
