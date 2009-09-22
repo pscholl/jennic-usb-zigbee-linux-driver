@@ -24,7 +24,6 @@
 struct ieee802154_dev {
 	/* filled by the driver */
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
-	u32	channel_mask;
 	u32	flags; /* Flags for device to set */
 	struct device *parent;
 
