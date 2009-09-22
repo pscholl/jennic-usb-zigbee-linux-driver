@@ -34,8 +34,13 @@ static int ieee802154_nl_fill_phy(struct sk_buff *msg, u32 pid,
 	u32 seq, int flags, struct wpan_phy *phy)
 {
 	void *hdr;
+	int i, pages = 0;
+	uint32_t *buf = kzalloc(32 * sizeof(uint32_t), GFP_KERNEL);
 
 	pr_debug("%s\n", __func__);
+
+	if (!buf)
+		goto out;
 
 	hdr = genlmsg_put(msg, 0, seq, &nl802154_family, flags,
 		IEEE802154_LIST_PHY);
@@ -47,6 +52,12 @@ static int ieee802154_nl_fill_phy(struct sk_buff *msg, u32 pid,
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_PAGE, phy->current_page);
 	NLA_PUT_U8(msg, IEEE802154_ATTR_CHANNEL, phy->current_channel);
+	for (i = 0; i < 32; i++) {
+		if (phy->channels_supported[i])
+			buf[pages++] = phy->channels_supported[i] | (i << 27);
+	}
+	if (pages)
+		NLA_PUT(msg, IEEE802154_ATTR_CHANNEL_PAGE_LIST, pages * sizeof(uint32_t), buf);
 
 	mutex_unlock(&phy->pib_lock);
 	return genlmsg_end(msg, hdr);
@@ -55,6 +66,7 @@ nla_put_failure:
 	mutex_unlock(&phy->pib_lock);
 	genlmsg_cancel(msg, hdr);
 out:
+	kfree(buf);
 	return -EMSGSIZE;
 }
 
