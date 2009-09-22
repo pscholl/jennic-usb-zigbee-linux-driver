@@ -807,8 +807,8 @@ ieee802154_tty_open(struct tty_struct *tty)
 
 	dev->extra_tx_headroom = 0;
 	/* only 2.4 GHz band */
-	dev->channel_mask = 0x7ff;
-	/* it's 1st channel of 2.4 Ghz space */
+	dev->phy->channels_supported[0] = 0x7fff800;
+
 	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
 	dev->parent = tty_get_device(tty);
