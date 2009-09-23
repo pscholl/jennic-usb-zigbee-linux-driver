@@ -87,6 +87,13 @@ static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *d
 	if (priv->chan == (u8)-1) /* not init */
 		return NETDEV_TX_OK;
 
+	BUG_ON(priv->page >= 32);
+	BUG_ON(priv->chan >= 27);
+
+	if (WARN_ON(!(priv->hw->phy->channels_supported[priv->page] &
+					(1 << priv->chan))))
+		return NETDEV_TX_OK;
+
 	if (!(priv->hw->hw.flags & IEEE802154_HW_OMIT_CKSUM)) {
 		u16 crc = crc_ccitt(0, skb->data, skb->len);
 		u8 *data = skb_put(skb, 2);
