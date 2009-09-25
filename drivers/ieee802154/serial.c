@@ -55,7 +55,7 @@
 #define STATUS_BUSY_TX	7
 #define STATUS_ERR	8
 
-#define STATUS_WAIT	-1 /* waiting for the answer */
+#define STATUS_WAIT	((u8) -1) /* waiting for the answer */
 
 /* We re-use PPP ioctl for our purposes */
 #define	PPPIOCGUNIT	_IOR('t', 86, int)	/* get ppp unit number */
