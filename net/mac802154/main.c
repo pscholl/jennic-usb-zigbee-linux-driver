@@ -82,7 +82,9 @@ int ieee802154_register_device(struct ieee802154_dev *dev)
 		goto out;
 	}
 
-	rc = wpan_phy_register(priv->hw.parent, priv->phy);
+	wpan_phy_set_dev(priv->phy, priv->hw.parent);
+
+	rc = wpan_phy_register(priv->phy);
 	if (rc < 0)
 		goto out_wq;
 
