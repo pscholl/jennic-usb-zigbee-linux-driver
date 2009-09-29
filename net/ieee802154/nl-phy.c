@@ -48,7 +48,7 @@ static int ieee802154_nl_fill_phy(struct sk_buff *msg, u32 pid,
 		goto out;
 
 	mutex_lock(&phy->pib_lock);
-	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, wpan_phy_name(phy));
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_PHY_NAME, wpan_phy_name(phy));
 
 	NLA_PUT_U8(msg, IEEE802154_ATTR_PAGE, phy->current_page);
 	NLA_PUT_U8(msg, IEEE802154_ATTR_CHANNEL, phy->current_channel);
@@ -82,11 +82,11 @@ static int ieee802154_list_phy(struct sk_buff *skb,
 
 	pr_debug("%s\n", __func__);
 
-	if (!info->attrs[IEEE802154_ATTR_DEV_NAME])
+	if (!info->attrs[IEEE802154_ATTR_PHY_NAME])
 		return -EINVAL;
 
-	name = nla_data(info->attrs[IEEE802154_ATTR_DEV_NAME]);
-	if (name[nla_len(info->attrs[IEEE802154_ATTR_DEV_NAME]) - 1] != '\0')
+	name = nla_data(info->attrs[IEEE802154_ATTR_PHY_NAME]);
+	if (name[nla_len(info->attrs[IEEE802154_ATTR_PHY_NAME]) - 1] != '\0')
 		return -EINVAL; /* phy name should be null-terminated */
 
 
