@@ -15,6 +15,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * Written by:
+ * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
  * Sergey Lapin <slapin@ossfans.org>
  * Maxim Gorbachyov <maxim.gorbachev@siemens.com>
  */
@@ -480,26 +481,14 @@ static int ieee802154_netdev_validate(struct nlattr *tb[],
 	return 0;
 }
 
-static int ieee802154_netdev_newlink(struct net_device *dev,
-					   struct nlattr *tb[],
-					   struct nlattr *data[])
+static int ieee802154_netdev_register(struct wpan_phy *phy,
+					struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv;
 	struct ieee802154_priv *ipriv;
-	struct wpan_phy *phy;
-	char *name;
 	int err;
 
-	if (!data || !data[IFLA_WPAN_PHY])
-		return -EINVAL;
-
-	name = nla_data(data[IFLA_WPAN_PHY]);
-	if (name[nla_len(data[IFLA_WPAN_PHY]) - 1] != '\0')
-		return -EINVAL; /* phy name should be null-terminated */
-
-	phy = wpan_phy_find(name);
-	if (!phy)
-		return -ENODEV;
+	ASSERT_RTNL();
 
 	ipriv = wpan_phy_priv(phy);
 
@@ -522,10 +511,6 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 
 	SET_NETDEV_DEV(dev, &ipriv->phy->dev);
 
-	/* We have stored the reference in the net_device,
-	 * so drop this reference */
-	wpan_phy_put(phy);
-
 	err = register_netdevice(dev);
 	if (err < 0)
 		return err;
@@ -535,6 +520,33 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	mutex_unlock(&ipriv->slaves_mtx);
 
 	return 0;
+}
+
+static int ieee802154_netdev_newlink(struct net_device *dev,
+					   struct nlattr *tb[],
+					   struct nlattr *data[])
+{
+	struct wpan_phy *phy;
+	char *name;
+	int err;
+
+	if (!data || !data[IFLA_WPAN_PHY])
+		return -EINVAL;
+
+	name = nla_data(data[IFLA_WPAN_PHY]);
+	if (name[nla_len(data[IFLA_WPAN_PHY]) - 1] != '\0')
+		return -EINVAL; /* phy name should be null-terminated */
+
+	phy = wpan_phy_find(name);
+	if (!phy)
+		return -ENODEV;
+
+	/* already called with rtnl held */
+	err = ieee802154_netdev_register(phy, dev);
+
+	wpan_phy_put(phy);
+
+	return err;
 }
 
 static void ieee802154_netdev_dellink(struct net_device *dev)
@@ -601,6 +613,41 @@ static struct rtnl_link_ops wpan_link_ops __read_mostly = {
 	.get_size	= ieee802154_netdev_get_size,
 	.fill_info	= ieee802154_netdev_fill_info,
 };
+
+struct net_device *ieee802154_add_iface(struct wpan_phy *phy)
+{
+	struct net_device *dev;
+	int err = -ENOMEM;
+
+	dev = alloc_netdev(sizeof(struct ieee802154_sub_if_data),
+			// FIXME: name
+			"wpan%d", ieee802154_netdev_setup);
+	if (!dev)
+		goto err;
+
+	dev->rtnl_link_ops = &wpan_link_ops;
+
+	rtnl_lock();
+	if (strchr(dev->name, '%')) {
+		err = dev_alloc_name(dev, dev->name);
+		if (err < 0)
+			goto err_free;
+	}
+
+	err = ieee802154_netdev_register(phy, dev);
+	rtnl_unlock();
+
+	if (err)
+		goto err_free;
+
+	dev_hold(dev); /* we return a device w/ incremented refcount */
+	return dev;
+
+err_free:
+	free_netdev(dev);
+err:
+	return ERR_PTR(err);
+}
 
 static int ieee802154_process_beacon(struct net_device *dev,
 		struct sk_buff *skb)
