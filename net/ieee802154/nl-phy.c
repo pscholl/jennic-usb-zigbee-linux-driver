@@ -163,9 +163,63 @@ static int ieee802154_dump_phy(struct sk_buff *skb,
 	return skb->len;
 }
 
+static int ieee802154_add_iface(struct sk_buff *skb,
+		struct genl_info *info)
+{
+	struct sk_buff *msg;
+	struct wpan_phy *phy;
+	const char *name;
+	int rc = -ENOBUFS;
+	struct net_device *dev;
+
+	pr_debug("%s\n", __func__);
+
+	if (!info->attrs[IEEE802154_ATTR_PHY_NAME])
+		return -EINVAL;
+
+	name = nla_data(info->attrs[IEEE802154_ATTR_PHY_NAME]);
+	if (name[nla_len(info->attrs[IEEE802154_ATTR_PHY_NAME]) - 1] != '\0')
+		return -EINVAL; /* phy name should be null-terminated */
+
+	phy = wpan_phy_find(name);
+	if (!phy)
+		return -ENODEV;
+
+	msg = ieee802154_nl_new_reply(info, 0, IEEE802154_ADD_IFACE);
+	if (!msg)
+		goto out_dev;
+
+	if (!phy->add_iface) {
+		rc = -EINVAL;
+		goto nla_put_failure;
+	}
+
+	dev = phy->add_iface(phy);
+	if (IS_ERR(dev)) {
+		rc = PTR_ERR(dev);
+		goto nla_put_failure;
+	}
+
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_PHY_NAME, wpan_phy_name(phy));
+	NLA_PUT_STRING(msg, IEEE802154_ATTR_DEV_NAME, dev->name);
+
+	dev_put(dev);
+
+	wpan_phy_put(phy);
+
+	return ieee802154_nl_reply(msg, info);
+
+nla_put_failure:
+	nlmsg_free(msg);
+out_dev:
+	wpan_phy_put(phy);
+	return rc;
+}
+
 static struct genl_ops ieee802154_phy_ops[] = {
 	IEEE802154_DUMP(IEEE802154_LIST_PHY, ieee802154_list_phy,
 							ieee802154_dump_phy),
+	IEEE802154_OP(IEEE802154_ADD_IFACE, ieee802154_add_iface),
 };
 
 /*
