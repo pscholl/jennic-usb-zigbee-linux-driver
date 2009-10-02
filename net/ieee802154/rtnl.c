@@ -71,13 +71,16 @@ static int wpan_netdev_fill_info(struct sk_buff *skb,
 	struct wpan_phy *phy = ops->get_phy(dev);
 
 	u16 channel;
+	u8 page;
 
 	mutex_lock(&phy->pib_lock);
 	channel = phy->current_channel;
+	page = phy->current_page;
 	mutex_unlock(&phy->pib_lock);
 
 
 	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, channel);
+	NLA_PUT_U8(skb, IFLA_WPAN_PAGE, page);
 	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, ops->get_pan_id(dev));
 	NLA_PUT_U16(skb, IFLA_WPAN_SHORT_ADDR, ops->get_short_addr(dev));
 	NLA_PUT_STRING(skb, IFLA_WPAN_PHY, wpan_phy_name(phy));
