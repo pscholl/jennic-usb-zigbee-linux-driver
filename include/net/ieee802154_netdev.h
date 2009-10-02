@@ -74,6 +74,7 @@ static inline int mac_cb_type(struct sk_buff *skb)
 #define IEEE802154_MAC_SCAN_PASSIVE	2
 #define IEEE802154_MAC_SCAN_ORPHAN	3
 
+struct wpan_phy;
 /*
  * This should be located at net_device->ml_priv
  */
@@ -93,6 +94,8 @@ struct ieee802154_mlme_ops {
 			u8 pan_coord, u8 blx, u8 coord_realign);
 	int (*scan_req)(struct net_device *dev,
 			u8 type, u32 channels, u8 page, u8 duration);
+
+	struct wpan_phy *(*get_phy)(const struct net_device *dev);
 
 	/*
 	 * FIXME: these should become the part of PIB/MIB interface.

@@ -232,12 +232,19 @@ static int fake_scan_req(struct net_device *dev, u8 type, u32 channels,
 			type == IEEE802154_MAC_SCAN_ED ? edl : NULL);
 }
 
+static struct wpan_phy *fake_get_phy(const struct net_device *dev)
+{
+	return *((struct wpan_phy **)netdev_priv(dev));
+}
+
 static struct ieee802154_mlme_ops fake_mlme = {
 	.assoc_req = fake_assoc_req,
 	.assoc_resp = fake_assoc_resp,
 	.disassoc_req = fake_disassoc_req,
 	.start_req = fake_start_req,
 	.scan_req = fake_scan_req,
+
+	.get_phy = fake_get_phy,
 
 	.get_pan_id = fake_get_pan_id,
 	.get_short_addr = fake_get_short_addr,
@@ -343,7 +350,7 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 	if (!phy)
 		return -ENOMEM;
 
-	dev = alloc_netdev(0, "hardwpan%d", ieee802154_fake_setup);
+	dev = alloc_netdev(sizeof(struct wpan_phy *), "hardwpan%d", ieee802154_fake_setup);
 	if (!dev) {
 		wpan_phy_free(phy);
 		return -ENOMEM;
@@ -368,6 +375,7 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 
 	dev->netdev_ops = &fake_ops;
 	dev->ml_priv = &fake_mlme;
+	*((struct wpan_phy **)netdev_priv(dev)) = phy;
 
 	/*
 	 * If the name is a format string the caller wants us to do a
