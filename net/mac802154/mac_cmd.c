@@ -336,6 +336,8 @@ struct ieee802154_mlme_ops mac802154_mlme = {
 	.start_req = ieee802154_mlme_start_req,
 	.scan_req = ieee802154_mlme_scan_req,
 
+	.get_phy = ieee802154_get_phy,
+
 	.get_pan_id = ieee802154_dev_get_pan_id,
 	.get_short_addr = ieee802154_dev_get_short_addr,
 	.get_dsn = ieee802154_dev_get_dsn,

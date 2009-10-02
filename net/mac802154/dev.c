@@ -468,27 +468,12 @@ void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 	}
 }
 
-static int ieee802154_netdev_validate(struct nlattr *tb[],
-		struct nlattr *data[])
-{
-	if (tb[IFLA_ADDRESS])
-		if (nla_len(tb[IFLA_ADDRESS]) != IEEE802154_ADDR_LEN)
-			return -EINVAL;
-
-	if (tb[IFLA_BROADCAST])
-		return -EINVAL;
-
-	return 0;
-}
-
 static int ieee802154_netdev_register(struct wpan_phy *phy,
 					struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv;
 	struct ieee802154_priv *ipriv;
 	int err;
-
-	ASSERT_RTNL();
 
 	ipriv = wpan_phy_priv(phy);
 
@@ -511,45 +496,21 @@ static int ieee802154_netdev_register(struct wpan_phy *phy,
 
 	SET_NETDEV_DEV(dev, &ipriv->phy->dev);
 
-	err = register_netdevice(dev);
+	err = register_wpandev(dev);
 	if (err < 0)
 		return err;
 
+	rtnl_lock();
 	mutex_lock(&ipriv->slaves_mtx);
 	list_add_tail_rcu(&priv->list, &ipriv->slaves);
 	mutex_unlock(&ipriv->slaves_mtx);
+	rtnl_unlock();
 
 	return 0;
 }
 
-static int ieee802154_netdev_newlink(struct net_device *dev,
-					   struct nlattr *tb[],
-					   struct nlattr *data[])
-{
-	struct wpan_phy *phy;
-	char *name;
-	int err;
-
-	if (!data || !data[IFLA_WPAN_PHY])
-		return -EINVAL;
-
-	name = nla_data(data[IFLA_WPAN_PHY]);
-	if (name[nla_len(data[IFLA_WPAN_PHY]) - 1] != '\0')
-		return -EINVAL; /* phy name should be null-terminated */
-
-	phy = wpan_phy_find(name);
-	if (!phy)
-		return -ENODEV;
-
-	/* already called with rtnl held */
-	err = ieee802154_netdev_register(phy, dev);
-
-	wpan_phy_put(phy);
-
-	return err;
-}
-
-static void ieee802154_netdev_dellink(struct net_device *dev)
+void ieee802154_del_iface(struct wpan_phy *phy,
+		struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *sdata;
 	ASSERT_RTNL();
@@ -558,6 +519,8 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 
 	sdata = netdev_priv(dev);
 
+	BUG_ON(sdata->hw->phy != phy);
+
 	mutex_lock(&sdata->hw->slaves_mtx);
 	list_del_rcu(&sdata->list);
 	mutex_unlock(&sdata->hw->slaves_mtx);
@@ -565,54 +528,6 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 	synchronize_rcu();
 	unregister_netdevice(sdata->dev);
 }
-
-static size_t ieee802154_netdev_get_size(const struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-	return	nla_total_size(2) +	/* IFLA_WPAN_CHANNEL */
-		nla_total_size(2) +	/* IFLA_WPAN_PAN_ID */
-		nla_total_size(2) +	/* IFLA_WPAN_SHORT_ADDR */
-					/* IFLA_WPAN_PHY */
-		nla_total_size(strlen(wpan_phy_name(priv->hw->phy)) + 1) +
-		nla_total_size(2) +	/* IFLA_WPAN_COORD_SHORT_ADDR */
-		nla_total_size(8);	/* IFLA_WPAN_COORD_EXT_ADDR */
-}
-
-static int ieee802154_netdev_fill_info(struct sk_buff *skb,
-					const struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-
-	read_lock_bh(&priv->mib_lock);
-
-	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, priv->chan);
-	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, priv->pan_id);
-	NLA_PUT_U16(skb, IFLA_WPAN_SHORT_ADDR, priv->short_addr);
-	NLA_PUT_STRING(skb, IFLA_WPAN_PHY, wpan_phy_name(priv->hw->phy));
-	/* TODO: IFLA_WPAN_COORD_SHORT_ADDR */
-	/* TODO: IFLA_WPAN_COORD_EXT_ADDR */
-
-	read_unlock_bh(&priv->mib_lock);
-
-	return 0;
-
-nla_put_failure:
-	read_unlock_bh(&priv->mib_lock);
-	return -EMSGSIZE;
-}
-
-static struct rtnl_link_ops wpan_link_ops __read_mostly = {
-	.kind		= "wpan",
-	.maxtype	= IFLA_WPAN_MAX,
-	/* TODO: policy */
-	.priv_size	= sizeof(struct ieee802154_sub_if_data),
-	.setup		= ieee802154_netdev_setup,
-	.validate	= ieee802154_netdev_validate,
-	.newlink	= ieee802154_netdev_newlink,
-	.dellink	= ieee802154_netdev_dellink,
-	.get_size	= ieee802154_netdev_get_size,
-	.fill_info	= ieee802154_netdev_fill_info,
-};
 
 struct net_device *ieee802154_add_iface(struct wpan_phy *phy)
 {
@@ -625,17 +540,7 @@ struct net_device *ieee802154_add_iface(struct wpan_phy *phy)
 	if (!dev)
 		goto err;
 
-	dev->rtnl_link_ops = &wpan_link_ops;
-
-	rtnl_lock();
-	if (strchr(dev->name, '%')) {
-		err = dev_alloc_name(dev, dev->name);
-		if (err < 0)
-			goto err_free;
-	}
-
 	err = ieee802154_netdev_register(phy, dev);
-	rtnl_unlock();
 
 	if (err)
 		goto err_free;
@@ -957,18 +862,4 @@ out:
 	dev_kfree_skb(skb);
 	return;
 }
-
-static int __init ieee802154_dev_init(void)
-{
-	return rtnl_link_register(&wpan_link_ops);
-}
-subsys_initcall(ieee802154_dev_init);
-
-static void __exit ieee802154_dev_exit(void)
-{
-	rtnl_link_unregister(&wpan_link_ops);
-}
-module_exit(ieee802154_dev_exit);
-
-MODULE_ALIAS_RTNL_LINK("wpan");
 

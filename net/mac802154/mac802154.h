@@ -69,6 +69,8 @@ struct ieee802154_sub_if_data {
 
 void ieee802154_drop_slaves(struct ieee802154_dev *hw);
 struct net_device *ieee802154_add_iface(struct wpan_phy *phy);
+void ieee802154_del_iface(struct wpan_phy *phy,
+		struct net_device *dev);
 
 void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb);
 

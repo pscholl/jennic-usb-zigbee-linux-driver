@@ -85,6 +85,7 @@ int ieee802154_register_device(struct ieee802154_dev *dev)
 	wpan_phy_set_dev(priv->phy, priv->hw.parent);
 
 	priv->phy->add_iface = ieee802154_add_iface;
+	priv->phy->del_iface = ieee802154_del_iface;
 
 	rc = wpan_phy_register(priv->phy);
 	if (rc < 0)
