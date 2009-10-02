@@ -57,6 +57,7 @@ void wpan_phy_unregister(struct wpan_phy *phy);
 void wpan_phy_free(struct wpan_phy *phy);
 /* Same semantics as for class_for_each_device */
 int wpan_phy_for_each(int (*fn)(struct wpan_phy *phy, void *data), void *data);
+int register_wpandev(struct net_device *dev);
 
 static inline void *wpan_phy_priv(struct wpan_phy *phy)
 {

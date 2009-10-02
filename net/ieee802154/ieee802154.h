@@ -50,4 +50,8 @@ extern struct genl_family nl802154_family;
 int nl802154_mac_register(void);
 int nl802154_phy_register(void);
 
+extern struct rtnl_link_ops wpan_link_ops;
+int __init wpan_rtnl_init(void);
+void __exit wpan_rtnl_exit(void);
+
 #endif

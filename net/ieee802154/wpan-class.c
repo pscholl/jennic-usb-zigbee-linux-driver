@@ -199,7 +199,13 @@ static int __init wpan_phy_class_init(void)
 	if (rc)
 		goto err_nl;
 
+	rc = wpan_rtnl_init();
+	if (rc)
+		goto err_rtnl;
+
 	return 0;
+err_rtnl:
+	ieee802154_nl_exit();
 err_nl:
 	class_unregister(&wpan_phy_class);
 err:
@@ -209,6 +215,7 @@ module_init(wpan_phy_class_init);
 
 static void __exit wpan_phy_class_exit(void)
 {
+	wpan_rtnl_exit();
 	ieee802154_nl_exit();
 	class_unregister(&wpan_phy_class);
 }
