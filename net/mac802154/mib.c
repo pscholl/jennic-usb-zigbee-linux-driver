@@ -23,6 +23,7 @@
 #include <linux/if_arp.h>
 
 #include <net/mac802154.h>
+#include <net/wpan-phy.h>
 
 #include "mac802154.h"
 
@@ -137,5 +138,5 @@ struct wpan_phy *ieee802154_get_phy(const struct net_device *dev)
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	return priv->hw->phy;
+	return to_phy(get_device(&priv->hw->phy->dev));
 }

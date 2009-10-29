@@ -234,7 +234,8 @@ static int fake_scan_req(struct net_device *dev, u8 type, u32 channels,
 
 static struct wpan_phy *fake_get_phy(const struct net_device *dev)
 {
-	return *((struct wpan_phy **)netdev_priv(dev));
+	struct wpan_phy *phy = *((struct wpan_phy **)netdev_priv(dev));
+	return to_phy(get_device(&phy->dev));
 }
 
 static struct ieee802154_mlme_ops fake_mlme = {

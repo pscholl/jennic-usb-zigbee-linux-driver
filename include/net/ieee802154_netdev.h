@@ -77,6 +77,9 @@ static inline int mac_cb_type(struct sk_buff *skb)
 struct wpan_phy;
 /*
  * This should be located at net_device->ml_priv
+ *
+ * get_phy should increment the reference counting on returned phy.
+ * Use wpan_wpy_put to put that reference.
  */
 struct ieee802154_mlme_ops {
 	int (*assoc_req)(struct net_device *dev,
