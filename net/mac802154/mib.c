@@ -26,8 +26,9 @@
 #include <net/wpan-phy.h>
 
 #include "mac802154.h"
+#include "mib.h"
 
-u16 ieee802154_dev_get_pan_id(struct net_device *dev)
+u16 ieee802154_dev_get_pan_id(const struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	u16 ret;
@@ -41,7 +42,7 @@ u16 ieee802154_dev_get_pan_id(struct net_device *dev)
 	return ret;
 }
 
-u16 ieee802154_dev_get_short_addr(struct net_device *dev)
+u16 ieee802154_dev_get_short_addr(const struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	u16 ret;
@@ -65,6 +66,7 @@ void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
 	priv->pan_id = val;
 	write_unlock_bh(&priv->mib_lock);
 }
+
 void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
@@ -75,6 +77,7 @@ void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 	priv->short_addr = val;
 	write_unlock_bh(&priv->mib_lock);
 }
+
 void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
@@ -97,7 +100,7 @@ void ieee802154_dev_set_page(struct net_device *dev, u8 page)
 	write_unlock_bh(&priv->mib_lock);
 }
 
-u8 ieee802154_dev_get_dsn(struct net_device *dev)
+u8 ieee802154_dev_get_dsn(const struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	u16 ret;
@@ -111,7 +114,7 @@ u8 ieee802154_dev_get_dsn(struct net_device *dev)
 	return ret;
 }
 
-u8 ieee802154_dev_get_bsn(struct net_device *dev)
+u8 ieee802154_dev_get_bsn(const struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
 	u16 ret;
