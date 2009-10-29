@@ -55,13 +55,17 @@ static size_t wpan_netdev_get_size(const struct net_device *dev)
 	struct ieee802154_mlme_ops *ops = ieee802154_mlme_ops(dev);
 	struct wpan_phy *phy = ops->get_phy(dev);
 
-	return	nla_total_size(2) +	/* IFLA_WPAN_CHANNEL */
+	size_t size =
+		nla_total_size(2) +	/* IFLA_WPAN_CHANNEL */
 		nla_total_size(2) +	/* IFLA_WPAN_PAN_ID */
 		nla_total_size(2) +	/* IFLA_WPAN_SHORT_ADDR */
 					/* IFLA_WPAN_PHY */
 		nla_total_size(strlen(wpan_phy_name(phy)) + 1) +
 		nla_total_size(2) +	/* IFLA_WPAN_COORD_SHORT_ADDR */
 		nla_total_size(8);	/* IFLA_WPAN_COORD_EXT_ADDR */
+
+	wpan_phy_put(phy);
+	return size;
 }
 
 static int wpan_netdev_fill_info(struct sk_buff *skb,
@@ -87,9 +91,11 @@ static int wpan_netdev_fill_info(struct sk_buff *skb,
 	/* TODO: IFLA_WPAN_COORD_SHORT_ADDR */
 	/* TODO: IFLA_WPAN_COORD_EXT_ADDR */
 
+	wpan_phy_put(phy);
 	return 0;
 
 nla_put_failure:
+	wpan_phy_put(phy);
 	return -EMSGSIZE;
 }
 
@@ -122,6 +128,8 @@ static void wpan_netdev_dellink(struct net_device *dev)
 
 	if (phy->del_iface)
 		phy->del_iface(phy, dev);
+
+	wpan_phy_put(phy);
 }
 
 struct rtnl_link_ops wpan_link_ops __read_mostly = {
