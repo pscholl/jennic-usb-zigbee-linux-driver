@@ -57,7 +57,8 @@ static int ieee802154_nl_fill_phy(struct sk_buff *msg, u32 pid,
 			buf[pages++] = phy->channels_supported[i] | (i << 27);
 	}
 	if (pages)
-		NLA_PUT(msg, IEEE802154_ATTR_CHANNEL_PAGE_LIST, pages * sizeof(uint32_t), buf);
+		NLA_PUT(msg, IEEE802154_ATTR_CHANNEL_PAGE_LIST,
+				pages * sizeof(uint32_t), buf);
 
 	mutex_unlock(&phy->pib_lock);
 	return genlmsg_end(msg, hdr);
