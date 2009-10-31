@@ -32,6 +32,10 @@
 #include <net/nl802154.h>
 #include <net/wpan-phy.h>
 
+struct fakehard_priv {
+	struct wpan_phy *phy;
+};
+
 static struct wpan_phy *net_to_phy(struct net_device *dev)
 {
 	return container_of(dev->dev.parent, struct wpan_phy, dev);
@@ -234,7 +238,8 @@ static int fake_scan_req(struct net_device *dev, u8 type, u32 channels,
 
 static struct wpan_phy *fake_get_phy(const struct net_device *dev)
 {
-	struct wpan_phy *phy = *((struct wpan_phy **)netdev_priv(dev));
+	struct fakehard_priv *priv = netdev_priv(dev);
+	struct wpan_phy *phy = priv->phy;
 	return to_phy(get_device(&phy->dev));
 }
 
@@ -345,6 +350,7 @@ static void ieee802154_fake_setup(struct net_device *dev)
 static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 {
 	struct net_device *dev;
+	struct fakehard_priv *priv;
 	struct wpan_phy *phy = wpan_phy_alloc(0);
 	int err;
 
@@ -376,7 +382,9 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 
 	dev->netdev_ops = &fake_ops;
 	dev->ml_priv = &fake_mlme;
-	*((struct wpan_phy **)netdev_priv(dev)) = phy;
+
+	priv = netdev_priv(dev);
+	priv->phy = phy;
 
 	/*
 	 * If the name is a format string the caller wants us to do a
