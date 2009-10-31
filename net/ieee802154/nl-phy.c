@@ -109,7 +109,7 @@ static int ieee802154_list_phy(struct sk_buff *skb,
 
 	wpan_phy_put(phy);
 
-	return genlmsg_unicast(msg, info->snd_pid);
+	return genlmsg_reply(msg, info);
 out_free:
 	nlmsg_free(msg);
 out_dev:

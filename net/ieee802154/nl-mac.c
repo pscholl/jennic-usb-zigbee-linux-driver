@@ -543,7 +543,7 @@ static int ieee802154_list_iface(struct sk_buff *skb,
 
 	dev_put(dev);
 
-	return genlmsg_unicast(msg, info->snd_pid);
+	return genlmsg_reply(msg, info);
 out_free:
 	nlmsg_free(msg);
 out_dev:
