@@ -28,8 +28,8 @@
 #include <linux/random.h>
 #include <linux/crc-ccitt.h>
 #include <linux/mac802154.h>
-#include <net/rtnetlink.h>
 
+#include <net/rtnetlink.h>
 #include <net/af_ieee802154.h>
 #include <net/mac802154.h>
 #include <net/ieee802154_netdev.h>
@@ -496,7 +496,7 @@ static int ieee802154_netdev_register(struct wpan_phy *phy,
 
 	SET_NETDEV_DEV(dev, &ipriv->phy->dev);
 
-	err = register_wpandev(dev);
+	err = register_netdev(dev);
 	if (err < 0)
 		return err;
 

@@ -405,7 +405,7 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 	if (err)
 		goto out;
 
-	err = register_wpandev(dev);
+	err = register_netdev(dev);
 	if (err < 0)
 		goto out;
 
