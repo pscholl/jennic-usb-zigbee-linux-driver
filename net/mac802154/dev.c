@@ -27,7 +27,6 @@
 #include <linux/rculist.h>
 #include <linux/random.h>
 #include <linux/crc-ccitt.h>
-#include <linux/mac802154.h>
 
 #include <net/rtnetlink.h>
 #include <net/af_ieee802154.h>
