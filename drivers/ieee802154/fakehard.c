@@ -236,6 +236,15 @@ static int fake_scan_req(struct net_device *dev, u8 type, u32 channels,
 			type == IEEE802154_MAC_SCAN_ED ? edl : NULL);
 }
 
+/**
+ * fake_get_phy - Return a phy corresponding to this device.
+ * @dev: The network device for which to return the wan-phy object
+ *
+ * This function returns a wpan-phy object corresponding to the passed
+ * network device. Reference counter for wpan-phy object is incremented,
+ * so when the wpan-phy isn't necessary, you should drop the reference
+ * via @wpan_phy_put() call.
+ */
 static struct wpan_phy *fake_get_phy(const struct net_device *dev)
 {
 	struct fakehard_priv *priv = netdev_priv(dev);
