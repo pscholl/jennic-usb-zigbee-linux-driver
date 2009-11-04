@@ -200,7 +200,6 @@ static int __init wpan_phy_class_init(void)
 		goto err_nl;
 
 	return 0;
-	ieee802154_nl_exit();
 err_nl:
 	class_unregister(&wpan_phy_class);
 err:
