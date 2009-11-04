@@ -270,7 +270,8 @@ static int ieee802154_fake_close(struct net_device *dev)
 	return 0;
 }
 
-static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
+					      struct net_device *dev)
 {
 	skb->iif = dev->ifindex;
 	skb->dev = dev;
@@ -358,6 +359,14 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	dev = alloc_netdev(sizeof(struct fakehard_priv), "hardwpan%d", ieee802154_fake_setup);
+	if (!dev) {
+		wpan_phy_free(phy);
+		return -ENOMEM;
+	}
+
+	phy->dev.platform_data = dev;
+
+	dev = alloc_netdev(0, "hardwpan%d", ieee802154_fake_setup);
 	if (!dev) {
 		wpan_phy_free(phy);
 		return -ENOMEM;
