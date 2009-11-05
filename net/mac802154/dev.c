@@ -528,14 +528,14 @@ void ieee802154_del_iface(struct wpan_phy *phy,
 	unregister_netdevice(sdata->dev);
 }
 
-struct net_device *ieee802154_add_iface(struct wpan_phy *phy)
+struct net_device *ieee802154_add_iface(struct wpan_phy *phy,
+		const char *name)
 {
 	struct net_device *dev;
 	int err = -ENOMEM;
 
 	dev = alloc_netdev(sizeof(struct ieee802154_sub_if_data),
-			// FIXME: name
-			"wpan%d", ieee802154_netdev_setup);
+			name, ieee802154_netdev_setup);
 	if (!dev)
 		goto err;
 
