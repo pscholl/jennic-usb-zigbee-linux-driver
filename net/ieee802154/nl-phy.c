@@ -173,6 +173,7 @@ static int ieee802154_add_iface(struct sk_buff *skb,
 	struct sk_buff *msg;
 	struct wpan_phy *phy;
 	const char *name;
+	const char *devname;
 	int rc = -ENOBUFS;
 	struct net_device *dev;
 
@@ -184,6 +185,18 @@ static int ieee802154_add_iface(struct sk_buff *skb,
 	name = nla_data(info->attrs[IEEE802154_ATTR_PHY_NAME]);
 	if (name[nla_len(info->attrs[IEEE802154_ATTR_PHY_NAME]) - 1] != '\0')
 		return -EINVAL; /* phy name should be null-terminated */
+
+	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
+		devname = nla_data(info->attrs[IEEE802154_ATTR_DEV_NAME]);
+		if (devname[nla_len(info->attrs[IEEE802154_ATTR_DEV_NAME]) - 1]
+				!= '\0')
+			return -EINVAL; /* phy name should be null-terminated */
+	} else  {
+		devname = "wpan%d";
+	}
+
+	if (strlen(devname) >= IFNAMSIZ)
+		return -ENAMETOOLONG;
 
 	phy = wpan_phy_find(name);
 	if (!phy)
@@ -198,7 +211,7 @@ static int ieee802154_add_iface(struct sk_buff *skb,
 		goto nla_put_failure;
 	}
 
-	dev = phy->add_iface(phy);
+	dev = phy->add_iface(phy, devname);
 	if (IS_ERR(dev)) {
 		rc = PTR_ERR(dev);
 		goto nla_put_failure;
