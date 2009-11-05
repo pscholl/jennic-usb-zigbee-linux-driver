@@ -251,8 +251,7 @@ static int ieee802154_del_iface(struct sk_buff *skb,
 	if (name[nla_len(info->attrs[IEEE802154_ATTR_DEV_NAME]) - 1] != '\0')
 		return -EINVAL; /* name should be null-terminated */
 
-	// XXX: init_net
-	dev = dev_get_by_name(&init_net, name);
+	dev = dev_get_by_name(genl_info_net(info), name);
 	if (!dev)
 		return -ENODEV;
 
