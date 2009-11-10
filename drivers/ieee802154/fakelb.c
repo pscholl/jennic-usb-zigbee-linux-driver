@@ -163,6 +163,15 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 	ieee->phy->channels_supported[4] |= 0x1e;
 	/* UWB High band 802.15.4a-2007 */
 	ieee->phy->channels_supported[4] |= 0xffe0;
+	/* 750 MHz O-QPSK 802.15.4c-2009 */
+	ieee->phy->channels_supported[5] |= 0xf;
+	/* 750 MHz MPSK 802.15.4c-2009 */
+	ieee->phy->channels_supported[5] |= 0xf0;
+	/* 950 MHz BPSK 802.15.4d-2009 */
+	ieee->phy->channels_supported[6] |= 0x3ff;
+	/* 950 MHz GFSK 802.15.4d-2009 */
+	ieee->phy->channels_supported[6] |= 0x3ffc00;
+
 
 	INIT_LIST_HEAD(&priv->list);
 	priv->fake = fake;
