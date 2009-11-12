@@ -180,6 +180,7 @@ cuboot*)
         ;;
     *-mpc83*|*-asp834x*)
         platformo=$object/cuboot-83xx.o
+	link_address='0x500000'
         ;;
     *-tqm8541|*-mpc8560*|*-tqm8560|*-tqm8555|*-ksi8560*)
         platformo=$object/cuboot-85xx-cpm2.o
