@@ -373,16 +373,6 @@ static int __devinit ieee802154fake_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	phy->dev.platform_data = dev;
-
-	dev = alloc_netdev(0, "hardwpan%d", ieee802154_fake_setup);
-	if (!dev) {
-		wpan_phy_free(phy);
-		return -ENOMEM;
-	}
-
-	phy->dev.platform_data = dev;
-
 	memcpy(dev->dev_addr, "\xba\xbe\xca\xfe\xde\xad\xbe\xef",
 			dev->addr_len);
 	memcpy(dev->perm_addr, dev->dev_addr, dev->addr_len);
