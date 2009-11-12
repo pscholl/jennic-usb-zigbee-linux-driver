@@ -120,6 +120,8 @@
 
 		spi@7000 {
 			cell-index = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			compatible = "fsl,spi";
 			reg = <0x7000 0x1000>;
 			interrupts = <16 0x8>;
