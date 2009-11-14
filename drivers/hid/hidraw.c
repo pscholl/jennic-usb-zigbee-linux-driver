@@ -30,6 +30,7 @@
 #include <linux/major.h>
 #include <linux/hid.h>
 #include <linux/mutex.h>
+#include <linux/sched.h>
 #include <linux/smp_lock.h>
 
 #include <linux/hidraw.h>
@@ -47,10 +48,9 @@ static ssize_t hidraw_read(struct file *file, char __user *buffer, size_t count,
 	char *report;
 	DECLARE_WAITQUEUE(wait, current);
 
+	mutex_lock(&list->read_mutex);
+
 	while (ret == 0) {
-
-		mutex_lock(&list->read_mutex);
-
 		if (list->head == list->tail) {
 			add_wait_queue(&list->hidraw->wait, &wait);
 			set_current_state(TASK_INTERRUPTIBLE);
@@ -349,10 +349,7 @@ int hidraw_connect(struct hid_device *hid)
 	int minor, result;
 	struct hidraw *dev;
 
-	/* TODO currently we accept any HID device. This should later
-	 * probably be fixed to accept only those devices which provide
-	 * non-input applications
-	 */
+	/* we accept any HID device, no matter the applications */
 
 	dev = kzalloc(sizeof(struct hidraw), GFP_KERNEL);
 	if (!dev)

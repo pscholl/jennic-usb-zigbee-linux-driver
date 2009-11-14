@@ -34,6 +34,8 @@
 #include <acpi/acpi_bus.h>
 #include <linux/dmi.h>
 
+#include "internal.h"
+
 enum acpi_blacklist_predicates {
 	all_versions,
 	less_than_or_equal,
@@ -78,9 +80,10 @@ static struct acpi_blacklist_item acpi_blacklist[] __initdata = {
 
 static int __init blacklist_by_year(void)
 {
-	int year = dmi_get_year(DMI_BIOS_DATE);
+	int year;
+
 	/* Doesn't exist? Likely an old system */
-	if (year == -1) {
+	if (!dmi_get_date(DMI_BIOS_DATE, &year, NULL, NULL)) {
 		printk(KERN_ERR PREFIX "no DMI BIOS year, "
 			"acpi=force is required to enable ACPI\n" );
 		return 1;
@@ -190,6 +193,22 @@ static struct dmi_system_id acpi_osi_dmi_table[] __initdata = {
 	.matches = {
 		     DMI_MATCH(DMI_SYS_VENDOR, "FUJITSU SIEMENS"),
 		     DMI_MATCH(DMI_PRODUCT_NAME, "ESPRIMO Mobile V5505"),
+		},
+	},
+	{
+	.callback = dmi_disable_osi_vista,
+	.ident = "Sony VGN-NS10J_S",
+	.matches = {
+		     DMI_MATCH(DMI_SYS_VENDOR, "Sony Corporation"),
+		     DMI_MATCH(DMI_PRODUCT_NAME, "VGN-NS10J_S"),
+		},
+	},
+	{
+	.callback = dmi_disable_osi_vista,
+	.ident = "Sony VGN-SR290J",
+	.matches = {
+		     DMI_MATCH(DMI_SYS_VENDOR, "Sony Corporation"),
+		     DMI_MATCH(DMI_PRODUCT_NAME, "Sony VGN-SR290J"),
 		},
 	},
 

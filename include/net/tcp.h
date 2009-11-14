@@ -266,6 +266,19 @@ static inline int tcp_too_many_orphans(struct sock *sk, int num)
 		 atomic_read(&tcp_memory_allocated) > sysctl_tcp_mem[2]);
 }
 
+/* syncookies: remember time of last synqueue overflow */
+static inline void tcp_synq_overflow(struct sock *sk)
+{
+	tcp_sk(sk)->rx_opt.ts_recent_stamp = jiffies;
+}
+
+/* syncookies: no recent synqueue overflow on this listening socket? */
+static inline int tcp_synq_no_recent_overflow(const struct sock *sk)
+{
+	unsigned long last_overflow = tcp_sk(sk)->rx_opt.ts_recent_stamp;
+	return time_after(jiffies, last_overflow + TCP_TIMEOUT_INIT);
+}
+
 extern struct proto tcp_prot;
 
 #define TCP_INC_STATS(net, field)	SNMP_INC_STATS((net)->mib.tcp_statistics, field)
@@ -381,13 +394,13 @@ extern int			tcp_getsockopt(struct sock *sk, int level,
 					       int __user *optlen);
 extern int			tcp_setsockopt(struct sock *sk, int level, 
 					       int optname, char __user *optval, 
-					       int optlen);
+					       unsigned int optlen);
 extern int			compat_tcp_getsockopt(struct sock *sk,
 					int level, int optname,
 					char __user *optval, int __user *optlen);
 extern int			compat_tcp_setsockopt(struct sock *sk,
 					int level, int optname,
-					char __user *optval, int optlen);
+					char __user *optval, unsigned int optlen);
 extern void			tcp_set_keepalive(struct sock *sk, int val);
 extern int			tcp_recvmsg(struct kiocb *iocb, struct sock *sk,
 					    struct msghdr *msg,
@@ -456,6 +469,7 @@ extern void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
 				      int nonagle);
 extern int tcp_may_send_now(struct sock *sk);
 extern int tcp_retransmit_skb(struct sock *, struct sk_buff *);
+extern void tcp_retransmit_timer(struct sock *sk);
 extern void tcp_xmit_retransmit_queue(struct sock *);
 extern void tcp_simple_retransmit(struct sock *);
 extern int tcp_trim_head(struct sock *, struct sk_buff *, u32);
@@ -507,6 +521,17 @@ extern void tcp_initialize_rcv_mss(struct sock *sk);
 extern int tcp_mtu_to_mss(struct sock *sk, int pmtu);
 extern int tcp_mss_to_mtu(struct sock *sk, int mss);
 extern void tcp_mtup_init(struct sock *sk);
+
+static inline void tcp_bound_rto(const struct sock *sk)
+{
+	if (inet_csk(sk)->icsk_rto > TCP_RTO_MAX)
+		inet_csk(sk)->icsk_rto = TCP_RTO_MAX;
+}
+
+static inline u32 __tcp_set_rto(const struct tcp_sock *tp)
+{
+	return (tp->srtt >> 3) + tp->rttvar;
+}
 
 static inline void __tcp_fast_path_on(struct tcp_sock *tp, u32 snd_wnd)
 {
@@ -768,6 +793,13 @@ static inline unsigned int tcp_packets_in_flight(const struct tcp_sock *tp)
 	return tp->packets_out - tcp_left_out(tp) + tp->retrans_out;
 }
 
+#define TCP_INFINITE_SSTHRESH	0x7fffffff
+
+static inline bool tcp_in_initial_slowstart(const struct tcp_sock *tp)
+{
+	return tp->snd_ssthresh >= TCP_INFINITE_SSTHRESH;
+}
+
 /* If cwnd > ssthresh, we may raise ssthresh to be half-way to cwnd.
  * The exception is rate halving phase, when cwnd is decreasing towards
  * ssthresh.
@@ -889,30 +921,32 @@ static inline int tcp_prequeue(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
-	if (!sysctl_tcp_low_latency && tp->ucopy.task) {
-		__skb_queue_tail(&tp->ucopy.prequeue, skb);
-		tp->ucopy.memory += skb->truesize;
-		if (tp->ucopy.memory > sk->sk_rcvbuf) {
-			struct sk_buff *skb1;
+	if (sysctl_tcp_low_latency || !tp->ucopy.task)
+		return 0;
 
-			BUG_ON(sock_owned_by_user(sk));
+	__skb_queue_tail(&tp->ucopy.prequeue, skb);
+	tp->ucopy.memory += skb->truesize;
+	if (tp->ucopy.memory > sk->sk_rcvbuf) {
+		struct sk_buff *skb1;
 
-			while ((skb1 = __skb_dequeue(&tp->ucopy.prequeue)) != NULL) {
-				sk_backlog_rcv(sk, skb1);
-				NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPPREQUEUEDROPPED);
-			}
+		BUG_ON(sock_owned_by_user(sk));
 
-			tp->ucopy.memory = 0;
-		} else if (skb_queue_len(&tp->ucopy.prequeue) == 1) {
-			wake_up_interruptible(sk->sk_sleep);
-			if (!inet_csk_ack_scheduled(sk))
-				inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
-						          (3 * tcp_rto_min(sk)) / 4,
-							  TCP_RTO_MAX);
+		while ((skb1 = __skb_dequeue(&tp->ucopy.prequeue)) != NULL) {
+			sk_backlog_rcv(sk, skb1);
+			NET_INC_STATS_BH(sock_net(sk),
+					 LINUX_MIB_TCPPREQUEUEDROPPED);
 		}
-		return 1;
+
+		tp->ucopy.memory = 0;
+	} else if (skb_queue_len(&tp->ucopy.prequeue) == 1) {
+		wake_up_interruptible_poll(sk->sk_sleep,
+					   POLLIN | POLLRDNORM | POLLRDBAND);
+		if (!inet_csk_ack_scheduled(sk))
+			inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
+						  (3 * tcp_rto_min(sk)) / 4,
+						  TCP_RTO_MAX);
 	}
-	return 0;
+	return 1;
 }
 
 
@@ -990,6 +1024,11 @@ static inline int keepalive_intvl_when(const struct tcp_sock *tp)
 static inline int keepalive_time_when(const struct tcp_sock *tp)
 {
 	return tp->keepalive_time ? : sysctl_tcp_keepalive_time;
+}
+
+static inline int keepalive_probes(const struct tcp_sock *tp)
+{
+	return tp->keepalive_probes ? : sysctl_tcp_keepalive_probes;
 }
 
 static inline int tcp_fin_time(const struct sock *sk)
@@ -1154,7 +1193,7 @@ extern int			tcp_v4_md5_do_del(struct sock *sk,
 #define tcp_twsk_md5_key(twsk)	NULL
 #endif
 
-extern struct tcp_md5sig_pool	**tcp_alloc_md5sig_pool(void);
+extern struct tcp_md5sig_pool	**tcp_alloc_md5sig_pool(struct sock *);
 extern void			tcp_free_md5sig_pool(void);
 
 extern struct tcp_md5sig_pool	*__tcp_get_md5sig_pool(int cpu);
@@ -1219,6 +1258,29 @@ static inline struct sk_buff *tcp_write_queue_prev(struct sock *sk, struct sk_bu
 
 #define tcp_for_write_queue_from_safe(skb, tmp, sk)			\
 	skb_queue_walk_from_safe(&(sk)->sk_write_queue, skb, tmp)
+
+/* This function calculates a "timeout" which is equivalent to the timeout of a
+ * TCP connection after "boundary" unsucessful, exponentially backed-off
+ * retransmissions with an initial RTO of TCP_RTO_MIN.
+ */
+static inline bool retransmits_timed_out(const struct sock *sk,
+					 unsigned int boundary)
+{
+	unsigned int timeout, linear_backoff_thresh;
+
+	if (!inet_csk(sk)->icsk_retransmits)
+		return false;
+
+	linear_backoff_thresh = ilog2(TCP_RTO_MAX/TCP_RTO_MIN);
+
+	if (boundary <= linear_backoff_thresh)
+		timeout = ((2 << boundary) - 1) * TCP_RTO_MIN;
+	else
+		timeout = ((2 << linear_backoff_thresh) - 1) * TCP_RTO_MIN +
+			  (boundary - linear_backoff_thresh) * TCP_RTO_MAX;
+
+	return (tcp_time_stamp - tcp_sk(sk)->retrans_stamp) >= timeout;
+}
 
 static inline struct sk_buff *tcp_send_head(struct sock *sk)
 {
@@ -1410,6 +1472,11 @@ struct tcp_request_sock_ops {
 #ifdef CONFIG_TCP_MD5SIG
 	struct tcp_md5sig_key	*(*md5_lookup) (struct sock *sk,
 						struct request_sock *req);
+	int			(*calc_md5_hash) (char *location,
+						  struct tcp_md5sig_key *md5,
+						  struct sock *sk,
+						  struct request_sock *req,
+						  struct sk_buff *skb);
 #endif
 };
 

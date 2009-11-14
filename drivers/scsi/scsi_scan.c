@@ -115,12 +115,12 @@ MODULE_PARM_DESC(max_report_luns,
 		 "REPORT LUNS maximum number of LUNS received (should be"
 		 " between 1 and 16384)");
 
-static unsigned int scsi_inq_timeout = SCSI_TIMEOUT/HZ+3;
+static unsigned int scsi_inq_timeout = SCSI_TIMEOUT/HZ + 18;
 
 module_param_named(inq_timeout, scsi_inq_timeout, uint, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(inq_timeout, 
 		 "Timeout (in seconds) waiting for devices to answer INQUIRY."
-		 " Default is 5. Some non-compliant devices need more.");
+		 " Default is 20. Some devices may need more; most need less.");
 
 /* This lock protects only this list */
 static DEFINE_SPINLOCK(async_scan_lock);
@@ -317,6 +317,7 @@ static struct scsi_device *scsi_alloc_sdev(struct scsi_target *starget,
 out_device_destroy:
 	scsi_device_set_state(sdev, SDEV_DEL);
 	transport_destroy_device(&sdev->sdev_gendev);
+	put_device(&sdev->sdev_dev);
 	put_device(&sdev->sdev_gendev);
 out:
 	if (display_failure_msg)
@@ -957,6 +958,7 @@ static inline void scsi_destroy_sdev(struct scsi_device *sdev)
 	if (sdev->host->hostt->slave_destroy)
 		sdev->host->hostt->slave_destroy(sdev);
 	transport_destroy_device(&sdev->sdev_gendev);
+	put_device(&sdev->sdev_dev);
 	put_device(&sdev->sdev_gendev);
 }
 

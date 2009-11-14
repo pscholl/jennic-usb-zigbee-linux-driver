@@ -81,6 +81,7 @@
 #include <linux/mm.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
+#include <linux/smp_lock.h>
 #include <linux/delay.h>
 #include <linux/netdevice.h>
 #include <linux/vmalloc.h>
@@ -3247,13 +3248,16 @@ static int carrier_raised(struct tty_port *port)
 	return (info->serial_signals & SerialSignal_DCD) ? 1 : 0;
 }
 
-static void raise_dtr_rts(struct tty_port *port)
+static void dtr_rts(struct tty_port *port, int on)
 {
 	struct mgsl_struct *info = container_of(port, struct mgsl_struct, port);
 	unsigned long flags;
 
 	spin_lock_irqsave(&info->irq_spinlock,flags);
-	info->serial_signals |= SerialSignal_RTS + SerialSignal_DTR;
+	if (on)
+		info->serial_signals |= SerialSignal_RTS + SerialSignal_DTR;
+	else
+		info->serial_signals &= ~(SerialSignal_RTS + SerialSignal_DTR);
  	usc_set_serial_signals(info);
 	spin_unlock_irqrestore(&info->irq_spinlock,flags);
 }
@@ -4258,7 +4262,7 @@ static void mgsl_add_device( struct mgsl_struct *info )
 
 static const struct tty_port_operations mgsl_port_ops = {
 	.carrier_raised = carrier_raised,
-	.raise_dtr_rts = raise_dtr_rts,
+	.dtr_rts = dtr_rts,
 };
 
 
@@ -7693,10 +7697,9 @@ static int hdlcdev_attach(struct net_device *dev, unsigned short encoding,
  *
  * skb  socket buffer containing HDLC frame
  * dev  pointer to network device structure
- *
- * returns 0 if success, otherwise error code
  */
-static int hdlcdev_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t hdlcdev_xmit(struct sk_buff *skb,
+				      struct net_device *dev)
 {
 	struct mgsl_struct *info = dev_to_port(dev);
 	unsigned long flags;
@@ -7727,7 +7730,7 @@ static int hdlcdev_xmit(struct sk_buff *skb, struct net_device *dev)
 	 	usc_start_transmitter(info);
 	spin_unlock_irqrestore(&info->irq_spinlock,flags);
 
-	return 0;
+	return NETDEV_TX_OK;
 }
 
 /**

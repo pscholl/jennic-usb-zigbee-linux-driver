@@ -25,9 +25,9 @@
 #include <linux/timer.h>
 #include <linux/platform_device.h>
 #include <linux/netdevice.h>
-#include <linux/rtnetlink.h>
 #include <linux/spinlock.h>
 #include <net/mac802154.h>
+#include <net/wpan-phy.h>
 
 struct fake_dev_priv {
 	struct ieee802154_dev *dev;
@@ -58,7 +58,7 @@ hw_channel(struct ieee802154_dev *dev, int channel)
 {
 	pr_debug("%s %d\n", __func__, channel);
 	might_sleep();
-	dev->current_channel = channel;
+	dev->phy->current_channel = channel;
 	return 0;
 }
 
@@ -91,8 +91,8 @@ hw_xmit(struct ieee802154_dev *dev, struct sk_buff *skb)
 		struct fake_dev_priv *dp;
 		list_for_each_entry(dp, &priv->fake->list, list)
 			if (dp != priv &&
-			    dp->dev->current_channel ==
-					priv->dev->current_channel)
+			    dp->dev->phy->current_channel ==
+					priv->dev->phy->current_channel)
 				hw_deliver(dp, skb);
 	}
 	read_unlock_bh(&fake->lock);
@@ -140,6 +140,38 @@ static int ieee802154fake_add_priv(struct device *dev, struct fake_priv *fake)
 
 	priv = ieee->priv;
 	priv->dev = ieee;
+
+	/* 868 MHz BPSK	802.15.4-2003 */
+	ieee->phy->channels_supported[0] |= 1;
+	/* 915 MHz BPSK	802.15.4-2003 */
+	ieee->phy->channels_supported[0] |= 0x7fe;
+	/* 2.4 GHz O-QPSK 802.15.4-2003 */
+	ieee->phy->channels_supported[0] |= 0x7FFF800;
+	/* 868 MHz ASK 802.15.4-2006 */
+	ieee->phy->channels_supported[1] |= 1;
+	/* 915 MHz ASK 802.15.4-2006 */
+	ieee->phy->channels_supported[1] |= 0x7fe;
+	/* 868 MHz O-QPSK 802.15.4-2006 */
+	ieee->phy->channels_supported[2] |= 1;
+	/* 915 MHz O-QPSK 802.15.4-2006 */
+	ieee->phy->channels_supported[2] |= 0x7fe;
+	/* 2.4 GHz CSS 802.15.4a-2007 */
+	ieee->phy->channels_supported[3] |= 0x3fff;
+	/* UWB Sub-gigahertz 802.15.4a-2007 */
+	ieee->phy->channels_supported[4] |= 1;
+	/* UWB Low band 802.15.4a-2007 */
+	ieee->phy->channels_supported[4] |= 0x1e;
+	/* UWB High band 802.15.4a-2007 */
+	ieee->phy->channels_supported[4] |= 0xffe0;
+	/* 750 MHz O-QPSK 802.15.4c-2009 */
+	ieee->phy->channels_supported[5] |= 0xf;
+	/* 750 MHz MPSK 802.15.4c-2009 */
+	ieee->phy->channels_supported[5] |= 0xf0;
+	/* 950 MHz BPSK 802.15.4d-2009 */
+	ieee->phy->channels_supported[6] |= 0x3ff;
+	/* 950 MHz GFSK 802.15.4d-2009 */
+	ieee->phy->channels_supported[6] |= 0x3ffc00;
+
 
 	INIT_LIST_HEAD(&priv->list);
 	priv->fake = fake;

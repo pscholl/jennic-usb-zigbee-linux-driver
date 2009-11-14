@@ -466,8 +466,12 @@ static void print_codec_info(struct snd_info_entry *entry,
 	hda_nid_t nid;
 	int i, nodes;
 
-	snd_iprintf(buffer, "Codec: %s\n",
-		    codec->name ? codec->name : "Not Set");
+	snd_iprintf(buffer, "Codec: ");
+	if (codec->vendor_name && codec->chip_name)
+		snd_iprintf(buffer, "%s %s\n",
+			    codec->vendor_name, codec->chip_name);
+	else
+		snd_iprintf(buffer, "Not Set\n");
 	snd_iprintf(buffer, "Address: %d\n", codec->addr);
 	snd_iprintf(buffer, "Function Id: 0x%x\n", codec->function_id);
 	snd_iprintf(buffer, "Vendor Id: 0x%08x\n", codec->vendor_id);
@@ -504,17 +508,14 @@ static void print_codec_info(struct snd_info_entry *entry,
 		unsigned int wid_caps =
 			snd_hda_param_read(codec, nid,
 					   AC_PAR_AUDIO_WIDGET_CAP);
-		unsigned int wid_type =
-			(wid_caps & AC_WCAP_TYPE) >> AC_WCAP_TYPE_SHIFT;
+		unsigned int wid_type = get_wcaps_type(wid_caps);
 		hda_nid_t conn[HDA_MAX_CONNECTIONS];
 		int conn_len = 0;
 
 		snd_iprintf(buffer, "Node 0x%02x [%s] wcaps 0x%x:", nid,
 			    get_wid_type_name(wid_type), wid_caps);
 		if (wid_caps & AC_WCAP_STEREO) {
-			unsigned int chans;
-			chans = (wid_caps & AC_WCAP_CHAN_CNT_EXT) >> 13;
-			chans = ((chans << 1) | 1) + 1;
+			unsigned int chans = get_wcaps_channels(wid_caps);
 			if (chans == 2)
 				snd_iprintf(buffer, " Stereo");
 			else

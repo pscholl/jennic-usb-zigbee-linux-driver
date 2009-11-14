@@ -75,12 +75,10 @@ static int initial_wait;
 
 /* Function prototypes for an ipaq */
 static int  ipaq_open(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp);
-static void ipaq_close(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp);
+			struct usb_serial_port *port);
+static void ipaq_close(struct usb_serial_port *port);
 static int  ipaq_calc_num_ports(struct usb_serial *serial);
 static int  ipaq_startup(struct usb_serial *serial);
-static void ipaq_shutdown(struct usb_serial *serial);
 static int ipaq_write(struct tty_struct *tty, struct usb_serial_port *port,
 			const unsigned char *buf, int count);
 static int ipaq_write_bulk(struct usb_serial_port *port,
@@ -577,7 +575,6 @@ static struct usb_serial_driver ipaq_device = {
 	.close =		ipaq_close,
 	.attach =		ipaq_startup,
 	.calc_num_ports =	ipaq_calc_num_ports,
-	.shutdown =		ipaq_shutdown,
 	.write =		ipaq_write,
 	.write_room =		ipaq_write_room,
 	.chars_in_buffer =	ipaq_chars_in_buffer,
@@ -590,7 +587,7 @@ static int		bytes_in;
 static int		bytes_out;
 
 static int ipaq_open(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp)
+			struct usb_serial_port *port)
 {
 	struct usb_serial	*serial = port->serial;
 	struct ipaq_private	*priv;
@@ -631,11 +628,6 @@ static int ipaq_open(struct tty_struct *tty,
 		priv->free_len += PACKET_SIZE;
 	}
 
-	if (tty) {
-		/* FIXME: These two are bogus */
-		tty->raw = 1;
-		tty->real_raw = 1;
-	}
 	/*
 	 * Lose the small buffers usbserial provides. Make larger ones.
 	 */
@@ -714,8 +706,7 @@ error:
 }
 
 
-static void ipaq_close(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp)
+static void ipaq_close(struct usb_serial_port *port)
 {
 	struct ipaq_private	*priv = usb_get_serial_port_data(port);
 
@@ -975,6 +966,15 @@ static int ipaq_calc_num_ports(struct usb_serial *serial)
 static int ipaq_startup(struct usb_serial *serial)
 {
 	dbg("%s", __func__);
+
+	/* Some of the devices in ipaq_id_table[] are composite, and we
+	 * shouldn't bind to all the interfaces.  This test will rule out
+	 * some obviously invalid possibilities.
+	 */
+	if (serial->num_bulk_in < serial->num_ports ||
+			serial->num_bulk_out < serial->num_ports)
+		return -ENODEV;
+
 	if (serial->dev->actconfig->desc.bConfigurationValue != 1) {
 		/*
 		 * FIXME: HP iPaq rx3715, possibly others, have 1 config that
@@ -990,11 +990,6 @@ static int ipaq_startup(struct usb_serial *serial)
 		__FUNCTION__, serial->num_ports);
 
 	return usb_reset_configuration(serial->dev);
-}
-
-static void ipaq_shutdown(struct usb_serial *serial)
-{
-	dbg("%s", __func__);
 }
 
 static int __init ipaq_init(void)

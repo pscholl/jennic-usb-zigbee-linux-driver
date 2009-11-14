@@ -41,8 +41,6 @@
 #include <acpi/acpi_drivers.h>
 #include <acpi/acpi_numa.h>
 #include <asm/acpi.h>
-#include <linux/dmi.h>
-
 
 enum acpi_irq_model_id {
 	ACPI_IRQ_MODEL_PIC = 0,
@@ -113,13 +111,10 @@ void acpi_irq_stats_init(void);
 extern u32 acpi_irq_handled;
 extern u32 acpi_irq_not_handled;
 
-extern struct acpi_mcfg_allocation *pci_mmcfg_config;
-extern int pci_mmcfg_config_num;
-
 extern int sbf_port;
 extern unsigned long acpi_realmode_flags;
 
-int acpi_register_gsi (u32 gsi, int triggering, int polarity);
+int acpi_register_gsi (struct device *dev, u32 gsi, int triggering, int polarity);
 int acpi_gsi_to_irq (u32 gsi, unsigned int *irq);
 
 #ifdef CONFIG_X86_IO_APIC
@@ -222,10 +217,8 @@ static inline int acpi_video_display_switch_support(void)
 #endif /* defined(CONFIG_ACPI_VIDEO) || defined(CONFIG_ACPI_VIDEO_MODULE) */
 
 extern int acpi_blacklisted(void);
-#ifdef CONFIG_DMI
 extern void acpi_dmi_osi_linux(int enable, const struct dmi_system_id *d);
 extern int acpi_osi_setup(char *str);
-#endif
 
 #ifdef CONFIG_ACPI_NUMA
 int acpi_get_pxm(acpi_handle handle);
@@ -293,7 +286,13 @@ void __init acpi_s4_no_nvs(void);
 				OSC_PCI_EXPRESS_CAP_STRUCTURE_CONTROL)
 
 extern acpi_status acpi_pci_osc_control_set(acpi_handle handle, u32 flags);
-#else	/* CONFIG_ACPI */
+extern void acpi_early_init(void);
+
+#else	/* !CONFIG_ACPI */
+
+#define acpi_disabled 1
+
+static inline void acpi_early_init(void) { }
 
 static inline int early_acpi_boot_init(void)
 {
@@ -331,5 +330,11 @@ static inline int acpi_check_mem_region(resource_size_t start,
 	return 0;
 }
 
+struct acpi_table_header;
+static inline int acpi_table_parse(char *id,
+				int (*handler)(struct acpi_table_header *))
+{
+	return -1;
+}
 #endif	/* !CONFIG_ACPI */
 #endif	/*_LINUX_ACPI_H*/

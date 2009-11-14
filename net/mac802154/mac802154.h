@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Siemens AG
+ * Copyright (C) 2007, 2008, 2009 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -23,11 +23,13 @@
 #define MAC802154_H
 
 #include <linux/spinlock.h>
+
 struct ieee802154_priv {
 	struct ieee802154_dev	hw;
 	struct ieee802154_ops	*ops;
 
-	struct net_device *netdev; /* mwpanX device */
+	struct wpan_phy *phy;
+
 	int open_count;
 	/* As in mac80211 slaves list is modified:
 	 * 1) under the RTNL
@@ -57,6 +59,7 @@ struct ieee802154_sub_if_data {
 	u16 short_addr;
 
 	u8 chan;
+	u8 page;
 
 	/* MAC BSN field */
 	u8 bsn;
@@ -65,24 +68,17 @@ struct ieee802154_sub_if_data {
 };
 
 void ieee802154_drop_slaves(struct ieee802154_dev *hw);
+struct net_device *ieee802154_add_iface(struct wpan_phy *phy,
+		const char *name);
+void ieee802154_del_iface(struct wpan_phy *phy,
+		struct net_device *dev);
 
 void ieee802154_subif_rx(struct ieee802154_dev *hw, struct sk_buff *skb);
-
-struct ieee802154_phy_cb {
-	u8 lqi;
-	u8 chan;
-};
-
-static inline struct ieee802154_phy_cb *phy_cb(struct sk_buff *skb)
-{
-	return (struct ieee802154_phy_cb *)skb->cb;
-}
-
 
 extern struct ieee802154_mlme_ops mac802154_mlme;
 
 int ieee802154_mlme_scan_req(struct net_device *dev,
-		u8 type, u32 channels, u8 duration);
+		u8 type, u32 channels, u8 page, u8 duration);
 
 int ieee802154_process_cmd(struct net_device *dev, struct sk_buff *skb);
 int ieee802154_send_beacon_req(struct net_device *dev);

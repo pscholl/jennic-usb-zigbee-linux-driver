@@ -68,8 +68,8 @@ void pipe_double_lock(struct pipe_inode_info *pipe1,
 		pipe_lock_nested(pipe1, I_MUTEX_PARENT);
 		pipe_lock_nested(pipe2, I_MUTEX_CHILD);
 	} else {
-		pipe_lock_nested(pipe2, I_MUTEX_CHILD);
-		pipe_lock_nested(pipe1, I_MUTEX_PARENT);
+		pipe_lock_nested(pipe2, I_MUTEX_PARENT);
+		pipe_lock_nested(pipe1, I_MUTEX_CHILD);
 	}
 }
 
@@ -300,6 +300,20 @@ int generic_pipe_buf_confirm(struct pipe_inode_info *info,
 			     struct pipe_buffer *buf)
 {
 	return 0;
+}
+
+/**
+ * generic_pipe_buf_release - put a reference to a &struct pipe_buffer
+ * @pipe:	the pipe that the buffer belongs to
+ * @buf:	the buffer to put a reference to
+ *
+ * Description:
+ *	This function releases a reference to @buf.
+ */
+void generic_pipe_buf_release(struct pipe_inode_info *pipe,
+			      struct pipe_buffer *buf)
+{
+	page_cache_release(buf->page);
 }
 
 static const struct pipe_buf_operations anon_pipe_buf_ops = {
@@ -763,36 +777,55 @@ pipe_rdwr_release(struct inode *inode, struct file *filp)
 static int
 pipe_read_open(struct inode *inode, struct file *filp)
 {
-	/* We could have perhaps used atomic_t, but this and friends
-	   below are the only places.  So it doesn't seem worthwhile.  */
+	int ret = -ENOENT;
+
 	mutex_lock(&inode->i_mutex);
-	inode->i_pipe->readers++;
+
+	if (inode->i_pipe) {
+		ret = 0;
+		inode->i_pipe->readers++;
+	}
+
 	mutex_unlock(&inode->i_mutex);
 
-	return 0;
+	return ret;
 }
 
 static int
 pipe_write_open(struct inode *inode, struct file *filp)
 {
+	int ret = -ENOENT;
+
 	mutex_lock(&inode->i_mutex);
-	inode->i_pipe->writers++;
+
+	if (inode->i_pipe) {
+		ret = 0;
+		inode->i_pipe->writers++;
+	}
+
 	mutex_unlock(&inode->i_mutex);
 
-	return 0;
+	return ret;
 }
 
 static int
 pipe_rdwr_open(struct inode *inode, struct file *filp)
 {
+	int ret = -ENOENT;
+
 	mutex_lock(&inode->i_mutex);
-	if (filp->f_mode & FMODE_READ)
-		inode->i_pipe->readers++;
-	if (filp->f_mode & FMODE_WRITE)
-		inode->i_pipe->writers++;
+
+	if (inode->i_pipe) {
+		ret = 0;
+		if (filp->f_mode & FMODE_READ)
+			inode->i_pipe->readers++;
+		if (filp->f_mode & FMODE_WRITE)
+			inode->i_pipe->writers++;
+	}
+
 	mutex_unlock(&inode->i_mutex);
 
-	return 0;
+	return ret;
 }
 
 /*

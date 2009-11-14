@@ -375,7 +375,7 @@ static int brd_ioctl(struct block_device *bdev, fmode_t mode,
 	return error;
 }
 
-static struct block_device_operations brd_fops = {
+static const struct block_device_operations brd_fops = {
 	.owner =		THIS_MODULE,
 	.locked_ioctl =		brd_ioctl,
 #ifdef CONFIG_BLK_DEV_XIP
@@ -407,12 +407,7 @@ static int __init ramdisk_size(char *str)
 	rd_size = simple_strtol(str, NULL, 0);
 	return 1;
 }
-static int __init ramdisk_size2(char *str)
-{
-	return ramdisk_size(str);
-}
-__setup("ramdisk=", ramdisk_size);
-__setup("ramdisk_size=", ramdisk_size2);
+__setup("ramdisk_size=", ramdisk_size);
 #endif
 
 /*

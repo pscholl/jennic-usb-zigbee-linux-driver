@@ -121,7 +121,6 @@ static inline void arch_send_call_function_single_ipi(int cpu)
 	smp_ops.send_call_func_single_ipi(cpu);
 }
 
-#define arch_send_call_function_ipi_mask arch_send_call_function_ipi_mask
 static inline void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
 	smp_ops.send_call_func_ipi(mask);
@@ -180,7 +179,7 @@ extern int safe_smp_processor_id(void);
 static inline int logical_smp_processor_id(void)
 {
 	/* we don't want to mark this access volatile - bad code generation */
-	return GET_APIC_LOGICAL_ID(*(u32 *)(APIC_BASE + APIC_LDR));
+	return GET_APIC_LOGICAL_ID(apic_read(APIC_LDR));
 }
 
 #endif

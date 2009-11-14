@@ -275,7 +275,7 @@ struct attribute_group scsi_shost_attr_group = {
 	.attrs =	scsi_sysfs_shost_attrs,
 };
 
-struct attribute_group *scsi_sysfs_shost_attr_groups[] = {
+const struct attribute_group *scsi_sysfs_shost_attr_groups[] = {
 	&scsi_shost_attr_group,
 	NULL
 };
@@ -420,29 +420,12 @@ static int scsi_bus_resume(struct device * dev)
 	return err;
 }
 
-static int scsi_bus_remove(struct device *dev)
-{
-	struct device_driver *drv = dev->driver;
-	struct scsi_device *sdev = to_scsi_device(dev);
-	int err = 0;
-
-	/* reset the prep_fn back to the default since the
-	 * driver may have altered it and it's being removed */
-	blk_queue_prep_rq(sdev->request_queue, scsi_prep_fn);
-
-	if (drv && drv->remove)
-		err = drv->remove(dev);
-
-	return 0;
-}
-
 struct bus_type scsi_bus_type = {
         .name		= "scsi",
         .match		= scsi_bus_match,
 	.uevent		= scsi_bus_uevent,
 	.suspend	= scsi_bus_suspend,
 	.resume		= scsi_bus_resume,
-	.remove		= scsi_bus_remove,
 };
 EXPORT_SYMBOL_GPL(scsi_bus_type);
 
@@ -762,7 +745,7 @@ static struct attribute_group scsi_sdev_attr_group = {
 	.attrs =	scsi_sdev_attrs,
 };
 
-static struct attribute_group *scsi_sdev_attr_groups[] = {
+static const struct attribute_group *scsi_sdev_attr_groups[] = {
 	&scsi_sdev_attr_group,
 	NULL
 };
@@ -881,10 +864,6 @@ int scsi_sysfs_add_sdev(struct scsi_device *sdev)
 		goto clean_device;
 	}
 
-	/* take a reference for the sdev_dev; this is
-	 * released by the sdev_class .release */
-	get_device(&sdev->sdev_gendev);
-
 	/* create queue files, which may be writable, depending on the host */
 	if (sdev->host->hostt->change_queue_depth)
 		error = device_create_file(&sdev->sdev_gendev, &sdev_attr_queue_depth_rw);
@@ -934,6 +913,7 @@ int scsi_sysfs_add_sdev(struct scsi_device *sdev)
 
 	device_del(&sdev->sdev_gendev);
 	transport_destroy_device(&sdev->sdev_gendev);
+	put_device(&sdev->sdev_dev);
 	put_device(&sdev->sdev_gendev);
 
 	return error;
@@ -1082,7 +1062,7 @@ void scsi_sysfs_device_initialize(struct scsi_device *sdev)
 		     sdev->host->host_no, sdev->channel, sdev->id, sdev->lun);
 
 	device_initialize(&sdev->sdev_dev);
-	sdev->sdev_dev.parent = &sdev->sdev_gendev;
+	sdev->sdev_dev.parent = get_device(&sdev->sdev_gendev);
 	sdev->sdev_dev.class = &sdev_class;
 	dev_set_name(&sdev->sdev_dev, "%d:%d:%d:%d",
 		     sdev->host->host_no, sdev->channel, sdev->id, sdev->lun);

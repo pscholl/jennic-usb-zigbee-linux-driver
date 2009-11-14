@@ -29,9 +29,9 @@
 #include <linux/spinlock.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/at86rf230.h>
-#include <linux/rtnetlink.h> /* FIXME: hack for slave instantiation */
 
 #include <net/mac802154.h>
+#include <net/wpan-phy.h>
 
 struct at86rf230_local {
 	struct spi_device *spi;
@@ -500,7 +500,7 @@ at86rf230_channel(struct ieee802154_dev *dev, int channel)
 
 	rc = at86rf230_write_subreg(lp, SR_CHANNEL, channel);
 	msleep(1); /* Wait for PLL */
-	dev->current_channel = channel;
+	dev->phy->current_channel = channel;
 
 	return 0;
 }
@@ -769,7 +769,8 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	dev->priv = lp;
 	dev->parent = &spi->dev;
 	dev->extra_tx_headroom = 0;
-	dev->channel_mask = 0x7ff; /* We do support only 2.4 Ghz */
+	/* We do support only 2.4 Ghz */
+	dev->phy->channels_supported[0] = 0x7FFF800;
 	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
 	lp->rstn = pdata->rstn;

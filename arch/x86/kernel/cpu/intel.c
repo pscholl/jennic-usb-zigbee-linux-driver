@@ -7,17 +7,17 @@
 #include <linux/sched.h>
 #include <linux/thread_info.h>
 #include <linux/module.h>
+#include <linux/uaccess.h>
 
 #include <asm/processor.h>
 #include <asm/pgtable.h>
 #include <asm/msr.h>
-#include <asm/uaccess.h>
 #include <asm/ds.h>
 #include <asm/bugs.h>
 #include <asm/cpu.h>
 
 #ifdef CONFIG_X86_64
-#include <asm/topology.h>
+#include <linux/topology.h>
 #include <asm/numa_64.h>
 #endif
 
@@ -86,6 +86,29 @@ static void __cpuinit early_init_intel(struct cpuinfo_x86 *c)
 	 */
 	if (c->x86 == 6 && c->x86_model < 15)
 		clear_cpu_cap(c, X86_FEATURE_PAT);
+
+#ifdef CONFIG_KMEMCHECK
+	/*
+	 * P4s have a "fast strings" feature which causes single-
+	 * stepping REP instructions to only generate a #DB on
+	 * cache-line boundaries.
+	 *
+	 * Ingo Molnar reported a Pentium D (model 6) and a Xeon
+	 * (model 2) with the same problem.
+	 */
+	if (c->x86 == 15) {
+		u64 misc_enable;
+
+		rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
+
+		if (misc_enable & MSR_IA32_MISC_ENABLE_FAST_STRING) {
+			printk(KERN_INFO "kmemcheck: Disabling fast string operations\n");
+
+			misc_enable &= ~MSR_IA32_MISC_ENABLE_FAST_STRING;
+			wrmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
+		}
+	}
+#endif
 }
 
 #ifdef CONFIG_X86_32
@@ -151,7 +174,8 @@ static void __cpuinit intel_workarounds(struct cpuinfo_x86 *c)
 #ifdef CONFIG_X86_F00F_BUG
 	/*
 	 * All current models of Pentium and Pentium with MMX technology CPUs
-	 * have the F0 0F bug, which lets nonprivileged users lock up the system.
+	 * have the F0 0F bug, which lets nonprivileged users lock up the
+	 * system.
 	 * Note that the workaround only should be initialized once...
 	 */
 	c->f00f_bug = 0;
@@ -184,7 +208,7 @@ static void __cpuinit intel_workarounds(struct cpuinfo_x86 *c)
 			printk (KERN_INFO "CPU: C0 stepping P4 Xeon detected.\n");
 			printk (KERN_INFO "CPU: Disabling hardware prefetching (Errata 037)\n");
 			lo |= MSR_IA32_MISC_ENABLE_PREFETCH_DISABLE;
-			wrmsr (MSR_IA32_MISC_ENABLE, lo, hi);
+			wrmsr(MSR_IA32_MISC_ENABLE, lo, hi);
 		}
 	}
 
@@ -229,12 +253,12 @@ static void __cpuinit intel_workarounds(struct cpuinfo_x86 *c)
 }
 #endif
 
-static void __cpuinit srat_detect_node(void)
+static void __cpuinit srat_detect_node(struct cpuinfo_x86 *c)
 {
 #if defined(CONFIG_NUMA) && defined(CONFIG_X86_64)
 	unsigned node;
 	int cpu = smp_processor_id();
-	int apicid = hard_smp_processor_id();
+	int apicid = cpu_has_apic ? hard_smp_processor_id() : c->apicid;
 
 	/* Don't do the funky fallback heuristics the AMD version employs
 	   for now. */
@@ -260,7 +284,7 @@ static int __cpuinit intel_num_cpu_cores(struct cpuinfo_x86 *c)
 	/* Intel has a non-standard dependency on %ecx for this CPUID level. */
 	cpuid_count(4, 0, &eax, &ebx, &ecx, &edx);
 	if (eax & 0x1f)
-		return ((eax >> 26) + 1);
+		return (eax >> 26) + 1;
 	else
 		return 1;
 }
@@ -324,6 +348,12 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 		/* Check for version and the number of counters */
 		if ((eax & 0xff) && (((eax>>8) & 0xff) > 1))
 			set_cpu_cap(c, X86_FEATURE_ARCH_PERFMON);
+	}
+
+	if (c->cpuid_level > 6) {
+		unsigned ecx = cpuid_ecx(6);
+		if (ecx & 0x01)
+			set_cpu_cap(c, X86_FEATURE_APERFMPERF);
 	}
 
 	if (cpu_has_xmm2)
@@ -400,7 +430,7 @@ static void __cpuinit init_intel(struct cpuinfo_x86 *c)
 	}
 
 	/* Work around errata */
-	srat_detect_node();
+	srat_detect_node(c);
 
 	if (cpu_has(c, X86_FEATURE_VMX))
 		detect_vmx_virtcap(c);

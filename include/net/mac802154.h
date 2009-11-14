@@ -22,12 +22,14 @@
 #define NET_MAC802154_H
 
 struct ieee802154_dev {
+	/* filled by the driver */
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
-	void	*priv;		/* driver-specific data */
-	u32	channel_mask;
-	u8	current_channel;
 	u32	flags; /* Flags for device to set */
 	struct device *parent;
+
+	/* filled by mac802154 core */
+	void	*priv;		/* driver-specific data */
+	struct wpan_phy *phy;
 };
 
 /* Checksum is in hardware and is omitted from packet */
@@ -67,20 +69,23 @@ struct sk_buff;
  * @stop: Handler that 802.15.4 module calls for device cleanup
  * 	This function is called after the last interface is removed.
  *
- * @tx: Handler that 802.15.4 module calls for each transmitted frame.
+ * @xmit: Handler that 802.15.4 module calls for each transmitted frame.
  *      skb cntains the buffer starting from the IEEE 802.15.4 header.
  *      The low-level driver should send the frame based on available
  *      configuration.
  *      This function should return zero or negative errno.
+ *      Called with pib_lock held.
  *
  * @ed: Handler that 802.15.4 module calls for Energy Detection.
  *      This function should place the value for detected energy
  *      (usually device-dependant) in the level pointer and return
  *      either zero or negative errno.
+ *      Called with pib_lock held.
  *
  * @set_channel: Set radio for listening on specific channel.
  *      Set the device for listening on specified channel.
  *      Returns either zero, or negative errno.
+ *      Called with pib_lock held.
  */
 struct ieee802154_ops {
 	struct module	*owner;

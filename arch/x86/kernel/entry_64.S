@@ -135,6 +135,7 @@ ENTRY(ftrace_graph_caller)
 
 	leaq 8(%rbp), %rdi
 	movq 0x38(%rsp), %rsi
+	movq (%rbp), %rdx
 	subq $MCOUNT_INSN_SIZE, %rsi
 
 	call	prepare_ftrace_return
@@ -145,31 +146,19 @@ ENTRY(ftrace_graph_caller)
 END(ftrace_graph_caller)
 
 GLOBAL(return_to_handler)
-	subq  $80, %rsp
+	subq  $24, %rsp
 
+	/* Save the return values */
 	movq %rax, (%rsp)
-	movq %rcx, 8(%rsp)
-	movq %rdx, 16(%rsp)
-	movq %rsi, 24(%rsp)
-	movq %rdi, 32(%rsp)
-	movq %r8, 40(%rsp)
-	movq %r9, 48(%rsp)
-	movq %r10, 56(%rsp)
-	movq %r11, 64(%rsp)
+	movq %rdx, 8(%rsp)
+	movq %rbp, %rdi
 
 	call ftrace_return_to_handler
 
-	movq %rax, 72(%rsp)
-	movq 64(%rsp), %r11
-	movq 56(%rsp), %r10
-	movq 48(%rsp), %r9
-	movq 40(%rsp), %r8
-	movq 32(%rsp), %rdi
-	movq 24(%rsp), %rsi
-	movq 16(%rsp), %rdx
-	movq 8(%rsp), %rcx
+	movq %rax, 16(%rsp)
+	movq 8(%rsp), %rdx
 	movq (%rsp), %rax
-	addq $72, %rsp
+	addq $16, %rsp
 	retq
 #endif
 
@@ -547,20 +536,13 @@ sysret_signal:
 	bt $TIF_SYSCALL_AUDIT,%edx
 	jc sysret_audit
 #endif
-	/* edx:	work flags (arg3) */
-	leaq -ARGOFFSET(%rsp),%rdi # &pt_regs -> arg1
-	xorl %esi,%esi # oldset -> arg2
-	SAVE_REST
-	FIXUP_TOP_OF_STACK %r11
-	call do_notify_resume
-	RESTORE_TOP_OF_STACK %r11
-	RESTORE_REST
-	movl $_TIF_WORK_MASK,%edi
-	/* Use IRET because user could have changed frame. This
-	   works because ptregscall_common has called FIXUP_TOP_OF_STACK. */
-	DISABLE_INTERRUPTS(CLBR_NONE)
-	TRACE_IRQS_OFF
-	jmp int_with_check
+	/*
+	 * We have a signal, or exit tracing or single-step.
+	 * These all wind up with the iret return path anyway,
+	 * so just join that path right now.
+	 */
+	FIXUP_TOP_OF_STACK %r11, -ARGOFFSET
+	jmp int_check_syscall_exit_work
 
 badsys:
 	movq $-ENOSYS,RAX-ARGOFFSET(%rsp)
@@ -665,6 +647,7 @@ int_careful:
 int_very_careful:
 	TRACE_IRQS_ON
 	ENABLE_INTERRUPTS(CLBR_NONE)
+int_check_syscall_exit_work:
 	SAVE_REST
 	/* Check for syscall exit trace */
 	testl $_TIF_WORK_SYSCALL_EXIT,%edx
@@ -976,6 +959,8 @@ END(\sym)
 #ifdef CONFIG_SMP
 apicinterrupt IRQ_MOVE_CLEANUP_VECTOR \
 	irq_move_cleanup_interrupt smp_irq_move_cleanup_interrupt
+apicinterrupt REBOOT_VECTOR \
+	reboot_interrupt smp_reboot_interrupt
 #endif
 
 #ifdef CONFIG_X86_UV
@@ -1007,9 +992,14 @@ apicinterrupt INVALIDATE_TLB_VECTOR_START+7 \
 #endif
 
 apicinterrupt THRESHOLD_APIC_VECTOR \
-	threshold_interrupt mce_threshold_interrupt
+	threshold_interrupt smp_threshold_interrupt
 apicinterrupt THERMAL_APIC_VECTOR \
 	thermal_interrupt smp_thermal_interrupt
+
+#ifdef CONFIG_X86_MCE
+apicinterrupt MCE_SELF_VECTOR \
+	mce_self_interrupt smp_mce_self_interrupt
+#endif
 
 #ifdef CONFIG_SMP
 apicinterrupt CALL_FUNCTION_SINGLE_VECTOR \
@@ -1024,6 +1014,11 @@ apicinterrupt ERROR_APIC_VECTOR \
 	error_interrupt smp_error_interrupt
 apicinterrupt SPURIOUS_APIC_VECTOR \
 	spurious_interrupt smp_spurious_interrupt
+
+#ifdef CONFIG_PERF_EVENTS
+apicinterrupt LOCAL_PENDING_VECTOR \
+	perf_pending_interrupt smp_perf_pending_interrupt
+#endif
 
 /*
  * Exception entry points.
@@ -1379,10 +1374,15 @@ END(xen_failsafe_callback)
 paranoidzeroentry_ist debug do_debug DEBUG_STACK
 paranoidzeroentry_ist int3 do_int3 DEBUG_STACK
 paranoiderrorentry stack_segment do_stack_segment
+#ifdef CONFIG_XEN
+zeroentry xen_debug do_debug
+zeroentry xen_int3 do_int3
+errorentry xen_stack_segment do_stack_segment
+#endif
 errorentry general_protection do_general_protection
 errorentry page_fault do_page_fault
 #ifdef CONFIG_X86_MCE
-paranoidzeroentry machine_check do_machine_check
+paranoidzeroentry machine_check *machine_check_vector(%rip)
 #endif
 
 	/*

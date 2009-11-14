@@ -23,8 +23,6 @@
 static struct bau_control	**uv_bau_table_bases __read_mostly;
 static int			uv_bau_retry_limit __read_mostly;
 
-/* position of pnode (which is nasid>>1): */
-static int			uv_nshift __read_mostly;
 /* base pnode in this partition */
 static int			uv_partition_base_pnode __read_mostly;
 
@@ -640,13 +638,13 @@ static int __init uv_ptc_init(void)
 	if (!is_uv_system())
 		return 0;
 
-	proc_uv_ptc = create_proc_entry(UV_PTC_BASENAME, 0444, NULL);
+	proc_uv_ptc = proc_create(UV_PTC_BASENAME, 0444, NULL,
+				  &proc_uv_ptc_operations);
 	if (!proc_uv_ptc) {
 		printk(KERN_ERR "unable to create %s proc entry\n",
 		       UV_PTC_BASENAME);
 		return -EINVAL;
 	}
-	proc_uv_ptc->proc_fops = &proc_uv_ptc_operations;
 	return 0;
 }
 
@@ -711,25 +709,31 @@ uv_activation_descriptor_init(int node, int pnode)
 	unsigned long pa;
 	unsigned long m;
 	unsigned long n;
-	unsigned long mmr_image;
 	struct bau_desc *adp;
 	struct bau_desc *ad2;
 
-	adp = (struct bau_desc *)kmalloc_node(16384, GFP_KERNEL, node);
+	/*
+	 * each bau_desc is 64 bytes; there are 8 (UV_ITEMS_PER_DESCRIPTOR)
+	 * per cpu; and up to 32 (UV_ADP_SIZE) cpu's per blade
+	 */
+	adp = (struct bau_desc *)kmalloc_node(sizeof(struct bau_desc)*
+		UV_ADP_SIZE*UV_ITEMS_PER_DESCRIPTOR, GFP_KERNEL, node);
 	BUG_ON(!adp);
 
 	pa = uv_gpa(adp); /* need the real nasid*/
-	n = pa >> uv_nshift;
+	n = uv_gpa_to_pnode(pa);
 	m = pa & uv_mmask;
 
-	mmr_image = uv_read_global_mmr64(pnode, UVH_LB_BAU_SB_DESCRIPTOR_BASE);
-	if (mmr_image) {
-		uv_write_global_mmr64(pnode, (unsigned long)
-				      UVH_LB_BAU_SB_DESCRIPTOR_BASE,
-				      (n << UV_DESC_BASE_PNODE_SHIFT | m));
-	}
+	uv_write_global_mmr64(pnode, UVH_LB_BAU_SB_DESCRIPTOR_BASE,
+			      (n << UV_DESC_BASE_PNODE_SHIFT | m));
 
-	for (i = 0, ad2 = adp; i < UV_ACTIVATION_DESCRIPTOR_SIZE; i++, ad2++) {
+	/*
+	 * initializing all 8 (UV_ITEMS_PER_DESCRIPTOR) descriptors for each
+	 * cpu even though we only use the first one; one descriptor can
+	 * describe a broadcast to 256 nodes.
+	 */
+	for (i = 0, ad2 = adp; i < (UV_ADP_SIZE*UV_ITEMS_PER_DESCRIPTOR);
+		i++, ad2++) {
 		memset(ad2, 0, sizeof(struct bau_desc));
 		ad2->header.sw_ack_flag = 1;
 		/*
@@ -738,6 +742,7 @@ uv_activation_descriptor_init(int node, int pnode)
 		 * note that base_dest_nodeid is actually a nasid.
 		 */
 		ad2->header.base_dest_nodeid = uv_partition_base_pnode << 1;
+		ad2->header.dest_subnodeid = 0x10; /* the LB */
 		ad2->header.command = UV_NET_ENDPOINT_INTD;
 		ad2->header.int_both = 1;
 		/*
@@ -771,7 +776,7 @@ uv_payload_queue_init(int node, int pnode, struct bau_control *bau_tablesp)
 	 * need the pnode of where the memory was really allocated
 	 */
 	pa = uv_gpa(pqp);
-	pn = pa >> uv_nshift;
+	pn = uv_gpa_to_pnode(pa);
 	uv_write_global_mmr64(pnode,
 			      UVH_LB_BAU_INTD_PAYLOAD_QUEUE_FIRST,
 			      ((unsigned long)pn << UV_PAYLOADQ_PNODE_SHIFT) |
@@ -836,8 +841,7 @@ static int __init uv_bau_init(void)
 				       GFP_KERNEL, cpu_to_node(cur_cpu));
 
 	uv_bau_retry_limit = 1;
-	uv_nshift = uv_hub_info->n_val;
-	uv_mmask = (1UL << uv_hub_info->n_val) - 1;
+	uv_mmask = (1UL << uv_hub_info->m_val) - 1;
 	nblades = uv_num_possible_blades();
 
 	uv_bau_table_bases = (struct bau_control **)

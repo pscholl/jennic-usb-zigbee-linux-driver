@@ -281,12 +281,12 @@ static void cx231xx_config_tuner(struct cx231xx *dev)
 }
 
 /* ----------------------------------------------------------------------- */
-void cx231xx_set_ir(struct cx231xx *dev, struct IR_i2c *ir)
+void cx231xx_register_i2c_ir(struct cx231xx *dev)
 {
-	if (disable_ir) {
-		ir->get_key = NULL;
+	if (disable_ir)
 		return;
-	}
+
+	/* REVISIT: instantiate IR device */
 
 	/* detect & configure */
 	switch (dev->model) {
@@ -313,7 +313,7 @@ void cx231xx_card_setup(struct cx231xx *dev)
 	if (dev->board.decoder == CX231XX_AVDECODER) {
 		dev->sd_cx25840 = v4l2_i2c_new_subdev(&dev->v4l2_dev,
 					&dev->i2c_bus[0].i2c_adap,
-					"cx25840", "cx25840", 0x88 >> 1);
+					"cx25840", "cx25840", 0x88 >> 1, NULL);
 		if (dev->sd_cx25840 == NULL)
 			cx231xx_info("cx25840 subdev registration failure\n");
 		cx25840_call(dev, core, load_fw);
@@ -323,7 +323,7 @@ void cx231xx_card_setup(struct cx231xx *dev)
 	if (dev->board.tuner_type != TUNER_ABSENT) {
 		dev->sd_tuner =	v4l2_i2c_new_subdev(&dev->v4l2_dev,
 				&dev->i2c_bus[1].i2c_adap,
-				"tuner", "tuner", 0xc2 >> 1);
+				"tuner", "tuner", 0xc2 >> 1, NULL);
 		if (dev->sd_tuner == NULL)
 			cx231xx_info("tuner subdev registration failure\n");
 

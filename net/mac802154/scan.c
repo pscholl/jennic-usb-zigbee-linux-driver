@@ -32,6 +32,7 @@
 #include <net/nl802154.h>
 #include <net/ieee802154.h>
 #include <net/ieee802154_netdev.h>
+#include <net/wpan-phy.h>
 
 #include "mac802154.h"
 #include "beacon.h"
@@ -50,6 +51,7 @@ struct scan_work {
 
 	u8 type;
 	u32 channels;
+	u8 page;
 	u8 duration;
 };
 
@@ -58,7 +60,9 @@ static int scan_ed(struct scan_work *work, int channel, u8 duration)
 	int ret;
 	struct ieee802154_priv *hw = ieee802154_slave_get_priv(work->dev);
 	pr_debug("ed scan channel %d duration %d\n", channel, duration);
+	mutex_lock(&hw->phy->pib_lock);
 	ret = hw->ops->ed(&hw->hw, &work->edl[channel]);
+	mutex_unlock(&hw->phy->pib_lock);
 	pr_debug("ed scan channel %d value %d\n", channel, work->edl[channel]);
 	return ret;
 }
@@ -105,7 +109,9 @@ static void scanner(struct work_struct *work)
 		if (!(sw->channels & (1 << i)))
 			continue;
 
+		mutex_lock(&hw->phy->pib_lock);
 		ret = hw->ops->set_channel(&hw->hw,  i);
+		mutex_unlock(&hw->phy->pib_lock);
 		if (ret)
 			goto exit_error;
 
@@ -117,7 +123,7 @@ static void scanner(struct work_struct *work)
 	}
 
 	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_SUCCESS, sw->type,
-			sw->channels, sw->edl/*, NULL */);
+			sw->channels, sw->page, sw->edl/*, NULL */);
 
 	kfree(sw);
 
@@ -125,7 +131,7 @@ static void scanner(struct work_struct *work)
 
 exit_error:
 	ieee802154_nl_scan_confirm(sw->dev, IEEE802154_INVALID_PARAMETER,
-			sw->type, sw->channels, NULL/*, NULL */);
+			sw->type, sw->channels, sw->page, NULL/*, NULL */);
 	kfree(sw);
 	return;
 }
@@ -140,7 +146,7 @@ exit_error:
  * @return 0 if request is ok, errno otherwise.
  */
 int ieee802154_mlme_scan_req(struct net_device *dev,
-		u8 type, u32 channels, u8 duration)
+		u8 type, u32 channels, u8 page, u8 duration)
 {
 	struct ieee802154_priv *hw = ieee802154_slave_get_priv(dev);
 	struct scan_work *work;
@@ -149,7 +155,7 @@ int ieee802154_mlme_scan_req(struct net_device *dev,
 
 	if (duration > 14)
 		goto inval;
-	if (channels & hw->hw.channel_mask)
+	if (channels & ~hw->phy->channels_supported[page])
 		goto inval;
 
 	work = kzalloc(sizeof(struct scan_work), GFP_KERNEL);
@@ -158,6 +164,7 @@ int ieee802154_mlme_scan_req(struct net_device *dev,
 
 	work->dev = dev;
 	work->channels = channels;
+	work->page = page;
 	work->duration = duration;
 	work->type = type;
 
@@ -186,7 +193,7 @@ int ieee802154_mlme_scan_req(struct net_device *dev,
 
 inval:
 	ieee802154_nl_scan_confirm(dev, IEEE802154_INVALID_PARAMETER, type,
-			channels, NULL/*, NULL */);
+			channels, page, NULL/*, NULL */);
 	return -EINVAL;
 }
 

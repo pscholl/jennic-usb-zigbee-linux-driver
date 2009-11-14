@@ -63,6 +63,24 @@
 			reg = <0x200 0x100>;
 		};
 
+		gpio1: gpio-controller@c00 {
+			#gpio-cells = <2>;
+			compatible = "fsl,mpc8349-gpio";
+			reg = <0xc00 0x100>;
+			interrupts = <74 0x8>;
+			interrupt-parent = <&ipic>;
+			gpio-controller;
+		};
+
+		gpio2: gpio-controller@d00 {
+			#gpio-cells = <2>;
+			compatible = "fsl,mpc8349-gpio";
+			reg = <0xd00 0x100>;
+			interrupts = <75 0x8>;
+			interrupt-parent = <&ipic>;
+			gpio-controller;
+		};
+
 		i2c@3000 {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -102,11 +120,22 @@
 
 		spi@7000 {
 			cell-index = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			compatible = "fsl,spi";
 			reg = <0x7000 0x1000>;
 			interrupts = <16 0x8>;
 			interrupt-parent = <&ipic>;
 			mode = "cpu";
+
+			radio@0 {
+				compatible = "atmel,at86rf230";
+				reg = <0>;
+				gpios = <&gpio1 8 1	/* nRST */
+					 &gpio1 9 0	/* SLP_TR */ /* FIXME: flags */
+					 &gpio1 10 0>;	/* DIG2 */
+				spi-max-frequency = <3000000>;
+			};
 		};
 
 		dma@82a8 {
@@ -156,7 +185,7 @@
 			interrupt-parent = <&ipic>;
 			interrupts = <39 0x8>;
 			phy_type = "ulpi";
-			port1;
+			port0;
 		};
 
 		usb@23000 {
@@ -278,7 +307,6 @@
 	};
 
 	pci0: pci@e0008500 {
-		cell-index = <1>;
 		interrupt-map-mask = <0xf800 0x0 0x0 0x7>;
 		interrupt-map = <
 				/* IDSEL 0x10 - SATA */
@@ -301,7 +329,6 @@
 	};
 
 	pci1: pci@e0008600 {
-		cell-index = <2>;
 		interrupt-map-mask = <0xf800 0x0 0x0 0x7>;
 		interrupt-map = <
 				/* IDSEL 0x0E - MiniPCI Slot */

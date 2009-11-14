@@ -937,6 +937,7 @@ static int __devinit aaci_probe_ac97(struct aaci *aaci)
 	struct snd_ac97 *ac97;
 	int ret;
 
+	writel(0, aaci->base + AC97_POWERDOWN);
 	/*
 	 * Assert AACIRESET for 2us
 	 */
@@ -1089,7 +1090,7 @@ static int __devinit aaci_probe(struct amba_device *dev, struct amba_id *id)
 		goto out;
 	}
 
-	aaci->base = ioremap(dev->res.start, SZ_4K);
+	aaci->base = ioremap(dev->res.start, resource_size(&dev->res));
 	if (!aaci->base) {
 		ret = -ENOMEM;
 		goto out;

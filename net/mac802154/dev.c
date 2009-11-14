@@ -15,6 +15,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * Written by:
+ * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
  * Sergey Lapin <slapin@ossfans.org>
  * Maxim Gorbachyov <maxim.gorbachev@siemens.com>
  */
@@ -26,23 +27,72 @@
 #include <linux/rculist.h>
 #include <linux/random.h>
 #include <linux/crc-ccitt.h>
-#include <linux/mac802154.h>
-#include <net/rtnetlink.h>
 
+#include <net/rtnetlink.h>
 #include <net/af_ieee802154.h>
 #include <net/mac802154.h>
 #include <net/ieee802154_netdev.h>
 #include <net/ieee802154.h>
+#include <net/wpan-phy.h>
 
 #include "mac802154.h"
 #include "beacon.h"
 #include "beacon_hash.h"
 #include "mib.h"
 
-static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
+struct xmit_work {
+	struct sk_buff *skb;
+	struct work_struct work;
+	struct ieee802154_priv *priv;
+	u8 page;
+	u8 chan;
+};
+
+static void ieee802154_xmit_worker(struct work_struct *work)
+{
+	struct xmit_work *xw = container_of(work, struct xmit_work, work);
+	int res;
+
+	BUG_ON(xw->chan == (u8)-1);
+
+	mutex_lock(&xw->priv->phy->pib_lock);
+	if (xw->priv->phy->current_channel != xw->chan) {
+		res = xw->priv->ops->set_channel(&xw->priv->hw,
+				xw->chan);
+		if (res) {
+			pr_debug("set_channel failed\n");
+			goto out;
+		}
+	}
+
+	res = xw->priv->ops->xmit(&xw->priv->hw, xw->skb);
+
+out:
+	mutex_unlock(&xw->priv->phy->pib_lock);
+
+	/* FIXME: result processing and/or requeue!!! */
+	dev_kfree_skb(xw->skb);
+
+	kfree(xw);
+}
+
+
+static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv;
+	struct xmit_work *work;
+
 	priv = netdev_priv(dev);
+
+	if (priv->chan == (u8)-1) /* not init */
+		return NETDEV_TX_OK;
+
+	BUG_ON(priv->page >= 32);
+	BUG_ON(priv->chan >= 27);
+
+	if (WARN_ON(!(priv->hw->phy->channels_supported[priv->page] &
+					(1 << priv->chan))))
+		return NETDEV_TX_OK;
 
 	if (!(priv->hw->hw.flags & IEEE802154_HW_OMIT_CKSUM)) {
 		u16 crc = crc_ccitt(0, skb->data, skb->len);
@@ -51,19 +101,33 @@ static int ieee802154_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		data[1] = crc >> 8;
 	}
 
-	read_lock(&priv->mib_lock);
-	phy_cb(skb)->chan = priv->chan;
-	read_unlock(&priv->mib_lock);
-
 	skb->iif = dev->ifindex;
-	skb->dev = priv->hw->netdev;
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
-	dev->trans_start = jiffies;
-	dev_queue_xmit(skb);
 
-	return 0;
+	if (skb_cow_head(skb, priv->hw->hw.extra_tx_headroom)) {
+		dev_kfree_skb(skb);
+		return NETDEV_TX_OK;
+	}
+
+	work = kzalloc(sizeof(struct xmit_work), GFP_ATOMIC);
+	if (!work)
+		return NETDEV_TX_BUSY;
+
+	INIT_WORK(&work->work, ieee802154_xmit_worker);
+	work->skb = skb;
+	work->priv = priv->hw;
+
+	read_lock_bh(&priv->mib_lock);
+	work->chan = priv->chan;
+	work->page = priv->page;
+	read_unlock_bh(&priv->mib_lock);
+
+
+	queue_work(priv->hw->dev_workqueue, &work->work);
+
+	return NETDEV_TX_OK;
 }
 
 static int ieee802154_slave_open(struct net_device *dev)
@@ -72,7 +136,7 @@ static int ieee802154_slave_open(struct net_device *dev)
 	int res = 0;
 
 	if (priv->hw->open_count++ == 0) {
-		res = dev_open(priv->hw->netdev);
+		res = priv->hw->ops->start(&priv->hw->hw);
 		WARN_ON(res);
 		if (res)
 			goto err;
@@ -94,10 +158,8 @@ static int ieee802154_slave_close(struct net_device *dev)
 
 	netif_stop_queue(dev);
 
-	if ((--priv->hw->open_count) == 0) {
-		if (netif_running(priv->hw->netdev))
-			dev_close(priv->hw->netdev);
-	}
+	if ((--priv->hw->open_count) == 0)
+		priv->hw->ops->stop(&priv->hw->hw);
 
 	return 0;
 }
@@ -111,7 +173,7 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
 	int err = -ENOIOCTLCMD;
 
-	read_lock(&priv->mib_lock);
+	read_lock_bh(&priv->mib_lock);
 
 	switch (cmd) {
 	case SIOCGIFADDR:
@@ -145,7 +207,7 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		err = 0;
 		break;
 	}
-	read_unlock(&priv->mib_lock);
+	read_unlock_bh(&priv->mib_lock);
 	return err;
 }
 
@@ -193,7 +255,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 		return -EINVAL;
 
 	if (!saddr) {
-		read_lock(&priv->mib_lock);
+		read_lock_bh(&priv->mib_lock);
 		if (priv->short_addr == IEEE802154_ADDR_BROADCAST ||
 		    priv->short_addr == IEEE802154_ADDR_UNDEF ||
 		    priv->pan_id == IEEE802154_PANID_BROADCAST) {
@@ -208,7 +270,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 		dev_addr.pan_id = priv->pan_id;
 		saddr = &dev_addr;
 
-		read_unlock(&priv->mib_lock);
+		read_unlock_bh(&priv->mib_lock);
 	}
 
 	if (daddr->addr_type != IEEE802154_ADDR_NONE) {
@@ -324,7 +386,7 @@ static int ieee802154_header_parse(const struct sk_buff *skb,
 
 		if (hdr + IEEE802154_ADDR_LEN > tail)
 			goto malformed;
-		memcpy(addr->hwaddr, hdr, IEEE802154_ADDR_LEN);
+		ieee802154_haddr_copy_swap(addr->hwaddr, hdr);
 		hdr += IEEE802154_ADDR_LEN;
 		break;
 
@@ -401,49 +463,25 @@ void ieee802154_drop_slaves(struct ieee802154_dev *hw)
 		list_del(&sdata->list);
 		mutex_unlock(&sdata->hw->slaves_mtx);
 
-		dev_put(sdata->hw->netdev);
-
 		unregister_netdevice(sdata->dev);
 	}
 }
 
-static int ieee802154_netdev_validate(struct nlattr *tb[],
-		struct nlattr *data[])
+static int ieee802154_netdev_register(struct wpan_phy *phy,
+					struct net_device *dev)
 {
-	if (tb[IFLA_ADDRESS])
-		if (nla_len(tb[IFLA_ADDRESS]) != IEEE802154_ADDR_LEN)
-			return -EINVAL;
-
-	if (tb[IFLA_BROADCAST])
-		return -EINVAL;
-
-	return 0;
-}
-
-static int ieee802154_netdev_newlink(struct net_device *dev,
-					   struct nlattr *tb[],
-					   struct nlattr *data[])
-{
-	struct net_device *mdev;
 	struct ieee802154_sub_if_data *priv;
 	struct ieee802154_priv *ipriv;
 	int err;
 
-	if (!tb[IFLA_LINK])
-		return -EOPNOTSUPP;
-
-	mdev = __dev_get_by_index(dev_net(dev), nla_get_u32(tb[IFLA_LINK]));
-	if (!mdev)
-		return -ENODEV;
-
-	if (mdev->type != ARPHRD_IEEE802154_PHY)
-		return -EINVAL;
-
-	ipriv = netdev_priv(mdev);
+	ipriv = wpan_phy_priv(phy);
 
 	priv = netdev_priv(dev);
 	priv->dev = dev;
 	priv->hw = ipriv;
+
+	priv->chan = -1; /* not initialized */
+	priv->page = 0; /* for compat */
 
 	rwlock_init(&priv->mib_lock);
 
@@ -453,24 +491,25 @@ static int ieee802154_netdev_newlink(struct net_device *dev,
 	priv->pan_id = IEEE802154_PANID_BROADCAST;
 	priv->short_addr = IEEE802154_ADDR_BROADCAST;
 
-	dev_hold(ipriv->netdev);
-
 	dev->needed_headroom = ipriv->hw.extra_tx_headroom;
 
-	SET_NETDEV_DEV(dev, &ipriv->netdev->dev);
+	SET_NETDEV_DEV(dev, &ipriv->phy->dev);
 
-	err = register_netdevice(dev);
+	err = register_netdev(dev);
 	if (err < 0)
 		return err;
 
+	rtnl_lock();
 	mutex_lock(&ipriv->slaves_mtx);
 	list_add_tail_rcu(&priv->list, &ipriv->slaves);
 	mutex_unlock(&ipriv->slaves_mtx);
+	rtnl_unlock();
 
 	return 0;
 }
 
-static void ieee802154_netdev_dellink(struct net_device *dev)
+void ieee802154_del_iface(struct wpan_phy *phy,
+		struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *sdata;
 	ASSERT_RTNL();
@@ -479,57 +518,40 @@ static void ieee802154_netdev_dellink(struct net_device *dev)
 
 	sdata = netdev_priv(dev);
 
+	BUG_ON(sdata->hw->phy != phy);
+
 	mutex_lock(&sdata->hw->slaves_mtx);
 	list_del_rcu(&sdata->list);
 	mutex_unlock(&sdata->hw->slaves_mtx);
-
-	dev_put(sdata->hw->netdev);
 
 	synchronize_rcu();
 	unregister_netdevice(sdata->dev);
 }
 
-static size_t ieee802154_netdev_get_size(const struct net_device *dev)
+struct net_device *ieee802154_add_iface(struct wpan_phy *phy,
+		const char *name)
 {
-	return	nla_total_size(2) +	/* IFLA_WPAN_CHANNEL */
-		nla_total_size(2) +	/* IFLA_WPAN_PAN_ID */
-		nla_total_size(2) +	/* IFLA_WPAN_SHORT_ADDR */
-		nla_total_size(2) +	/* IFLA_WPAN_COORD_SHORT_ADDR */
-		nla_total_size(8);	/* IFLA_WPAN_COORD_EXT_ADDR */
+	struct net_device *dev;
+	int err = -ENOMEM;
+
+	dev = alloc_netdev(sizeof(struct ieee802154_sub_if_data),
+			name, ieee802154_netdev_setup);
+	if (!dev)
+		goto err;
+
+	err = ieee802154_netdev_register(phy, dev);
+
+	if (err)
+		goto err_free;
+
+	dev_hold(dev); /* we return a device w/ incremented refcount */
+	return dev;
+
+err_free:
+	free_netdev(dev);
+err:
+	return ERR_PTR(err);
 }
-
-static int ieee802154_netdev_fill_info(struct sk_buff *skb,
-					const struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-
-	read_lock(&priv->mib_lock);
-
-	NLA_PUT_U16(skb, IFLA_WPAN_CHANNEL, priv->chan);
-	NLA_PUT_U16(skb, IFLA_WPAN_PAN_ID, priv->pan_id);
-	NLA_PUT_U16(skb, IFLA_WPAN_SHORT_ADDR, priv->short_addr);
-	/* TODO: IFLA_WPAN_COORD_SHORT_ADDR */
-	/* TODO: IFLA_WPAN_COORD_EXT_ADDR */
-
-	read_unlock(&priv->mib_lock);
-
-	return 0;
-
-nla_put_failure:
-	read_unlock(&priv->mib_lock);
-	return -EMSGSIZE;
-}
-
-static struct rtnl_link_ops wpan_link_ops __read_mostly = {
-	.kind		= "wpan",
-	.priv_size	= sizeof(struct ieee802154_sub_if_data),
-	.setup		= ieee802154_netdev_setup,
-	.validate	= ieee802154_netdev_validate,
-	.newlink	= ieee802154_netdev_newlink,
-	.dellink	= ieee802154_netdev_dellink,
-	.get_size	= ieee802154_netdev_get_size,
-	.fill_info	= ieee802154_netdev_fill_info,
-};
 
 static int ieee802154_process_beacon(struct net_device *dev,
 		struct sk_buff *skb)
@@ -661,7 +683,7 @@ static void fetch_skb_u64(struct sk_buff *skb, void *data)
 {
 	BUG_ON(skb->len < IEEE802154_ADDR_LEN);
 
-	memcpy(data, skb->data, IEEE802154_ADDR_LEN);
+	ieee802154_haddr_copy_swap(data, skb->data);
 	skb_pull(skb, IEEE802154_ADDR_LEN);
 }
 
@@ -839,113 +861,4 @@ out:
 	dev_kfree_skb(skb);
 	return;
 }
-
-u16 ieee802154_dev_get_pan_id(struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-	u16 ret;
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	read_lock(&priv->mib_lock);
-	ret = priv->pan_id;
-	read_unlock(&priv->mib_lock);
-
-	return ret;
-}
-
-u16 ieee802154_dev_get_short_addr(struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-	u16 ret;
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	read_lock(&priv->mib_lock);
-	ret = priv->short_addr;
-	read_unlock(&priv->mib_lock);
-
-	return ret;
-}
-
-void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	write_lock(&priv->mib_lock);
-	priv->pan_id = val;
-	write_unlock(&priv->mib_lock);
-}
-void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	write_lock(&priv->mib_lock);
-	priv->short_addr = val;
-	write_unlock(&priv->mib_lock);
-}
-void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	write_lock(&priv->mib_lock);
-	priv->chan = val;
-	write_unlock(&priv->mib_lock);
-}
-
-u8 ieee802154_dev_get_dsn(struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-	u16 ret;
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	write_lock(&priv->mib_lock);
-	ret = priv->dsn++;
-	write_unlock(&priv->mib_lock);
-
-	return ret;
-}
-
-u8 ieee802154_dev_get_bsn(struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-	u16 ret;
-
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	write_lock(&priv->mib_lock);
-	ret = priv->bsn++;
-	write_unlock(&priv->mib_lock);
-
-	return ret;
-}
-
-struct ieee802154_priv *ieee802154_slave_get_priv(struct net_device *dev)
-{
-	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
-	BUG_ON(dev->type != ARPHRD_IEEE802154);
-
-	return priv->hw;
-}
-
-static int __init ieee802154_dev_init(void)
-{
-	return rtnl_link_register(&wpan_link_ops);
-}
-module_init(ieee802154_dev_init);
-
-static void __exit ieee802154_dev_exit(void)
-{
-	rtnl_link_unregister(&wpan_link_ops);
-}
-module_exit(ieee802154_dev_exit);
-
-MODULE_ALIAS_RTNL_LINK("wpan");
 

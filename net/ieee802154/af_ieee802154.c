@@ -147,9 +147,7 @@ static int ieee802154_dev_ioctl(struct sock *sk, struct ifreq __user *arg,
 	dev_load(sock_net(sk), ifr.ifr_name);
 	dev = dev_get_by_name(sock_net(sk), ifr.ifr_name);
 
-	if ((dev->type == ARPHRD_IEEE802154 ||
-	     dev->type == ARPHRD_IEEE802154_PHY) &&
-	    dev->netdev_ops->ndo_do_ioctl)
+	if (dev->type == ARPHRD_IEEE802154 && dev->netdev_ops->ndo_do_ioctl)
 		ret = dev->netdev_ops->ndo_do_ioctl(dev, &ifr, cmd);
 
 	if (!ret && copy_to_user(arg, &ifr, sizeof(struct ifreq)))
@@ -287,7 +285,7 @@ out:
 	return rc;
 }
 
-static struct net_proto_family ieee802154_family_ops = {
+static const struct net_proto_family ieee802154_family_ops = {
 	.family		= PF_IEEE802154,
 	.create		= ieee802154_create,
 	.owner		= THIS_MODULE,

@@ -47,6 +47,7 @@
 #include <linux/bootmem.h>
 #include <linux/err.h>
 #include <linux/nmi.h>
+#include <linux/tboot.h>
 
 #include <asm/acpi.h>
 #include <asm/desc.h>
@@ -323,7 +324,7 @@ notrace static void __cpuinit start_secondary(void *unused)
 	/* enable local interrupts */
 	local_irq_enable();
 
-	setup_secondary_clock();
+	x86_cpuinit.setup_percpu_clockev();
 
 	wmb();
 	cpu_idle();
@@ -434,7 +435,8 @@ const struct cpumask *cpu_coregroup_mask(int cpu)
 	 * For perf, we return last level cache shared map.
 	 * And for power savings, we return cpu_core_map
 	 */
-	if (sched_mc_power_savings || sched_smt_power_savings)
+	if ((sched_mc_power_savings || sched_smt_power_savings) &&
+	    !(cpu_has(c, X86_FEATURE_AMD_DCM)))
 		return cpu_core_mask(cpu);
 	else
 		return c->llc_shared_map;
@@ -504,7 +506,7 @@ void __inquire_remote_apic(int apicid)
  * INIT, INIT, STARTUP sequence will reset the chip hard for us, and this
  * won't ... remember to clear down the APIC, etc later.
  */
-int __devinit
+int __cpuinit
 wakeup_secondary_cpu_via_nmi(int logical_apicid, unsigned long start_eip)
 {
 	unsigned long send_status, accept_status = 0;
@@ -538,7 +540,7 @@ wakeup_secondary_cpu_via_nmi(int logical_apicid, unsigned long start_eip)
 	return (send_status | accept_status);
 }
 
-int __devinit
+static int __cpuinit
 wakeup_secondary_cpu_via_init(int phys_apicid, unsigned long start_eip)
 {
 	unsigned long send_status, accept_status = 0;
@@ -822,10 +824,12 @@ do_rest:
 	/* mark "stuck" area as not stuck */
 	*((volatile unsigned long *)trampoline_base) = 0;
 
-	/*
-	 * Cleanup possible dangling ends...
-	 */
-	smpboot_restore_warm_reset_vector();
+	if (get_uv_system_type() != UV_NON_UNIQUE_APIC) {
+		/*
+		 * Cleanup possible dangling ends...
+		 */
+		smpboot_restore_warm_reset_vector();
+	}
 
 	return boot_error;
 }
@@ -871,7 +875,7 @@ int __cpuinit native_cpu_up(unsigned int cpu)
 
 	err = do_boot_cpu(apicid, cpu);
 
-	zap_low_mappings();
+	zap_low_mappings(false);
 	low_mappings = 0;
 #else
 	err = do_boot_cpu(apicid, cpu);
@@ -990,10 +994,12 @@ static int __init smp_sanity_check(unsigned max_cpus)
 	 */
 	if (APIC_INTEGRATED(apic_version[boot_cpu_physical_apicid]) &&
 	    !cpu_has_apic) {
-		printk(KERN_ERR "BIOS bug, local APIC #%d not detected!...\n",
-			boot_cpu_physical_apicid);
-		printk(KERN_ERR "... forcing use of dummy APIC emulation."
+		if (!disable_apic) {
+			pr_err("BIOS bug, local APIC #%d not detected!...\n",
+				boot_cpu_physical_apicid);
+			pr_err("... forcing use of dummy APIC emulation."
 				"(tell your hw vendor)\n");
+		}
 		smpboot_clear_io_apic();
 		arch_disable_smp_support();
 		return -1;
@@ -1053,12 +1059,9 @@ void __init native_smp_prepare_cpus(unsigned int max_cpus)
 #endif
 	current_thread_info()->cpu = 0;  /* needed? */
 	for_each_possible_cpu(i) {
-		alloc_cpumask_var(&per_cpu(cpu_sibling_map, i), GFP_KERNEL);
-		alloc_cpumask_var(&per_cpu(cpu_core_map, i), GFP_KERNEL);
-		alloc_cpumask_var(&cpu_data(i).llc_shared_map, GFP_KERNEL);
-		cpumask_clear(per_cpu(cpu_core_map, i));
-		cpumask_clear(per_cpu(cpu_sibling_map, i));
-		cpumask_clear(cpu_data(i).llc_shared_map);
+		zalloc_cpumask_var(&per_cpu(cpu_sibling_map, i), GFP_KERNEL);
+		zalloc_cpumask_var(&per_cpu(cpu_core_map, i), GFP_KERNEL);
+		zalloc_cpumask_var(&cpu_data(i).llc_shared_map, GFP_KERNEL);
 	}
 	set_cpu_sibling_map(0);
 
@@ -1108,13 +1111,26 @@ void __init native_smp_prepare_cpus(unsigned int max_cpus)
 
 	printk(KERN_INFO "CPU%d: ", 0);
 	print_cpu_info(&cpu_data(0));
-	setup_boot_clock();
+	x86_init.timers.setup_percpu_clockev();
 
 	if (is_uv_system())
 		uv_system_init();
+
+	set_mtrr_aps_delayed_init();
 out:
 	preempt_enable();
 }
+
+void arch_enable_nonboot_cpus_begin(void)
+{
+	set_mtrr_aps_delayed_init();
+}
+
+void arch_enable_nonboot_cpus_end(void)
+{
+	mtrr_aps_init();
+}
+
 /*
  * Early setup to make printk work.
  */
@@ -1136,6 +1152,7 @@ void __init native_smp_cpus_done(unsigned int max_cpus)
 	setup_ioapic_dest();
 #endif
 	check_nmi_watchdog();
+	mtrr_aps_init();
 }
 
 static int __initdata setup_possible_cpus = -1;
@@ -1313,6 +1330,7 @@ void play_dead_common(void)
 void native_play_dead(void)
 {
 	play_dead_common();
+	tboot_shutdown(TB_SHUTDOWN_WFS);
 	wbinvd_halt();
 }
 

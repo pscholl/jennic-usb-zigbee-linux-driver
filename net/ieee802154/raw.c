@@ -74,8 +74,7 @@ static int raw_bind(struct sock *sk, struct sockaddr *uaddr, int len)
 		goto out;
 	}
 
-	if (dev->type != ARPHRD_IEEE802154_PHY &&
-	    dev->type != ARPHRD_IEEE802154) {
+	if (dev->type != ARPHRD_IEEE802154) {
 		err = -ENODEV;
 		goto out_put;
 	}
@@ -245,7 +244,7 @@ static int raw_getsockopt(struct sock *sk, int level, int optname,
 }
 
 static int raw_setsockopt(struct sock *sk, int level, int optname,
-		    char __user *optval, int __user optlen)
+		    char __user *optval, unsigned int optlen)
 {
 	return -EOPNOTSUPP;
 }

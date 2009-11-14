@@ -37,7 +37,6 @@
 #include "ext4.h"
 #include "ext4_jbd2.h"
 
-#include "namei.h"
 #include "xattr.h"
 #include "acl.h"
 
@@ -750,7 +749,7 @@ static int dx_make_map(struct ext4_dir_entry_2 *de, unsigned blocksize,
 			ext4fs_dirhash(de->name, de->name_len, &h);
 			map_tail--;
 			map_tail->hash = h.hash;
-			map_tail->offs = (u16) ((char *) de - base);
+			map_tail->offs = ((char *) de - base)>>2;
 			map_tail->size = le16_to_cpu(de->rec_len);
 			count++;
 			cond_resched();
@@ -1148,7 +1147,8 @@ dx_move_dirents(char *from, char *to, struct dx_map_entry *map, int count,
 	unsigned rec_len = 0;
 
 	while (count--) {
-		struct ext4_dir_entry_2 *de = (struct ext4_dir_entry_2 *) (from + map->offs);
+		struct ext4_dir_entry_2 *de = (struct ext4_dir_entry_2 *) 
+						(from + (map->offs<<2));
 		rec_len = EXT4_DIR_REC_LEN(de->name_len);
 		memcpy (to, de, rec_len);
 		((struct ext4_dir_entry_2 *) to)->rec_len =
@@ -1590,9 +1590,9 @@ static int ext4_dx_add_entry(handle_t *handle, struct dentry *dentry,
 			goto cleanup;
 		node2 = (struct dx_node *)(bh2->b_data);
 		entries2 = node2->entries;
+		memset(&node2->fake, 0, sizeof(struct fake_dirent));
 		node2->fake.rec_len = ext4_rec_len_to_disk(sb->s_blocksize,
 							   sb->s_blocksize);
-		node2->fake.inode = 0;
 		BUFFER_TRACE(frame->bh, "get_write_access");
 		err = ext4_journal_get_write_access(handle, frame->bh);
 		if (err)
@@ -1782,7 +1782,7 @@ retry:
 	if (IS_DIRSYNC(dir))
 		ext4_handle_sync(handle);
 
-	inode = ext4_new_inode (handle, dir, mode);
+	inode = ext4_new_inode(handle, dir, mode, &dentry->d_name, 0);
 	err = PTR_ERR(inode);
 	if (!IS_ERR(inode)) {
 		inode->i_op = &ext4_file_inode_operations;
@@ -1816,7 +1816,7 @@ retry:
 	if (IS_DIRSYNC(dir))
 		ext4_handle_sync(handle);
 
-	inode = ext4_new_inode(handle, dir, mode);
+	inode = ext4_new_inode(handle, dir, mode, &dentry->d_name, 0);
 	err = PTR_ERR(inode);
 	if (!IS_ERR(inode)) {
 		init_special_inode(inode, inode->i_mode, rdev);
@@ -1853,7 +1853,8 @@ retry:
 	if (IS_DIRSYNC(dir))
 		ext4_handle_sync(handle);
 
-	inode = ext4_new_inode(handle, dir, S_IFDIR | mode);
+	inode = ext4_new_inode(handle, dir, S_IFDIR | mode,
+			       &dentry->d_name, 0);
 	err = PTR_ERR(inode);
 	if (IS_ERR(inode))
 		goto out_stop;
@@ -1997,7 +1998,7 @@ int ext4_orphan_add(handle_t *handle, struct inode *inode)
 	if (!ext4_handle_valid(handle))
 		return 0;
 
-	lock_super(sb);
+	mutex_lock(&EXT4_SB(sb)->s_orphan_lock);
 	if (!list_empty(&EXT4_I(inode)->i_orphan))
 		goto out_unlock;
 
@@ -2006,9 +2007,13 @@ int ext4_orphan_add(handle_t *handle, struct inode *inode)
 
 	/* @@@ FIXME: Observation from aviro:
 	 * I think I can trigger J_ASSERT in ext4_orphan_add().  We block
-	 * here (on lock_super()), so race with ext4_link() which might bump
+	 * here (on s_orphan_lock), so race with ext4_link() which might bump
 	 * ->i_nlink. For, say it, character device. Not a regular file,
 	 * not a directory, not a symlink and ->i_nlink > 0.
+	 *
+	 * tytso, 4/25/2009: I'm not sure how that could happen;
+	 * shouldn't the fs core protect us from these sort of
+	 * unlink()/link() races?
 	 */
 	J_ASSERT((S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) ||
 		  S_ISLNK(inode->i_mode)) || inode->i_nlink == 0);
@@ -2045,7 +2050,7 @@ int ext4_orphan_add(handle_t *handle, struct inode *inode)
 	jbd_debug(4, "orphan inode %lu will point to %d\n",
 			inode->i_ino, NEXT_ORPHAN(inode));
 out_unlock:
-	unlock_super(sb);
+	mutex_unlock(&EXT4_SB(sb)->s_orphan_lock);
 	ext4_std_error(inode->i_sb, err);
 	return err;
 }
@@ -2063,14 +2068,13 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 	struct ext4_iloc iloc;
 	int err = 0;
 
-	if (!ext4_handle_valid(handle))
+	/* ext4_handle_valid() assumes a valid handle_t pointer */
+	if (handle && !ext4_handle_valid(handle))
 		return 0;
 
-	lock_super(inode->i_sb);
-	if (list_empty(&ei->i_orphan)) {
-		unlock_super(inode->i_sb);
-		return 0;
-	}
+	mutex_lock(&EXT4_SB(inode->i_sb)->s_orphan_lock);
+	if (list_empty(&ei->i_orphan))
+		goto out;
 
 	ino_next = NEXT_ORPHAN(inode);
 	prev = ei->i_orphan.prev;
@@ -2120,7 +2124,7 @@ int ext4_orphan_del(handle_t *handle, struct inode *inode)
 out_err:
 	ext4_std_error(inode->i_sb, err);
 out:
-	unlock_super(inode->i_sb);
+	mutex_unlock(&EXT4_SB(inode->i_sb)->s_orphan_lock);
 	return err;
 
 out_brelse:
@@ -2262,7 +2266,8 @@ retry:
 	if (IS_DIRSYNC(dir))
 		ext4_handle_sync(handle);
 
-	inode = ext4_new_inode(handle, dir, S_IFLNK|S_IRWXUGO);
+	inode = ext4_new_inode(handle, dir, S_IFLNK|S_IRWXUGO,
+			       &dentry->d_name, 0);
 	err = PTR_ERR(inode);
 	if (IS_ERR(inode))
 		goto out_stop;
@@ -2306,7 +2311,7 @@ static int ext4_link(struct dentry *old_dentry,
 	struct inode *inode = old_dentry->d_inode;
 	int err, retries = 0;
 
-	if (EXT4_DIR_LINK_MAX(inode))
+	if (inode->i_nlink >= EXT4_LINK_MAX)
 		return -EMLINK;
 
 	/*
@@ -2409,7 +2414,7 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto end_rename;
 		retval = -EMLINK;
 		if (!new_inode && new_dir != old_dir &&
-				new_dir->i_nlink >= EXT4_LINK_MAX)
+		    EXT4_DIR_LINK_MAX(new_dir))
 			goto end_rename;
 	}
 	if (!new_bh) {
@@ -2532,7 +2537,8 @@ const struct inode_operations ext4_dir_inode_operations = {
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
 #endif
-	.permission	= ext4_permission,
+	.check_acl	= ext4_check_acl,
+	.fiemap         = ext4_fiemap,
 };
 
 const struct inode_operations ext4_special_inode_operations = {
@@ -2543,5 +2549,5 @@ const struct inode_operations ext4_special_inode_operations = {
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
 #endif
-	.permission	= ext4_permission,
+	.check_acl	= ext4_check_acl,
 };

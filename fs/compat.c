@@ -32,7 +32,6 @@
 #include <linux/smb_mount.h>
 #include <linux/ncp_mount.h>
 #include <linux/nfs4_mount.h>
-#include <linux/smp_lock.h>
 #include <linux/syscalls.h>
 #include <linux/ctype.h>
 #include <linux/module.h>
@@ -100,13 +99,6 @@ asmlinkage long compat_sys_utimensat(unsigned int dfd, char __user *filename, st
 		if (get_compat_timespec(&tv[0], &t[0]) ||
 		    get_compat_timespec(&tv[1], &t[1]))
 			return -EFAULT;
-
-		if ((tv[0].tv_nsec == UTIME_OMIT || tv[0].tv_nsec == UTIME_NOW)
-		    && tv[0].tv_sec != 0)
-			return -EINVAL;
-		if ((tv[1].tv_nsec == UTIME_OMIT || tv[1].tv_nsec == UTIME_NOW)
-		    && tv[1].tv_sec != 0)
-			return -EINVAL;
 
 		if (tv[0].tv_nsec == UTIME_OMIT && tv[1].tv_nsec == UTIME_OMIT)
 			return 0;
@@ -471,7 +463,7 @@ asmlinkage long compat_sys_fcntl64(unsigned int fd, unsigned int cmd,
 		ret = sys_fcntl(fd, cmd, (unsigned long)&f);
 		set_fs(old_fs);
 		if (cmd == F_GETLK && ret == 0) {
-			/* GETLK was successfule and we need to return the data...
+			/* GETLK was successful and we need to return the data...
 			 * but it needs to fit in the compat structure.
 			 * l_start shouldn't be too big, unless the original
 			 * start + end is greater than COMPAT_OFF_T_MAX, in which
@@ -776,13 +768,13 @@ asmlinkage long compat_sys_mount(char __user * dev_name, char __user * dir_name,
 				 char __user * type, unsigned long flags,
 				 void __user * data)
 {
-	unsigned long type_page;
+	char *kernel_type;
 	unsigned long data_page;
-	unsigned long dev_page;
+	char *kernel_dev;
 	char *dir_page;
 	int retval;
 
-	retval = copy_mount_options (type, &type_page);
+	retval = copy_mount_string(type, &kernel_type);
 	if (retval < 0)
 		goto out;
 
@@ -791,40 +783,38 @@ asmlinkage long compat_sys_mount(char __user * dev_name, char __user * dir_name,
 	if (IS_ERR(dir_page))
 		goto out1;
 
-	retval = copy_mount_options (dev_name, &dev_page);
+	retval = copy_mount_string(dev_name, &kernel_dev);
 	if (retval < 0)
 		goto out2;
 
-	retval = copy_mount_options (data, &data_page);
+	retval = copy_mount_options(data, &data_page);
 	if (retval < 0)
 		goto out3;
 
 	retval = -EINVAL;
 
-	if (type_page && data_page) {
-		if (!strcmp((char *)type_page, SMBFS_NAME)) {
+	if (kernel_type && data_page) {
+		if (!strcmp(kernel_type, SMBFS_NAME)) {
 			do_smb_super_data_conv((void *)data_page);
-		} else if (!strcmp((char *)type_page, NCPFS_NAME)) {
+		} else if (!strcmp(kernel_type, NCPFS_NAME)) {
 			do_ncp_super_data_conv((void *)data_page);
-		} else if (!strcmp((char *)type_page, NFS4_NAME)) {
+		} else if (!strcmp(kernel_type, NFS4_NAME)) {
 			if (do_nfs4_super_data_conv((void *) data_page))
 				goto out4;
 		}
 	}
 
-	lock_kernel();
-	retval = do_mount((char*)dev_page, dir_page, (char*)type_page,
+	retval = do_mount(kernel_dev, dir_page, kernel_type,
 			flags, (void*)data_page);
-	unlock_kernel();
 
  out4:
 	free_page(data_page);
  out3:
-	free_page(dev_page);
+	kfree(kernel_dev);
  out2:
 	putname(dir_page);
  out1:
-	free_page(type_page);
+	kfree(kernel_type);
  out:
 	return retval;
 }
@@ -1488,20 +1478,15 @@ int compat_do_execve(char * filename,
 	if (!bprm)
 		goto out_files;
 
-	retval = mutex_lock_interruptible(&current->cred_exec_mutex);
-	if (retval < 0)
+	retval = prepare_bprm_creds(bprm);
+	if (retval)
 		goto out_free;
-	current->in_execve = 1;
-
-	retval = -ENOMEM;
-	bprm->cred = prepare_exec_creds();
-	if (!bprm->cred)
-		goto out_unlock;
 
 	retval = check_unsafe_exec(bprm);
 	if (retval < 0)
-		goto out_unlock;
+		goto out_free;
 	clear_in_exec = retval;
+	current->in_execve = 1;
 
 	file = open_exec(filename);
 	retval = PTR_ERR(file);
@@ -1547,10 +1532,11 @@ int compat_do_execve(char * filename,
 	if (retval < 0)
 		goto out;
 
+	current->stack_start = current->mm->start_stack;
+
 	/* execve succeeded */
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
-	mutex_unlock(&current->cred_exec_mutex);
 	acct_update_integrals(current);
 	free_bprm(bprm);
 	if (displaced)
@@ -1570,10 +1556,7 @@ out_file:
 out_unmark:
 	if (clear_in_exec)
 		current->fs->in_exec = 0;
-
-out_unlock:
 	current->in_execve = 0;
-	mutex_unlock(&current->cred_exec_mutex);
 
 out_free:
 	free_bprm(bprm);

@@ -436,10 +436,6 @@ static const struct hid_device_id apple_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_APPLE, USB_DEVICE_ID_APPLE_GEYSER1_TP_ONLY),
 		.driver_data = APPLE_NUMLOCK_EMULATION | APPLE_HAS_FN },
 
-	/* Apple wireless Mighty Mouse */
-	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_APPLE, 0x030c),
-		.driver_data = APPLE_MIGHTYMOUSE | APPLE_INVERT_HWHEEL },
-
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, apple_devices);
@@ -455,7 +451,7 @@ static struct hid_driver apple_driver = {
 	.input_mapped = apple_input_mapped,
 };
 
-static int apple_init(void)
+static int __init apple_init(void)
 {
 	int ret;
 
@@ -466,7 +462,7 @@ static int apple_init(void)
 	return ret;
 }
 
-static void apple_exit(void)
+static void __exit apple_exit(void)
 {
 	hid_unregister_driver(&apple_driver);
 }

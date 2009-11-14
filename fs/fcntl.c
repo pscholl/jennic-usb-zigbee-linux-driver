@@ -19,7 +19,6 @@
 #include <linux/signal.h>
 #include <linux/rcupdate.h>
 #include <linux/pid_namespace.h>
-#include <linux/smp_lock.h>
 
 #include <asm/poll.h>
 #include <asm/siginfo.h>
@@ -198,15 +197,19 @@ static int setfl(int fd, struct file * filp, unsigned long arg)
 }
 
 static void f_modown(struct file *filp, struct pid *pid, enum pid_type type,
-                     uid_t uid, uid_t euid, int force)
+                     int force)
 {
 	write_lock_irq(&filp->f_owner.lock);
 	if (force || !filp->f_owner.pid) {
 		put_pid(filp->f_owner.pid);
 		filp->f_owner.pid = get_pid(pid);
 		filp->f_owner.pid_type = type;
-		filp->f_owner.uid = uid;
-		filp->f_owner.euid = euid;
+
+		if (pid) {
+			const struct cred *cred = current_cred();
+			filp->f_owner.uid = cred->uid;
+			filp->f_owner.euid = cred->euid;
+		}
 	}
 	write_unlock_irq(&filp->f_owner.lock);
 }
@@ -214,14 +217,13 @@ static void f_modown(struct file *filp, struct pid *pid, enum pid_type type,
 int __f_setown(struct file *filp, struct pid *pid, enum pid_type type,
 		int force)
 {
-	const struct cred *cred = current_cred();
 	int err;
-	
+
 	err = security_file_set_fowner(filp);
 	if (err)
 		return err;
 
-	f_modown(filp, pid, type, cred->uid, cred->euid, force);
+	f_modown(filp, pid, type, force);
 	return 0;
 }
 EXPORT_SYMBOL(__f_setown);
@@ -247,7 +249,7 @@ EXPORT_SYMBOL(f_setown);
 
 void f_delown(struct file *filp)
 {
-	f_modown(filp, NULL, PIDTYPE_PID, 0, 0, 1);
+	f_modown(filp, NULL, PIDTYPE_PID, 1);
 }
 
 pid_t f_getown(struct file *filp)
@@ -259,6 +261,79 @@ pid_t f_getown(struct file *filp)
 		pid = -pid;
 	read_unlock(&filp->f_owner.lock);
 	return pid;
+}
+
+static int f_setown_ex(struct file *filp, unsigned long arg)
+{
+	struct f_owner_ex * __user owner_p = (void * __user)arg;
+	struct f_owner_ex owner;
+	struct pid *pid;
+	int type;
+	int ret;
+
+	ret = copy_from_user(&owner, owner_p, sizeof(owner));
+	if (ret)
+		return ret;
+
+	switch (owner.type) {
+	case F_OWNER_TID:
+		type = PIDTYPE_MAX;
+		break;
+
+	case F_OWNER_PID:
+		type = PIDTYPE_PID;
+		break;
+
+	case F_OWNER_GID:
+		type = PIDTYPE_PGID;
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	rcu_read_lock();
+	pid = find_vpid(owner.pid);
+	if (owner.pid && !pid)
+		ret = -ESRCH;
+	else
+		ret = __f_setown(filp, pid, type, 1);
+	rcu_read_unlock();
+
+	return ret;
+}
+
+static int f_getown_ex(struct file *filp, unsigned long arg)
+{
+	struct f_owner_ex * __user owner_p = (void * __user)arg;
+	struct f_owner_ex owner;
+	int ret = 0;
+
+	read_lock(&filp->f_owner.lock);
+	owner.pid = pid_vnr(filp->f_owner.pid);
+	switch (filp->f_owner.pid_type) {
+	case PIDTYPE_MAX:
+		owner.type = F_OWNER_TID;
+		break;
+
+	case PIDTYPE_PID:
+		owner.type = F_OWNER_PID;
+		break;
+
+	case PIDTYPE_PGID:
+		owner.type = F_OWNER_GID;
+		break;
+
+	default:
+		WARN_ON(1);
+		ret = -EINVAL;
+		break;
+	}
+	read_unlock(&filp->f_owner.lock);
+
+	if (!ret)
+		ret = copy_to_user(owner_p, &owner, sizeof(owner));
+	return ret;
 }
 
 static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
@@ -310,6 +385,12 @@ static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 		break;
 	case F_SETOWN:
 		err = f_setown(filp, arg, 1);
+		break;
+	case F_GETOWN_EX:
+		err = f_getown_ex(filp, arg);
+		break;
+	case F_SETOWN_EX:
+		err = f_setown_ex(filp, arg);
 		break;
 	case F_GETSIG:
 		err = filp->f_owner.signum;
@@ -425,14 +506,19 @@ static inline int sigio_perm(struct task_struct *p,
 }
 
 static void send_sigio_to_task(struct task_struct *p,
-			       struct fown_struct *fown, 
-			       int fd,
-			       int reason)
+			       struct fown_struct *fown,
+			       int fd, int reason, int group)
 {
-	if (!sigio_perm(p, fown, fown->signum))
+	/*
+	 * F_SETSIG can change ->signum lockless in parallel, make
+	 * sure we read it once and use the same value throughout.
+	 */
+	int signum = ACCESS_ONCE(fown->signum);
+
+	if (!sigio_perm(p, fown, signum))
 		return;
 
-	switch (fown->signum) {
+	switch (signum) {
 		siginfo_t si;
 		default:
 			/* Queue a rt signal with the appropriate fd as its
@@ -441,7 +527,7 @@ static void send_sigio_to_task(struct task_struct *p,
 			   delivered even if we can't queue.  Failure to
 			   queue in this case _should_ be reported; we fall
 			   back to SIGIO in that case. --sct */
-			si.si_signo = fown->signum;
+			si.si_signo = signum;
 			si.si_errno = 0;
 		        si.si_code  = reason;
 			/* Make sure we are called with one of the POLL_*
@@ -453,11 +539,11 @@ static void send_sigio_to_task(struct task_struct *p,
 			else
 				si.si_band = band_table[reason - POLL_IN];
 			si.si_fd    = fd;
-			if (!group_send_sig_info(fown->signum, &si, p))
+			if (!do_send_sig_info(signum, &si, p, group))
 				break;
 		/* fall-through: fall back on the old plain SIGIO signal */
 		case 0:
-			group_send_sig_info(SIGIO, SEND_SIG_PRIV, p);
+			do_send_sig_info(SIGIO, SEND_SIG_PRIV, p, group);
 	}
 }
 
@@ -466,16 +552,23 @@ void send_sigio(struct fown_struct *fown, int fd, int band)
 	struct task_struct *p;
 	enum pid_type type;
 	struct pid *pid;
+	int group = 1;
 	
 	read_lock(&fown->lock);
+
 	type = fown->pid_type;
+	if (type == PIDTYPE_MAX) {
+		group = 0;
+		type = PIDTYPE_PID;
+	}
+
 	pid = fown->pid;
 	if (!pid)
 		goto out_unlock_fown;
 	
 	read_lock(&tasklist_lock);
 	do_each_pid_task(pid, type, p) {
-		send_sigio_to_task(p, fown, fd, band);
+		send_sigio_to_task(p, fown, fd, band, group);
 	} while_each_pid_task(pid, type, p);
 	read_unlock(&tasklist_lock);
  out_unlock_fown:
@@ -483,10 +576,10 @@ void send_sigio(struct fown_struct *fown, int fd, int band)
 }
 
 static void send_sigurg_to_task(struct task_struct *p,
-                                struct fown_struct *fown)
+				struct fown_struct *fown, int group)
 {
 	if (sigio_perm(p, fown, SIGURG))
-		group_send_sig_info(SIGURG, SEND_SIG_PRIV, p);
+		do_send_sig_info(SIGURG, SEND_SIG_PRIV, p, group);
 }
 
 int send_sigurg(struct fown_struct *fown)
@@ -494,10 +587,17 @@ int send_sigurg(struct fown_struct *fown)
 	struct task_struct *p;
 	enum pid_type type;
 	struct pid *pid;
+	int group = 1;
 	int ret = 0;
 	
 	read_lock(&fown->lock);
+
 	type = fown->pid_type;
+	if (type == PIDTYPE_MAX) {
+		group = 0;
+		type = PIDTYPE_PID;
+	}
+
 	pid = fown->pid;
 	if (!pid)
 		goto out_unlock_fown;
@@ -506,7 +606,7 @@ int send_sigurg(struct fown_struct *fown)
 	
 	read_lock(&tasklist_lock);
 	do_each_pid_task(pid, type, p) {
-		send_sigurg_to_task(p, fown);
+		send_sigurg_to_task(p, fown, group);
 	} while_each_pid_task(pid, type, p);
 	read_unlock(&tasklist_lock);
  out_unlock_fown:

@@ -5,12 +5,14 @@
  */
 
 #include <linux/sched.h>
+#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <net/sock.h>
 #include <linux/sunrpc/stats.h>
 #include <linux/sunrpc/svc_xprt.h>
+#include <linux/sunrpc/svcsock.h>
 
 #define RPCDBG_FACILITY	RPCDBG_SVCXPRT
 
@@ -158,6 +160,7 @@ void svc_xprt_init(struct svc_xprt_class *xcl, struct svc_xprt *xprt,
 	mutex_init(&xprt->xpt_mutex);
 	spin_lock_init(&xprt->xpt_lock);
 	set_bit(XPT_BUSY, &xprt->xpt_flags);
+	rpc_init_wait_queue(&xprt->xpt_bc_pending, "xpt_bc_pending");
 }
 EXPORT_SYMBOL_GPL(svc_xprt_init);
 
@@ -708,10 +711,7 @@ int svc_recv(struct svc_rqst *rqstp, long timeout)
 	spin_unlock_bh(&pool->sp_lock);
 
 	len = 0;
-	if (test_bit(XPT_CLOSE, &xprt->xpt_flags)) {
-		dprintk("svc_recv: found XPT_CLOSE\n");
-		svc_delete_xprt(xprt);
-	} else if (test_bit(XPT_LISTENER, &xprt->xpt_flags)) {
+	if (test_bit(XPT_LISTENER, &xprt->xpt_flags)) {
 		struct svc_xprt *newxpt;
 		newxpt = xprt->xpt_ops->xpo_accept(xprt);
 		if (newxpt) {
@@ -737,7 +737,7 @@ int svc_recv(struct svc_rqst *rqstp, long timeout)
 			svc_xprt_received(newxpt);
 		}
 		svc_xprt_received(xprt);
-	} else {
+	} else if (!test_bit(XPT_CLOSE, &xprt->xpt_flags)) {
 		dprintk("svc: server %p, pool %u, transport %p, inuse=%d\n",
 			rqstp, pool->sp_id, xprt,
 			atomic_read(&xprt->xpt_ref.refcount));
@@ -748,6 +748,11 @@ int svc_recv(struct svc_rqst *rqstp, long timeout)
 		} else
 			len = xprt->xpt_ops->xpo_recvfrom(rqstp);
 		dprintk("svc: got len=%d\n", len);
+	}
+
+	if (test_bit(XPT_CLOSE, &xprt->xpt_flags)) {
+		dprintk("svc_recv: found XPT_CLOSE\n");
+		svc_delete_xprt(xprt);
 	}
 
 	/* No data, incomplete (TCP) read, or accept() */
@@ -806,6 +811,7 @@ int svc_send(struct svc_rqst *rqstp)
 	else
 		len = xprt->xpt_ops->xpo_sendto(rqstp);
 	mutex_unlock(&xprt->xpt_mutex);
+	rpc_wake_up(&xprt->xpt_bc_pending);
 	svc_xprt_release(rqstp);
 
 	if (len == -ECONNREFUSED || len == -ENOTCONN || len == -EAGAIN)
@@ -1097,36 +1103,58 @@ struct svc_xprt *svc_find_xprt(struct svc_serv *serv, const char *xcl_name,
 }
 EXPORT_SYMBOL_GPL(svc_find_xprt);
 
-/*
- * Format a buffer with a list of the active transports. A zero for
- * the buflen parameter disables target buffer overflow checking.
+static int svc_one_xprt_name(const struct svc_xprt *xprt,
+			     char *pos, int remaining)
+{
+	int len;
+
+	len = snprintf(pos, remaining, "%s %u\n",
+			xprt->xpt_class->xcl_name,
+			svc_xprt_local_port(xprt));
+	if (len >= remaining)
+		return -ENAMETOOLONG;
+	return len;
+}
+
+/**
+ * svc_xprt_names - format a buffer with a list of transport names
+ * @serv: pointer to an RPC service
+ * @buf: pointer to a buffer to be filled in
+ * @buflen: length of buffer to be filled in
+ *
+ * Fills in @buf with a string containing a list of transport names,
+ * each name terminated with '\n'.
+ *
+ * Returns positive length of the filled-in string on success; otherwise
+ * a negative errno value is returned if an error occurs.
  */
-int svc_xprt_names(struct svc_serv *serv, char *buf, int buflen)
+int svc_xprt_names(struct svc_serv *serv, char *buf, const int buflen)
 {
 	struct svc_xprt *xprt;
-	char xprt_str[64];
-	int totlen = 0;
-	int len;
+	int len, totlen;
+	char *pos;
 
 	/* Sanity check args */
 	if (!serv)
 		return 0;
 
 	spin_lock_bh(&serv->sv_lock);
+
+	pos = buf;
+	totlen = 0;
 	list_for_each_entry(xprt, &serv->sv_permsocks, xpt_list) {
-		len = snprintf(xprt_str, sizeof(xprt_str),
-			       "%s %d\n", xprt->xpt_class->xcl_name,
-			       svc_xprt_local_port(xprt));
-		/* If the string was truncated, replace with error string */
-		if (len >= sizeof(xprt_str))
-			strcpy(xprt_str, "name-too-long\n");
-		/* Don't overflow buffer */
-		len = strlen(xprt_str);
-		if (buflen && (len + totlen >= buflen))
+		len = svc_one_xprt_name(xprt, pos, buflen - totlen);
+		if (len < 0) {
+			*buf = '\0';
+			totlen = len;
+		}
+		if (len <= 0)
 			break;
-		strcpy(buf+totlen, xprt_str);
+
+		pos += len;
 		totlen += len;
 	}
+
 	spin_unlock_bh(&serv->sv_lock);
 	return totlen;
 }
@@ -1141,11 +1169,6 @@ static void *svc_pool_stats_start(struct seq_file *m, loff_t *pos)
 	struct svc_serv *serv = m->private;
 
 	dprintk("svc_pool_stats_start, *pidx=%u\n", pidx);
-
-	lock_kernel();
-	/* bump up the pseudo refcount while traversing */
-	svc_get(serv);
-	unlock_kernel();
 
 	if (!pidx)
 		return SEQ_START_TOKEN;
@@ -1174,12 +1197,6 @@ static void *svc_pool_stats_next(struct seq_file *m, void *p, loff_t *pos)
 
 static void svc_pool_stats_stop(struct seq_file *m, void *p)
 {
-	struct svc_serv *serv = m->private;
-
-	lock_kernel();
-	/* this function really, really should have been called svc_put() */
-	svc_destroy(serv);
-	unlock_kernel();
 }
 
 static int svc_pool_stats_show(struct seq_file *m, void *p)

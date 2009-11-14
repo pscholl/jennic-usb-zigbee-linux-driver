@@ -3662,8 +3662,8 @@ static int pfkey_seq_show(struct seq_file *f, void *v)
 		seq_printf(f ,"%p %-6d %-6u %-6u %-6u %-6lu\n",
 			       s,
 			       atomic_read(&s->sk_refcnt),
-			       atomic_read(&s->sk_rmem_alloc),
-			       atomic_read(&s->sk_wmem_alloc),
+			       sk_rmem_alloc_get(s),
+			       sk_wmem_alloc_get(s),
 			       sock_i_uid(s),
 			       sock_i_ino(s)
 			       );
@@ -3705,7 +3705,7 @@ static void pfkey_seq_stop(struct seq_file *f, void *v)
 	read_unlock(&pfkey_table_lock);
 }
 
-static struct seq_operations pfkey_seq_ops = {
+static const struct seq_operations pfkey_seq_ops = {
 	.start	= pfkey_seq_start,
 	.next	= pfkey_seq_next,
 	.stop	= pfkey_seq_stop,
@@ -3718,7 +3718,7 @@ static int pfkey_seq_open(struct inode *inode, struct file *file)
 			    sizeof(struct seq_net_private));
 }
 
-static struct file_operations pfkey_proc_ops = {
+static const struct file_operations pfkey_proc_ops = {
 	.open	 = pfkey_seq_open,
 	.read	 = seq_read,
 	.llseek	 = seq_lseek,

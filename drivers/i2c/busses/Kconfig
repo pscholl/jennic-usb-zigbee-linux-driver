@@ -113,7 +113,7 @@ config I2C_ISCH
 	  will be called i2c-isch.
 
 config I2C_PIIX4
-	tristate "Intel PIIX4 and compatible (ATI/Serverworks/Broadcom/SMSC)"
+	tristate "Intel PIIX4 and compatible (ATI/AMD/Serverworks/Broadcom/SMSC)"
 	depends on PCI
 	help
 	  If you say yes to this option, support will be included for the Intel
@@ -128,6 +128,7 @@ config I2C_PIIX4
 	    ATI SB600
 	    ATI SB700
 	    ATI SB800
+	    AMD Hudson-2
 	    Serverworks OSB4
 	    Serverworks CSB5
 	    Serverworks CSB6
@@ -211,7 +212,7 @@ config I2C_VIA
 	  will be called i2c-via.
 
 config I2C_VIAPRO
-	tristate "VIA VT82C596/82C686/82xx and CX700/VX800/VX820"
+	tristate "VIA VT82C596/82C686/82xx and CX700/VX8xx"
 	depends on PCI
 	help
 	  If you say yes to this option, support will be included for the VIA
@@ -225,11 +226,27 @@ config I2C_VIAPRO
 	    VT8237R/A/S
 	    VT8251
 	    CX700
-	    VX800
-	    VX820
+	    VX800/VX820
+	    VX855/VX875
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-viapro.
+
+if ACPI
+
+comment "ACPI drivers"
+
+config I2C_SCMI
+	tristate "SMBus Control Method Interface"
+	help
+	  This driver supports the SMBus Control Method Interface. It needs the
+	  BIOS to declare ACPI control methods as described in the SMBus Control
+	  Method Interface specification.
+
+	  To compile this driver as a module, choose M here:
+	  the module will be called i2c-scmi.
+
+endif # ACPI
 
 comment "Mac SMBus host controller drivers"
 	depends on PPC_CHRP || PPC_PMAC
@@ -298,7 +315,7 @@ config I2C_BLACKFIN_TWI
 config I2C_BLACKFIN_TWI_CLK_KHZ
 	int "Blackfin TWI I2C clock (kHz)"
 	depends on I2C_BLACKFIN_TWI
-	range 10 400
+	range 21 400
 	default 50
 	help
 	  The unit of the TWI clock is kHz.
@@ -325,6 +342,16 @@ config I2C_DAVINCI
 	  Please note that this driver might be needed to bring up other
 	  devices such as DaVinci NIC.
 	  For details please see http://www.ti.com/davinci
+
+config I2C_DESIGNWARE
+	tristate "Synopsys DesignWare"
+	depends on HAVE_CLK
+	help
+	  If you say yes to this option, support will be included for the
+	  Synopsys DesignWare I2C adapter. Only master mode is supported.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called i2c-designware.
 
 config I2C_GPIO
 	tristate "GPIO-based bitbanging I2C"
@@ -450,8 +477,8 @@ config I2C_PNX
 	  will be called i2c-pnx.
 
 config I2C_PXA
-	tristate "Intel PXA2XX I2C adapter (EXPERIMENTAL)"
-	depends on EXPERIMENTAL && ARCH_PXA
+	tristate "Intel PXA2XX I2C adapter"
+	depends on ARCH_PXA || ARCH_MMP
 	help
 	  If you have devices in the PXA I2C bus, say yes to this option.
 	  This driver can also be built as a module.  If so, the module
@@ -512,6 +539,19 @@ config I2C_SIMTEC
 
 	  This driver can also be built as a module. If so, the module
 	  will be called i2c-simtec.
+
+config I2C_STU300
+	tristate "ST Microelectronics DDC I2C interface"
+	depends on MACH_U300
+	default y if MACH_U300
+	help
+	  If you say yes to this option, support will be included for the
+	  I2C interface from ST Microelectronics simply called "DDC I2C"
+	  supporting both I2C and DDC, used in e.g. the U300 series
+	  mobile platforms.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called i2c-stu300.
 
 config I2C_VERSATILE
 	tristate "ARM Versatile/Realview I2C bus support"

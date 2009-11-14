@@ -371,6 +371,7 @@ __acquires(&port->port_lock)
 
 		req->length = len;
 		list_del(&req->list);
+		req->zero = (gs_buf_data_avail(&port->port_write_buf) == 0);
 
 		pr_vdebug(PREFIX "%d: tx len=%d, 0x%02x 0x%02x 0x%02x ...\n",
 				port->port_num, len, *((u8 *)req->buf),
@@ -1113,7 +1114,6 @@ int __init gserial_setup(struct usb_gadget *g, unsigned count)
 	/* export the driver ... */
 	status = tty_register_driver(gs_tty_driver);
 	if (status) {
-		put_tty_driver(gs_tty_driver);
 		pr_err("%s: cannot register, err %d\n",
 				__func__, status);
 		goto fail;

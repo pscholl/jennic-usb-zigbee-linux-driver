@@ -8,19 +8,15 @@
 #define TICK_SIZE (tick_nsec / 1000)
 
 unsigned long long native_sched_clock(void);
-unsigned long native_calibrate_tsc(void);
-
-#ifdef CONFIG_X86_32
-extern int timer_ack;
-extern irqreturn_t timer_interrupt(int irq, void *dev_id);
-#endif /* CONFIG_X86_32 */
 extern int recalibrate_cpu_khz(void);
 
-extern int no_timer_check;
-
-#ifndef CONFIG_PARAVIRT
-#define calibrate_tsc() native_calibrate_tsc()
+#if defined(CONFIG_X86_32) && defined(CONFIG_X86_IO_APIC)
+extern int timer_ack;
+#else
+# define timer_ack (0)
 #endif
+
+extern int no_timer_check;
 
 /* Accelerators for sched_clock()
  * convert from cycles(64bits) => nanoseconds (64bits)
@@ -45,12 +41,16 @@ extern int no_timer_check;
  */
 
 DECLARE_PER_CPU(unsigned long, cyc2ns);
+DECLARE_PER_CPU(unsigned long long, cyc2ns_offset);
 
 #define CYC2NS_SCALE_FACTOR 10 /* 2^10, carefully chosen */
 
 static inline unsigned long long __cycles_2_ns(unsigned long long cyc)
 {
-	return cyc * per_cpu(cyc2ns, smp_processor_id()) >> CYC2NS_SCALE_FACTOR;
+	int cpu = smp_processor_id();
+	unsigned long long ns = per_cpu(cyc2ns_offset, cpu);
+	ns += cyc * per_cpu(cyc2ns, cpu) >> CYC2NS_SCALE_FACTOR;
+	return ns;
 }
 
 static inline unsigned long long cycles_2_ns(unsigned long long cyc)

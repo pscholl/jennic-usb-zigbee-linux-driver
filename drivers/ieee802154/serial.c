@@ -32,6 +32,7 @@
 #include <linux/skbuff.h>
 #include <linux/sched.h>
 #include <net/mac802154.h>
+#include <net/wpan-phy.h>
 
 
 /* NOTE: be sure to use here the same values as in the firmware */
@@ -54,7 +55,7 @@
 #define STATUS_BUSY_TX	7
 #define STATUS_ERR	8
 
-#define STATUS_WAIT	-1 /* waiting for the answer */
+#define STATUS_WAIT	((u8) -1) /* waiting for the answer */
 
 /* We re-use PPP ioctl for our purposes */
 #define	PPPIOCGUNIT	_IOR('t', 86, int)	/* get ppp unit number */
@@ -570,7 +571,7 @@ ieee802154_serial_set_channel(struct ieee802154_dev *dev, int channel)
 		ret = -EINTR;
 
 	if (!ret)
-		zbdev->dev->current_channel = channel;
+		zbdev->dev->phy->current_channel = channel;
 out:
 	mutex_unlock(&zbdev->mutex);
 	pr_debug("%s end\n", __func__);
@@ -806,9 +807,8 @@ ieee802154_tty_open(struct tty_struct *tty)
 
 	dev->extra_tx_headroom = 0;
 	/* only 2.4 GHz band */
-	dev->channel_mask = 0x7ff;
-	/* it's 1st channel of 2.4 Ghz space */
-	dev->current_channel = 11;
+	dev->phy->channels_supported[0] = 0x7fff800;
+
 	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
 	dev->parent = tty_get_device(tty);
@@ -822,8 +822,8 @@ ieee802154_tty_open(struct tty_struct *tty)
 	/* FIXME: why is this needed. Note don't use ldisc_ref here as the
 	   open path is before the ldisc is referencable */
 
-	if (tty->ldisc.ops->flush_buffer)
-		tty->ldisc.ops->flush_buffer(tty);
+	if (tty->ldisc->ops->flush_buffer)
+		tty->ldisc->ops->flush_buffer(tty);
 	tty_driver_flush_buffer(tty);
 
 	err = ieee802154_register_device(dev);

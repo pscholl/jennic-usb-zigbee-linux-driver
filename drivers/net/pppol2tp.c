@@ -229,7 +229,7 @@ static void pppol2tp_tunnel_free(struct pppol2tp_tunnel *tunnel);
 static atomic_t pppol2tp_tunnel_count;
 static atomic_t pppol2tp_session_count;
 static struct ppp_channel_ops pppol2tp_chan_ops = { pppol2tp_xmit , NULL };
-static struct proto_ops pppol2tp_ops;
+static const struct proto_ops pppol2tp_ops;
 
 /* per-net private data for this module */
 static int pppol2tp_net_id;
@@ -433,8 +433,7 @@ static void pppol2tp_recv_dequeue_skb(struct pppol2tp_session *session, struct s
 		 *   to the inner packet either
 		 */
 		secpath_reset(skb);
-		dst_release(skb->dst);
-		skb->dst = NULL;
+		skb_dst_drop(skb);
 		nf_reset(skb);
 
 		po = pppox_sk(session_sock);
@@ -976,7 +975,7 @@ static int pppol2tp_sendmsg(struct kiocb *iocb, struct socket *sock, struct msgh
 	/* Calculate UDP checksum if configured to do so */
 	if (sk_tun->sk_no_check == UDP_CSUM_NOXMIT)
 		skb->ip_summed = CHECKSUM_NONE;
-	else if (!(skb->dst->dev->features & NETIF_F_V4_CSUM)) {
+	else if (!(skb_dst(skb)->dev->features & NETIF_F_V4_CSUM)) {
 		skb->ip_summed = CHECKSUM_COMPLETE;
 		csum = skb_checksum(skb, 0, udp_len, 0);
 		uh->check = csum_tcpudp_magic(inet->saddr, inet->daddr,
@@ -1172,14 +1171,14 @@ static int pppol2tp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	nf_reset(skb);
 
 	/* Get routing info from the tunnel socket */
-	dst_release(skb->dst);
-	skb->dst = dst_clone(__sk_dst_get(sk_tun));
+	skb_dst_drop(skb);
+	skb_dst_set(skb, dst_clone(__sk_dst_get(sk_tun)));
 	pppol2tp_skb_set_owner_w(skb, sk_tun);
 
 	/* Calculate UDP checksum if configured to do so */
 	if (sk_tun->sk_no_check == UDP_CSUM_NOXMIT)
 		skb->ip_summed = CHECKSUM_NONE;
-	else if (!(skb->dst->dev->features & NETIF_F_V4_CSUM)) {
+	else if (!(skb_dst(skb)->dev->features & NETIF_F_V4_CSUM)) {
 		skb->ip_summed = CHECKSUM_COMPLETE;
 		csum = skb_checksum(skb, 0, udp_len, 0);
 		uh->check = csum_tcpudp_magic(inet->saddr, inet->daddr,
@@ -1238,8 +1237,7 @@ static void pppol2tp_tunnel_closeall(struct pppol2tp_tunnel *tunnel)
 	struct pppol2tp_session *session;
 	struct sock *sk;
 
-	if (tunnel == NULL)
-		BUG();
+	BUG_ON(tunnel == NULL);
 
 	PRINTK(tunnel->debug, PPPOL2TP_MSG_CONTROL, KERN_INFO,
 	       "%s: closing all sessions...\n", tunnel->name);
@@ -2181,7 +2179,7 @@ static int pppol2tp_session_setsockopt(struct sock *sk,
  * session or the special tunnel type.
  */
 static int pppol2tp_setsockopt(struct socket *sock, int level, int optname,
-			       char __user *optval, int optlen)
+			       char __user *optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	struct pppol2tp_session *session = sk->sk_user_data;
@@ -2576,7 +2574,7 @@ static const struct file_operations pppol2tp_proc_fops = {
  * Init and cleanup
  *****************************************************************************/
 
-static struct proto_ops pppol2tp_ops = {
+static const struct proto_ops pppol2tp_ops = {
 	.family		= AF_PPPOX,
 	.owner		= THIS_MODULE,
 	.release	= pppol2tp_release,
@@ -2682,6 +2680,7 @@ out_unregister_pppol2tp_proto:
 static void __exit pppol2tp_exit(void)
 {
 	unregister_pppox_proto(PX_PROTO_OL2TP);
+	unregister_pernet_gen_device(pppol2tp_net_id, &pppol2tp_net_ops);
 	proto_unregister(&pppol2tp_sk_proto);
 }
 

@@ -37,6 +37,7 @@ struct thread_info {
 	.task		= &tsk,			\
 	.exec_domain	= &default_exec_domain,	\
 	.addr_limit	= KERNEL_DS,		\
+	.preempt_count	= INIT_PREEMPT_COUNT,	\
 	.restart_block = {			\
 		.fn = do_no_restart_syscall,	\
 	},					\
@@ -49,11 +50,11 @@ struct thread_info {
 register struct thread_info *__current_thread_info __asm__("$8");
 #define current_thread_info()  __current_thread_info
 
+#endif /* __ASSEMBLY__ */
+
 /* Thread information allocation.  */
 #define THREAD_SIZE_ORDER 1
 #define THREAD_SIZE (2*PAGE_SIZE)
-
-#endif /* __ASSEMBLY__ */
 
 #define PREEMPT_ACTIVE		0x40000000
 
@@ -74,6 +75,7 @@ register struct thread_info *__current_thread_info __asm__("$8");
 #define TIF_UAC_SIGBUS		7
 #define TIF_MEMDIE		8
 #define TIF_RESTORE_SIGMASK	9	/* restore signal mask in do_signal */
+#define TIF_NOTIFY_RESUME	10	/* callback before returning to user */
 #define TIF_FREEZE		16	/* is freezing for suspend */
 
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
@@ -81,10 +83,12 @@ register struct thread_info *__current_thread_info __asm__("$8");
 #define _TIF_NEED_RESCHED	(1<<TIF_NEED_RESCHED)
 #define _TIF_POLLING_NRFLAG	(1<<TIF_POLLING_NRFLAG)
 #define _TIF_RESTORE_SIGMASK	(1<<TIF_RESTORE_SIGMASK)
+#define _TIF_NOTIFY_RESUME	(1<<TIF_NOTIFY_RESUME)
 #define _TIF_FREEZE		(1<<TIF_FREEZE)
 
 /* Work to do on interrupt/exception return.  */
-#define _TIF_WORK_MASK		(_TIF_SIGPENDING | _TIF_NEED_RESCHED)
+#define _TIF_WORK_MASK		(_TIF_SIGPENDING | _TIF_NEED_RESCHED | \
+				 _TIF_NOTIFY_RESUME)
 
 /* Work to do on any return to userspace.  */
 #define _TIF_ALLWORK_MASK	(_TIF_WORK_MASK		\

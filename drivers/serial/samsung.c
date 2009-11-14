@@ -196,7 +196,7 @@ s3c24xx_serial_rx_chars(int irq, void *dev_id)
 {
 	struct s3c24xx_uart_port *ourport = dev_id;
 	struct uart_port *port = &ourport->port;
-	struct tty_struct *tty = port->info->port.tty;
+	struct tty_struct *tty = port->state->port.tty;
 	unsigned int ufcon, ch, flag, ufstat, uerstat;
 	int max_count = 64;
 
@@ -281,7 +281,7 @@ static irqreturn_t s3c24xx_serial_tx_chars(int irq, void *id)
 {
 	struct s3c24xx_uart_port *ourport = id;
 	struct uart_port *port = &ourport->port;
-	struct circ_buf *xmit = &port->info->xmit;
+	struct circ_buf *xmit = &port->state->xmit;
 	int count = 256;
 
 	if (port->x_char) {
@@ -992,10 +992,10 @@ static int s3c24xx_serial_cpufreq_transition(struct notifier_block *nb,
 		struct ktermios *termios;
 		struct tty_struct *tty;
 
-		if (uport->info == NULL)
+		if (uport->state == NULL)
 			goto exit;
 
-		tty = uport->info->port.tty;
+		tty = uport->state->port.tty;
 
 		if (tty == NULL)
 			goto exit;
@@ -1174,7 +1174,7 @@ int s3c24xx_serial_probe(struct platform_device *dev,
 
 EXPORT_SYMBOL_GPL(s3c24xx_serial_probe);
 
-int s3c24xx_serial_remove(struct platform_device *dev)
+int __devexit s3c24xx_serial_remove(struct platform_device *dev)
 {
 	struct uart_port *port = s3c24xx_dev_to_port(&dev->dev);
 

@@ -45,8 +45,16 @@
  *
  * void (*shutdown)(struct tty_struct * tty);
  *
- * 	This routine is called when a particular tty device is closed for
- *	the last time freeing up the resources.
+ * 	This routine is called synchronously when a particular tty device
+ *	is closed for the last time freeing up the resources.
+ *
+ *
+ * void (*cleanup)(struct tty_struct * tty);
+ *
+ *	This routine is called asynchronously when a particular tty device
+ *	is closed for the last time freeing up the resources. This is
+ *	actually the second part of shutdown for routines that might sleep.
+ *
  *
  * int (*write)(struct tty_struct * tty,
  * 		 const unsigned char *buf, int count);
@@ -127,7 +135,8 @@
  * 	the line discipline are close to full, and it should somehow
  * 	signal that no more characters should be sent to the tty.
  *
- *	Optional: Always invoke via tty_throttle();
+ *	Optional: Always invoke via tty_throttle(), called under the
+ *	termios lock.
  * 
  * void (*unthrottle)(struct tty_struct * tty);
  *
@@ -135,7 +144,8 @@
  * 	that characters can now be sent to the tty without fear of
  * 	overrunning the input buffers of the line disciplines.
  * 
- *	Optional: Always invoke via tty_unthrottle();
+ *	Optional: Always invoke via tty_unthrottle(), called under the
+ *	termios lock.
  *
  * void (*stop)(struct tty_struct *tty);
  *
@@ -231,6 +241,7 @@ struct tty_operations {
 	int  (*open)(struct tty_struct * tty, struct file * filp);
 	void (*close)(struct tty_struct * tty, struct file * filp);
 	void (*shutdown)(struct tty_struct *tty);
+	void (*cleanup)(struct tty_struct *tty);
 	int  (*write)(struct tty_struct * tty,
 		      const unsigned char *buf, int count);
 	int  (*put_char)(struct tty_struct *tty, unsigned char ch);

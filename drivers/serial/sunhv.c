@@ -184,8 +184,8 @@ static struct tty_struct *receive_chars(struct uart_port *port)
 {
 	struct tty_struct *tty = NULL;
 
-	if (port->info != NULL)		/* Unopened serial console */
-		tty = port->info->port.tty;
+	if (port->state != NULL)		/* Unopened serial console */
+		tty = port->state->port.tty;
 
 	if (sunhv_ops->receive_chars(port, tty))
 		sun_do_break();
@@ -197,10 +197,10 @@ static void transmit_chars(struct uart_port *port)
 {
 	struct circ_buf *xmit;
 
-	if (!port->info)
+	if (!port->state)
 		return;
 
-	xmit = &port->info->xmit;
+	xmit = &port->state->xmit;
 	if (uart_circ_empty(xmit) || uart_tx_stopped(port))
 		return;
 
@@ -461,7 +461,7 @@ static void sunhv_console_write_paged(struct console *con, const char *s, unsign
 					break;
 				udelay(1);
 			}
-			if (limit <= 0)
+			if (limit < 0)
 				break;
 			page_bytes -= written;
 			ra += written;

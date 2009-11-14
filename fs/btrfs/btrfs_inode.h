@@ -53,10 +53,6 @@ struct btrfs_inode {
 	/* used to order data wrt metadata */
 	struct btrfs_ordered_inode_tree ordered_tree;
 
-	/* standard acl pointers */
-	struct posix_acl *i_acl;
-	struct posix_acl *i_default_acl;
-
 	/* for keeping track of orphaned inodes */
 	struct list_head i_orphan;
 
@@ -71,6 +67,9 @@ struct btrfs_inode {
 	 * rename or truncate commit
 	 */
 	struct list_head ordered_operations;
+
+	/* node for the red-black tree that links inodes in subvolume root */
+	struct rb_node rb_node;
 
 	/* the space_info for where this inode's data allocations are done */
 	struct btrfs_space_info *space_info;
@@ -87,6 +86,12 @@ struct btrfs_inode {
 	 * transid of the trans_handle that last modified this inode
 	 */
 	u64 last_trans;
+
+	/*
+	 * log transid when this inode was last modified
+	 */
+	u64 last_sub_trans;
+
 	/*
 	 * transid that last logged this inode
 	 */
@@ -129,6 +134,16 @@ struct btrfs_inode {
 	u64 last_unlink_trans;
 
 	/*
+	 * Counters to keep track of the number of extent item's we may use due
+	 * to delalloc and such.  outstanding_extents is the number of extent
+	 * items we think we'll end up using, and reserved_extents is the number
+	 * of extent items we've reserved metadata for.
+	 */
+	spinlock_t accounting_lock;
+	int reserved_extents;
+	int outstanding_extents;
+
+	/*
 	 * ordered_data_close is set by truncate when a file that used
 	 * to have good data has been truncated to zero.  When it is set
 	 * the btrfs file release call will add this inode to the
@@ -139,6 +154,7 @@ struct btrfs_inode {
 	 * of these.
 	 */
 	unsigned ordered_data_close:1;
+	unsigned dummy_inode:1;
 
 	struct inode vfs_inode;
 };
@@ -153,6 +169,5 @@ static inline void btrfs_i_size_write(struct inode *inode, u64 size)
 	inode->i_size = size;
 	BTRFS_I(inode)->disk_i_size = size;
 }
-
 
 #endif
