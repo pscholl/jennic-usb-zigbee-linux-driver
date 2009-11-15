@@ -30,6 +30,11 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/at86rf230.h>
 
+#ifdef CONFIG_OF
+#include <linux/of.h>
+#include <linux/of_gpio.h>
+#endif
+
 #include <net/mac802154.h>
 #include <net/wpan-phy.h>
 
@@ -737,6 +742,58 @@ static int at86rf230_resume(struct spi_device *spi)
 	return 0;
 }
 
+#ifdef CONFIG_OF
+static int at86rf230_fill_data(struct spi_device *spi)
+{
+	struct device *dev = &spi->dev;
+	struct device_node *np = dev_archdata_get_node(&dev->archdata);
+	struct at86rf230_local *lp = spi_get_drvdata(spi);
+	struct at86rf230_platform_data *pdata = spi->dev.platform_data;
+	enum of_gpio_flags gpio_flags;
+
+	if (pdata) {
+		lp->rstn = pdata->rstn;
+		lp->slp_tr = pdata->slp_tr;
+		lp->dig2 = pdata->dig2;
+
+		return 0;
+	}
+
+	if (!np) {
+		dev_err(&spi->dev, "no platform_data and no node data\n");
+		return -EINVAL;
+	}
+
+	lp->rstn = of_get_gpio_flags(np, 0, &gpio_flags);
+	if (!gpio_is_valid(lp->rstn)) {
+		dev_err(&spi->dev, "no RSTN GPIO!\n");
+		return -EINVAL;
+	}
+
+	lp->slp_tr = of_get_gpio_flags(np, 1, &gpio_flags);
+	lp->dig2 = of_get_gpio_flags(np, 2, &gpio_flags);
+
+	return 0;
+}
+#else
+static int at86rf230_fill_data(struct spi_device *spi)
+{
+	struct at86rf230_local *lp = spi_get_drvdata(spi);
+	struct at86rf230_platform_data *pdata = spi->dev.platform_data;
+
+	if (!pdata) {
+		dev_err(&spi->dev, "no platform_data\n");
+		return -EINVAL;
+	}
+
+	lp->rstn = pdata->rstn;
+	lp->slp_tr = pdata->slp_tr;
+	lp->dig2 = pdata->dig2;
+
+	return 0;
+}
+#endif
+
 static int __devinit at86rf230_probe(struct spi_device *spi)
 {
 	struct ieee802154_dev *dev;
@@ -745,12 +802,6 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	int rc;
 	const char *chip;
 	int supported = 0;
-	struct at86rf230_platform_data *pdata = spi->dev.platform_data;
-
-	if (!pdata) {
-		dev_err(&spi->dev, "no platform_data\n");
-		return -EINVAL;
-	}
 
 	if (!spi->irq) {
 		dev_err(&spi->dev, "no IRQ specified\n");
@@ -773,16 +824,16 @@ static int __devinit at86rf230_probe(struct spi_device *spi)
 	dev->phy->channels_supported[0] = 0x7FFF800;
 	dev->flags = IEEE802154_HW_OMIT_CKSUM;
 
-	lp->rstn = pdata->rstn;
-	lp->slp_tr = pdata->slp_tr;
-	lp->dig2 = pdata->dig2;
-
 	mutex_init(&lp->bmux);
 	INIT_WORK(&lp->irqwork, at86rf230_irqwork);
 	spin_lock_init(&lp->lock);
 	init_completion(&lp->tx_complete);
 
 	spi_set_drvdata(spi, lp);
+
+	rc = at86rf230_fill_data(spi);
+	if (rc)
+		goto err_fill;
 
 	rc = gpio_request(lp->rstn, "rstn");
 	if (rc)
@@ -880,6 +931,7 @@ err_gpio_dir:
 err_slp_tr:
 	gpio_free(lp->rstn);
 err_rstn:
+err_fill:
 	spi_set_drvdata(spi, NULL);
 	mutex_destroy(&lp->bmux);
 	ieee802154_free_device(lp->dev);
