@@ -126,6 +126,7 @@
 			reg = <0x7000 0x1000>;
 			interrupts = <16 0x8>;
 			interrupt-parent = <&ipic>;
+			gpios = <&gpio1 11 0>;
 			mode = "cpu";
 
 			radio@0 {
