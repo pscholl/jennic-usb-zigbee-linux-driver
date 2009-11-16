@@ -418,7 +418,7 @@
 			device-width = <1>;
 		};
 
-		flash@0,1 {
+		flash@0,800000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
 			compatible = "cfi-flash";
