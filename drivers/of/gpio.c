@@ -217,3 +217,52 @@ err0:
 	return ret;
 }
 EXPORT_SYMBOL(of_mm_gpiochip_add);
+
+int of_simple_gpiochip_add(struct device_node *np,
+		       struct of_gpio_chip *of_gc)
+{
+	int ret = -ENOMEM;
+	struct gpio_chip *gc = &of_gc->gc;
+
+	gc->base = -1;
+
+	if (!of_gc->xlate)
+		of_gc->xlate = of_gpio_simple_xlate;
+
+	np->data = of_gc;
+
+	/* We don't want to lose the node and its ->data */
+	of_node_get(np);
+
+	ret = gpiochip_add(gc);
+	if (ret)
+		goto err;
+
+	pr_debug("%s: registered as generic GPIO chip, base is %d\n",
+		 np->full_name, gc->base);
+	return 0;
+err:
+	np->data = NULL;
+	of_node_put(np);
+	pr_err("%s: GPIO chip registration failed with status %d\n",
+	       np->full_name, ret);
+	return ret;
+}
+EXPORT_SYMBOL(of_simple_gpiochip_add);
+
+int of_simple_gpiochip_remove(struct device_node *np,
+			struct of_gpio_chip *of_gc)
+{
+	int ret;
+
+	ret = gpiochip_remove(&of_gc->gc);
+	if (!ret) {
+		np->data = NULL;
+		of_node_put(np);
+	} else {
+		pr_err("%s: GPIO chip unregistration failed with status %d\n",
+		       np->full_name, ret);
+	}
+	return ret;
+}
+EXPORT_SYMBOL(of_simple_gpiochip_remove);
