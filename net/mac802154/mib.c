@@ -28,6 +28,28 @@
 #include "mac802154.h"
 #include "mib.h"
 
+struct phy_chan_notify_work {
+	struct work_struct work;
+	struct net_device *dev;
+};
+
+static void phy_chan_notify(struct work_struct *work)
+{
+	struct phy_chan_notify_work *nw = container_of(work,
+			struct phy_chan_notify_work, work);
+	struct ieee802154_priv *hw = ieee802154_slave_get_priv(nw->dev);
+	struct ieee802154_sub_if_data *priv = netdev_priv(nw->dev);
+	int res;
+
+	res = hw->ops->set_channel(&hw->hw, priv->chan);
+	if (res)
+		pr_debug("set_channel failed\n");
+
+	kfree(nw);
+
+	return;
+}
+
 u16 ieee802154_dev_get_pan_id(const struct net_device *dev)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
@@ -81,12 +103,23 @@ void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 {
 	struct ieee802154_sub_if_data *priv = netdev_priv(dev);
+	struct phy_chan_notify_work *work;
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	write_lock_bh(&priv->mib_lock);
 	priv->chan = val;
 	write_unlock_bh(&priv->mib_lock);
+
+	if (priv->hw->phy->current_channel != priv->chan) {
+		work = kzalloc(sizeof(*work), GFP_ATOMIC);
+		if (!work)
+			return;
+
+		INIT_WORK(&work->work, phy_chan_notify);
+		work->dev = dev;
+		queue_work(priv->hw->dev_workqueue, &work->work);
+	}
 }
 
 void ieee802154_dev_set_page(struct net_device *dev, u8 page)
