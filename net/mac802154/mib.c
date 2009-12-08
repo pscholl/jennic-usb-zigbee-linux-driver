@@ -57,9 +57,9 @@ u16 ieee802154_dev_get_pan_id(const struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	read_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	ret = priv->pan_id;
-	read_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
@@ -71,9 +71,9 @@ u16 ieee802154_dev_get_short_addr(const struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	read_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	ret = priv->short_addr;
-	read_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
@@ -84,9 +84,9 @@ void ieee802154_dev_set_pan_id(struct net_device *dev, u16 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	priv->pan_id = val;
-	write_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 }
 
 void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
@@ -95,9 +95,9 @@ void ieee802154_dev_set_short_addr(struct net_device *dev, u16 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	priv->short_addr = val;
-	write_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 }
 
 void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
@@ -107,9 +107,9 @@ void ieee802154_dev_set_channel(struct net_device *dev, u8 val)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	priv->chan = val;
-	write_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 
 	if (priv->hw->phy->current_channel != priv->chan) {
 		work = kzalloc(sizeof(*work), GFP_ATOMIC);
@@ -128,9 +128,9 @@ void ieee802154_dev_set_page(struct net_device *dev, u8 page)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	priv->page = page;
-	write_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 }
 
 u8 ieee802154_dev_get_dsn(const struct net_device *dev)
@@ -140,9 +140,9 @@ u8 ieee802154_dev_get_dsn(const struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	ret = priv->dsn++;
-	write_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
@@ -154,9 +154,9 @@ u8 ieee802154_dev_get_bsn(const struct net_device *dev)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	write_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	ret = priv->bsn++;
-	write_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 
 	return ret;
 }
