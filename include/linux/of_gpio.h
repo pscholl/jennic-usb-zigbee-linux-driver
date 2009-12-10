@@ -67,6 +67,10 @@ extern int of_get_gpio_flags(struct device_node *np, int index,
 			     enum of_gpio_flags *flags);
 extern unsigned int of_gpio_count(struct device_node *np);
 
+extern int of_simple_gpiochip_add(struct device_node *np,
+				  struct of_gpio_chip *of_gc);
+extern int of_simple_gpiochip_remove(struct device_node *np,
+				     struct of_gpio_chip *of_gc);
 extern int of_mm_gpiochip_add(struct device_node *np,
 			      struct of_mm_gpio_chip *mm_gc);
 extern int of_gpio_simple_xlate(struct of_gpio_chip *of_gc,
