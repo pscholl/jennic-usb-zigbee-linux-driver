@@ -586,7 +586,10 @@ static int ieee802154_process_ack(struct net_device *dev, struct sk_buff *skb)
 
 static int ieee802154_process_data(struct net_device *dev, struct sk_buff *skb)
 {
-	return netif_rx(skb);
+	if (in_interrupt())
+		return netif_rx(skb);
+	else
+		return netif_rx_ni(skb);
 }
 
 static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
