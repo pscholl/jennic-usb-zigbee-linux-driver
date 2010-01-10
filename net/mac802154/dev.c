@@ -595,7 +595,7 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 	pr_debug("%s Getting packet via slave interface %s\n",
 				__func__, sdata->dev->name);
 
-	spin_lock(&sdata->mib_lock);
+	spin_lock_bh(&sdata->mib_lock);
 
 	switch (mac_cb(skb)->da.addr_type) {
 	case IEEE802154_ADDR_NONE:
@@ -630,7 +630,7 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 		break;
 	}
 
-	spin_unlock(&sdata->mib_lock);
+	spin_unlock_bh(&sdata->mib_lock);
 
 	skb->dev = sdata->dev;
 
