@@ -70,6 +70,7 @@
 #define IFF_XMIT_DST_RELEASE 0x400	/* dev_hard_start_xmit() is allowed to
 					 * release skb->dst
 					 */
+#define IFF_DONT_BRIDGE 0x800		/* disallow bridging this ether dev */
 
 #define IFF_IEEE802154_COORD 0x400	/* IEEE802.15.4 PAN coordinator */
 
@@ -127,8 +128,7 @@ enum {
  *	being very small might be worth keeping for clean configuration.
  */
 
-struct ifmap 
-{
+struct ifmap {
 	unsigned long mem_start;
 	unsigned long mem_end;
 	unsigned short base_addr; 
@@ -138,8 +138,7 @@ struct ifmap
 	/* 3 bytes spare */
 };
 
-struct if_settings
-{
+struct if_settings {
 	unsigned int type;	/* Type of physical device or protocol */
 	unsigned int size;	/* Size of the data allocated by the caller */
 	union {
@@ -163,8 +162,7 @@ struct if_settings
  * remainder may be interface specific.
  */
 
-struct ifreq 
-{
+struct ifreq {
 #define IFHWADDRLEN	6
 	union
 	{
@@ -213,11 +211,9 @@ struct ifreq
  * must know all networks accessible).
  */
 
-struct ifconf 
-{
+struct ifconf  {
 	int	ifc_len;			/* size of buffer	*/
-	union 
-	{
+	union {
 		char __user *ifcu_buf;
 		struct ifreq __user *ifcu_req;
 	} ifc_ifcu;
