@@ -63,6 +63,7 @@ struct cc2420_local {
 	struct work_struct sfd_irqwork;
 	spinlock_t lock;
 	unsigned irq_disabled:1;/* P:lock */
+	unsigned irq_disabled:1;/* P:lock */
 	unsigned is_tx:1;		/* P:lock */
 
 	struct completion tx_complete;
@@ -306,9 +307,9 @@ cc2420_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	/* TODO: test CCA pin */
 
 	rc = cc2420_get_status(lp, &status);
-	if (rc) {
+	if (rc)
 		goto err_rx;
-	}
+
 	if (status & CC2420_STATUS_TX_UNDERFLOW) {
 		dev_err(&lp->spi->dev, "cc2420 tx underflow!\n");
 		goto err_rx;
@@ -449,12 +450,11 @@ static irqreturn_t cc2420_isr(int irq, void *data)
 	spin_unlock(&lp->lock);
 
 	/* pin or value? */
-	if (irq == lp->sfd_irq) {
+	if (irq == lp->sfd_irq)
 		schedule_work(&lp->sfd_irqwork);
-	}
-	if (irq == lp->fifop_irq) {
+
+	if (irq == lp->fifop_irq)
 		schedule_work(&lp->fifop_irqwork);
-	}
 
 	return IRQ_HANDLED;
 }
@@ -467,12 +467,10 @@ static void cc2420_fifop_irqwork(struct work_struct *work)
 
 	dev_dbg(&lp->spi->dev, "fifop interrupt received\n");
 
-	if (gpio_get_value(lp->pdata->fifo)) {
+	if (gpio_get_value(lp->pdata->fifo))
 		cc2420_rx(lp);
-	}
-	else {
-		dev_vdbg(&lp->spi->dev, "rxfifo overflow\n");
-	}
+	else
+		dev_err(&lp->spi->dev, "rxfifo overflow\n");
 
 	cc2420_cmd_strobe(lp, CC2420_SFLUSHRX);
 	cc2420_cmd_strobe(lp, CC2420_SFLUSHRX);
