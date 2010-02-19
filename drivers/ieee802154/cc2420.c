@@ -84,7 +84,7 @@ static int cc2420_get_status(struct cc2420_local *lp, u8 *status)
 	};
 	spi_message_init(&msg);
 	spi_message_add_tail(&xfer, &msg);
-	mutex_lock (&lp->bmux);
+	mutex_lock(&lp->bmux);
 	lp->buf[0] = CC2420_WRITEREG(CC2420_SNOP);
 	dev_vdbg(&lp->spi->dev, "get status command buf[0] = %02x\n", lp->buf[0]);
 	ret = spi_sync(lp->spi, &msg);
@@ -96,7 +96,7 @@ static int cc2420_get_status(struct cc2420_local *lp, u8 *status)
 
 }
 static int cc2420_cmd_strobe(struct cc2420_local *lp,
-			     u8 addr)
+				 u8 addr)
 {
 	int ret;
 	u8 status = 0xf;
@@ -108,7 +108,7 @@ static int cc2420_cmd_strobe(struct cc2420_local *lp,
 	};
 	spi_message_init(&msg);
 	spi_message_add_tail(&xfer, &msg);
-	mutex_lock (&lp->bmux);
+	mutex_lock(&lp->bmux);
 	lp->buf[0] = CC2420_WRITEREG(addr);
 	dev_vdbg(&lp->spi->dev, "cmd strobe buf[0] = %02x\n", lp->buf[0]);
 	ret = spi_sync(lp->spi, &msg);
@@ -134,7 +134,7 @@ static int cc2420_read_16_bit_reg(struct cc2420_local *lp,
 
 	spi_message_init(&msg);
 	spi_message_add_tail(&xfer, &msg);
-	mutex_lock (&lp->bmux);
+	mutex_lock(&lp->bmux);
 	lp->buf[0] = CC2420_READREG(addr);
 	dev_vdbg(&lp->spi->dev, "readreg addr buf[0] = %02x\n", lp->buf[0]);
 	ret = spi_sync(lp->spi, &msg);
@@ -144,7 +144,7 @@ static int cc2420_read_16_bit_reg(struct cc2420_local *lp,
 	dev_dbg(&lp->spi->dev, "buf[1] = %02x\n", lp->buf[1]);
 	dev_dbg(&lp->spi->dev, "buf[2] = %02x\n", lp->buf[2]);
 	if (!ret)
-		*data = ((u16)(lp->buf[1]) << 8 ) | lp->buf[2];
+		*data = ((u16) (lp->buf[1]) << 8) | lp->buf[2];
 	return ret;
 }
 
@@ -305,9 +305,9 @@ cc2420_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	rc = cc2420_cmd_strobe(lp, CC2420_SFLUSHTX);
 	if (rc)
 		goto err_rx;
-    rc = cc2420_write_txfifo(lp, skb->data, skb->len);
-    if (rc)
-        goto err_rx;
+	rc = cc2420_write_txfifo(lp, skb->data, skb->len);
+	if (rc)
+		goto err_rx;
 
 	/* TODO: test CCA pin */
 
@@ -330,19 +330,19 @@ cc2420_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	if (rc)
 		goto err;
 
-    rc = wait_for_completion_interruptible(&lp->tx_complete);
-    if (rc < 0)
-        goto err;
+	rc = wait_for_completion_interruptible(&lp->tx_complete);
+	if (rc < 0)
+		goto err;
 
 	cc2420_cmd_strobe(lp, CC2420_SFLUSHTX);
 	cc2420_cmd_strobe(lp, CC2420_SRXON);
 
-    return rc;
+	return rc;
 
 err:
-    spin_lock_irqsave(&lp->lock, flags);
-    lp->is_tx = 0;
-    spin_unlock_irqrestore(&lp->lock, flags);
+	spin_lock_irqsave(&lp->lock, flags);
+	lp->is_tx = 0;
+	spin_unlock_irqrestore(&lp->lock, flags);
 err_rx:
 	cc2420_cmd_strobe(lp, CC2420_SFLUSHTX);
 	cc2420_cmd_strobe(lp, CC2420_SRXON);
@@ -367,7 +367,7 @@ static int cc2420_rx(struct cc2420_local *lp)
 	}
 
 	skb_trim(skb, len-1); /* We do not put CRC and Corr into
-							the frame,but remain rssi value */
+							the frame, but remain rssi value */
 
 	ieee802154_rx_irqsafe(lp->dev, skb, lqi);
 
@@ -469,7 +469,7 @@ static irqreturn_t cc2420_isr(int irq, void *data)
 static void cc2420_fifop_irqwork(struct work_struct *work)
 {
 	struct cc2420_local *lp
-		= container_of(work,struct cc2420_local, fifop_irqwork);
+		= container_of(work, struct cc2420_local, fifop_irqwork);
 	unsigned long flags;
 
 	printk("fifop interrupt received\n");
@@ -495,12 +495,12 @@ static void cc2420_fifop_irqwork(struct work_struct *work)
 static void cc2420_sfd_irqwork(struct work_struct *work)
 {
 	struct cc2420_local *lp
-		= container_of(work,struct cc2420_local, sfd_irqwork);
+		= container_of(work, struct cc2420_local, sfd_irqwork);
 	unsigned long flags;
 
 	printk("fifop interrupt received\n");
 
-	spin_lock_irqsave(&lp->lock,flags);
+	spin_lock_irqsave(&lp->lock, flags);
 	if (lp->is_tx) {
 		lp->is_tx = 0;
 		spin_unlock_irqrestore(&lp->lock, flags);
@@ -535,16 +535,16 @@ static int cc2420_hw_init(struct cc2420_local *lp)
 	if (ret)
 		goto error_ret;
 
-	do{
+	do {
 		ret = cc2420_get_status(lp, &status);
-		if(ret)
+		if (ret)
 			goto error_ret;
-		if (timeout-- <= 0){
+		if (timeout-- <= 0) {
 			printk("oscillator start failed!\n");
 			return ret;
 		}
 		udelay(1);
-	}while (!(status & CC2420_STATUS_XOSC16M_STABLE));
+	} while (!(status & CC2420_STATUS_XOSC16M_STABLE));
 
 	printk("oscillator succesfully brought up \n");
 
@@ -668,15 +668,15 @@ static int __devinit cc2420_probe(struct spi_device *spi)
 		goto err_free_fifop_irq;
 	}
 
-    ret = request_irq(lp->sfd_irq,
+	ret = request_irq(lp->sfd_irq,
 					  cc2420_isr,
 					  IRQF_TRIGGER_FALLING,
-                      dev_name(&spi->dev),
+					  dev_name(&spi->dev),
 					  lp);
-    if (ret) {
-        dev_err(&spi->dev, "could not get sfd irq for some reason? \n");
-        goto err_free_sfd_irq;
-    }
+	if (ret) {
+		dev_err(&spi->dev, "could not get sfd irq for some reason? \n");
+		goto err_free_sfd_irq;
+	}
 
 	printk("Close addr decode\n");
 	cc2420_write_16_bit_reg_partial(lp, CC2420_MDMCTRL0, 0, 1 << CC2420_MDMCTRL0_ADRDECODE);
