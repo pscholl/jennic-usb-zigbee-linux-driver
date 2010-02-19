@@ -158,8 +158,8 @@ static int cc2420_write_16_bit_reg_partial(struct cc2420_local *lp,
 		.tx_buf = lp->buf,
 		.rx_buf = lp->buf,
 	};
-	printk("data = %x\n", data);
-	printk("mask = %x\n", mask);
+	dev_dbg(&lp->spi->dev, "data = %x\n", data);
+	dev_dbg(&lp->spi->dev, "mask = %x\n", mask);
 	spi_message_init(&msg);
 	spi_message_add_tail(&xfer, &msg);
 	mutex_lock(&lp->bmux);
@@ -204,7 +204,7 @@ cc2420_channel(struct ieee802154_dev *dev, int channel)
 	int ret;
 
 	might_sleep();
-	printk("trying to set channel\n");
+	dev_dbg(&lp->spi->dev, "trying to set channel\n");
 
 	BUG_ON(channel < CC2420_MIN_CHANNEL);
 	BUG_ON(channel > CC2420_MAX_CHANNEL);
@@ -316,7 +316,7 @@ cc2420_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 		goto err_rx;
 	}
 	if (status & CC2420_STATUS_TX_UNDERFLOW) {
-		printk("cc2420 tx underflow!\n");
+		dev_err(&lp->spi->dev, "cc2420 tx underflow!\n");
 		goto err_rx;
 	}
 
@@ -379,7 +379,8 @@ static int cc2420_rx(struct cc2420_local *lp)
 static int
 cc2420_ed(struct ieee802154_dev *dev, u8 *level)
 {
-	printk("ed called\n");
+	struct cc2420_local *lp = dev->priv;
+	dev_dbg(&lp->spi->dev, "ed called\n");
 	*level = 0xbe;
 	return 0;
 }
@@ -472,7 +473,7 @@ static void cc2420_fifop_irqwork(struct work_struct *work)
 		= container_of(work, struct cc2420_local, fifop_irqwork);
 	unsigned long flags;
 
-	printk("fifop interrupt received\n");
+	dev_dbg(&lp->spi->dev, "fifop interrupt received\n");
 
 	if (TEST_FIFO_PIN()) {
 		cc2420_rx(lp);
@@ -498,7 +499,7 @@ static void cc2420_sfd_irqwork(struct work_struct *work)
 		= container_of(work, struct cc2420_local, sfd_irqwork);
 	unsigned long flags;
 
-	printk("fifop interrupt received\n");
+	dev_dbg(&lp->spi->dev, "fifop interrupt received\n");
 
 	spin_lock_irqsave(&lp->lock, flags);
 	if (lp->is_tx) {
@@ -540,13 +541,13 @@ static int cc2420_hw_init(struct cc2420_local *lp)
 		if (ret)
 			goto error_ret;
 		if (timeout-- <= 0) {
-			printk("oscillator start failed!\n");
+			dev_err(&lp->spi->dev, "oscillator start failed!\n");
 			return ret;
 		}
 		udelay(1);
 	} while (!(status & CC2420_STATUS_XOSC16M_STABLE));
 
-	printk("oscillator succesfully brought up \n");
+	dev_info(&lp->spi->dev, "oscillator succesfully brought up \n");
 
 	return 0;
 error_ret:
@@ -647,8 +648,8 @@ static int __devinit cc2420_probe(struct spi_device *spi)
 		goto err_free_gpio_vreg;
 	}
 	/* TODO: make it more readable */
-	printk("Found Chipon CC2420\n");
-	printk("Manufacturer ID:%x Version:%x Partnum:%x\n",
+	dev_info(&lp->spi->dev, "Found Chipon CC2420\n");
+	dev_info(&lp->spi->dev, "Manufacturer ID:%x Version:%x Partnum:%x\n",
 		   manidl & 0x0FFF, manidh >> 12, manidl >> 12);
 
 	ret = cc2420_hw_init(lp);
@@ -678,9 +679,9 @@ static int __devinit cc2420_probe(struct spi_device *spi)
 		goto err_free_sfd_irq;
 	}
 
-	printk("Close addr decode\n");
+	dev_dbg(&lp->spi->dev, "Close addr decode\n");
 	cc2420_write_16_bit_reg_partial(lp, CC2420_MDMCTRL0, 0, 1 << CC2420_MDMCTRL0_ADRDECODE);
-	printk("Set fifo threshold to 127\n");
+	dev_info(&lp->spi->dev, "Set fifo threshold to 127\n");
 	cc2420_write_16_bit_reg_partial(lp, CC2420_IOCFG0, 127, CC2420_FIFOP_THR_MASK);
 	ret = cc2420_register(lp);
 	if (ret)
