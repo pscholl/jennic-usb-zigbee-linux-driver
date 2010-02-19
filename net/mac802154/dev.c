@@ -101,7 +101,7 @@ static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *d
 		data[1] = crc >> 8;
 	}
 
-	skb->iif = dev->ifindex;
+	skb->skb_iif = dev->ifindex;
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
