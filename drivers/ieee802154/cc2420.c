@@ -43,12 +43,6 @@
 #define CC2420_MANFIDLOW 	0x233D
 #define CC2420_MANFIDHIGH 	0x3000 /* my chip appears to version 3 - broaden this with testing */
 
-// Any good method to replace these functions?
-#define TEST_FIFO_PIN()  (GPLR(114) & GPIO_bit(114))
-#define TEST_FIFOP_PIN() (GPLR(0) & GPIO_bit(0))
-#define TEST_CCA_PIN()   (GPLR(116) & GPIO_bit(116))
-#define TEST_SFD_PIN()   (GPLR(16) & GPIO_bit(16))
-
 #define STATE_PDOWN 0
 #define STATE_IDLE  1
 #define STATE_RX_CALIB 2
@@ -446,8 +440,6 @@ static void cc2420_unregister(struct cc2420_local *lp)
 static irqreturn_t cc2420_isr(int irq, void *data)
 {
 	struct cc2420_local *lp = data;
-	dev_vdbg(&lp->spi->dev, "isr irq pin is pin:%d\n",
-			 IRQ_TO_GPIO(irq));
 
 	spin_lock(&lp->lock);
 	if (!lp->irq_disabled) {
@@ -475,7 +467,7 @@ static void cc2420_fifop_irqwork(struct work_struct *work)
 
 	dev_dbg(&lp->spi->dev, "fifop interrupt received\n");
 
-	if (TEST_FIFO_PIN()) {
+	if (gpio_get_value(lp->pdata->fifo)) {
 		cc2420_rx(lp);
 	}
 	else {
