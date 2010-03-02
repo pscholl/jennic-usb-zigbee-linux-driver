@@ -219,6 +219,7 @@ static int ieee802154_slave_mac_addr(struct net_device *dev, void *p)
 		return -EBUSY;
 	/* FIXME: validate addr */
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
+	ieee802154_dev_set_ieee_addr(dev);
 	return 0;
 }
 

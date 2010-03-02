@@ -250,6 +250,7 @@ static int ieee802154_mlme_assoc_req(struct net_device *dev,
 	ieee802154_dev_set_pan_id(dev, addr->pan_id);
 	ieee802154_dev_set_page(dev, page);
 	ieee802154_dev_set_channel(dev, channel);
+	ieee802154_dev_set_ieee_addr(dev);
 
 	buf[pos++] = IEEE802154_CMD_ASSOCIATION_REQ;
 	buf[pos++] = cap;
@@ -311,6 +312,7 @@ static int ieee802154_mlme_start_req(struct net_device *dev,
 
 	ieee802154_dev_set_pan_id(dev, addr->pan_id);
 	ieee802154_dev_set_short_addr(dev, addr->short_addr);
+	ieee802154_dev_set_ieee_addr(dev);
 	ieee802154_dev_set_page(dev, page);
 	ieee802154_dev_set_channel(dev, channel);
 
@@ -324,6 +326,7 @@ static int ieee802154_mlme_start_req(struct net_device *dev,
 	else
 		dev->priv_flags &= ~IFF_IEEE802154_COORD;
 
+	ieee802154_dev_set_pan_coord(dev);
 	ieee802154_nl_start_confirm(dev, IEEE802154_SUCCESS);
 
 	return 0;
