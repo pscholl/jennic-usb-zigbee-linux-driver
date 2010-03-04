@@ -63,7 +63,6 @@ struct cc2420_local {
 	struct work_struct sfd_irqwork;
 	spinlock_t lock;
 	unsigned irq_disabled:1;/* P:lock */
-	unsigned irq_disabled:1;/* P:lock */
 	unsigned is_tx:1;		/* P:lock */
 
 	struct completion tx_complete;
