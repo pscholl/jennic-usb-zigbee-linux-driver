@@ -36,6 +36,9 @@
 #include <linux/usb/cdc.h>
 
 #include <net/mac802154.h>
+#include <net/ieee802154.h>
+#include <net/ieee802154_netdev.h>
+#include <net/nl802154.h>
 #include <net/wpan-phy.h>
 #include "jenusb.h"
 
@@ -192,7 +195,7 @@ jenusb_to_ieee802154_addr(MAC_Addr_s *a, struct ieee802154_addr* b)
 }
 
 static u16 /* called in atomic context */
-jenusb_get_pan_id(struct net_device *net)
+jenusb_get_pan_id(const struct net_device *net)
 {
 	struct jenusb *dev = netdev_priv(net);
 	BUG_ON(net->type != ARPHRD_IEEE802154);
@@ -200,7 +203,7 @@ jenusb_get_pan_id(struct net_device *net)
 }
 
 static u16 /* called in atomic context */
-jenusb_get_short_addr(struct net_device *net)
+jenusb_get_short_addr(const struct net_device *net)
 {
 	struct jenusb *dev = netdev_priv(net);
 	BUG_ON(net->type != ARPHRD_IEEE802154);
@@ -208,7 +211,7 @@ jenusb_get_short_addr(struct net_device *net)
 }
 
 static int
-jenusb_set_panid(struct net_device *net, u16 panid) {
+jenusb_set_panid(const struct net_device *net, u16 panid) {
 	struct jenusb *dev = netdev_priv(net);
 	struct jenusb_req *req = &dev->req;
 	struct jenusb_cfm *cfm = &dev->cfm;
@@ -262,7 +265,7 @@ jenusb_set_short_addr(struct net_device *net, u16 short_addr) {
 }
 
 static u8
-jenusb_get_dsn(struct net_device *dev)
+jenusb_get_dsn(const struct net_device *dev)
 {
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 	printk("jenusb: get_dsn\n");
@@ -271,7 +274,7 @@ jenusb_get_dsn(struct net_device *dev)
 }
 
 static u8
-jenusb_get_bsn(struct net_device *dev)
+jenusb_get_bsn(const struct net_device *dev)
 {
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -281,7 +284,7 @@ jenusb_get_bsn(struct net_device *dev)
 
 static int
 jenusb_assoc_req(struct net_device *net, struct ieee802154_addr *coord,
-                 u8 channel, u8 cap)
+                 u8 channel, u8 page, u8 cap)
 {
 	struct jenusb *dev = netdev_priv(net);
 	struct jenusb_req *req = &dev->req;
@@ -388,8 +391,8 @@ jenusb_disassoc_req(struct net_device *net, struct ieee802154_addr *addr,
 
 static int
 jenusb_start_req(struct net_device *net, struct ieee802154_addr *addr,
-               u8 channel, u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
-               u8 coord_realign)
+                 u8 channel, u8 page, u8 bcn_ord, u8 sf_ord, u8 pan_coord, 
+                 u8 blx, u8 coord_realign)
 {
 	struct jenusb *dev = netdev_priv(net);
 	struct jenusb_req *req = &dev->req;
@@ -431,7 +434,7 @@ err:
 
 static int
 jenusb_scan_req(struct net_device *net, u8 type, u32 channels,
-              u8 duration)
+                u8 page, u8 duration)
 {
 	struct jenusb *dev = netdev_priv(net);
 	struct jenusb_req *req = &dev->req;
@@ -597,7 +600,7 @@ jenusb_mcps_ind(struct net_device *dev, MAC_McpsDcfmInd_s *ind) {
 			}
 
 			skb->dev = dev;
-			skb->iif = skb->dev->ifindex;
+			skb->skb_iif = skb->dev->ifindex;
 			skb->protocol = htons(ETH_P_IEEE802154);
 			skb_reset_mac_header(skb);
 			//phy_cb(skb)->lqi = frame->u8LinkQuality;
@@ -621,9 +624,10 @@ jenusb_mlme_ind(struct net_device *dev, MAC_MlmeDcfmInd_s *ind) {
 	switch(ind->u8Type) {
 	case MAC_MLME_DCFM_SCAN:
 			retval = ieee802154_nl_scan_confirm(dev,
-			  ind->sDcfmScan.u8Status,
+				ind->sDcfmScan.u8Status,
 				ind->sDcfmScan.u8ScanType,
 				ind->sDcfmScan.u32UnscannedChannels,
+				0,
 				ind->sDcfmScan.u8ScanType == MAC_MLME_SCAN_TYPE_ENERGY_DETECT ?
 				ind->sDcfmScan.au8EnergyDetect : NULL);
 			break;
@@ -849,7 +853,7 @@ jenusb_net_xmit(struct sk_buff *skb, struct net_device *net) {
 	struct jenusb_cfm *cfm = &dev->cfm;
 	int retval;
 
-	skb->iif = net->ifindex;
+	skb->skb_iif = net->ifindex;
 	skb->dev = net;
 
 	retval = mutex_lock_interruptible(&dev->transaction);
@@ -1004,7 +1008,7 @@ jenusb_probe(struct usb_interface *interface, const struct usb_device_id *prod)
 	struct usb_device *udev;
 	struct usb_host_interface *iface_desc;
 	struct usb_endpoint_descriptor *endpoint;
-  struct cdc_ieee802154 *info = NULL;
+	struct cdc_ieee802154 *info = NULL;
 	size_t bulk_in_size, irq_in_size, irq_delay, read_delay;
 	int retval = -ENOMEM, i, j;
 	u32 bulkinep=0, bulkoutep=0, irqinep=0;
