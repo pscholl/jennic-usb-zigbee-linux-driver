@@ -21,6 +21,40 @@
 #ifndef NET_MAC802154_H
 #define NET_MAC802154_H
 
+#include <net/af_ieee802154.h>
+
+/**
+ * enum ieee802154_hw_addr_filt_flags - hardware flags
+ *
+ * These flags are used to indicate changed address settings from
+ * the stack to the hardware.
+ *
+ * @IEEE802515_SADDR_CHANGED:
+ *	Indicates that the Short Address changed
+ *
+ * @IEEE802515_IEEEADDR_CHANGED:
+ *	Indicates that the IEEE Address changed
+ *
+ * @IEEE802515_PANID_CHANGED:
+ *	Indicates that the PAN ID changed
+ *
+ * @IEEE802515_PANC_CHANGED:
+ *	Indicates that PAN Coordinator status changed
+ */
+enum ieee802154_hw_addr_filt_flags {
+	IEEE802515_SADDR_CHANGED	= 1 << 0,
+	IEEE802515_IEEEADDR_CHANGED	= 1 << 1,
+	IEEE802515_PANID_CHANGED	= 1 << 2,
+	IEEE802515_PANC_CHANGED	 = 1 << 3,
+};
+
+struct ieee802154_hw_addr_filt {
+	u16 pan_id;
+	u16 short_addr;
+	u8 ieee_addr[IEEE802154_ADDR_LEN];
+	u8 pan_coord;
+};
+
 struct ieee802154_dev {
 	/* filled by the driver */
 	int	extra_tx_headroom; /* headroom to reserve for tx skb */
@@ -28,6 +62,7 @@ struct ieee802154_dev {
 	struct device *parent;
 
 	/* filled by mac802154 core */
+	struct ieee802154_hw_addr_filt hw_filt;
 	void	*priv;		/* driver-specific data */
 	struct wpan_phy *phy;
 };
@@ -70,32 +105,39 @@ struct sk_buff;
  * 	This function is called after the last interface is removed.
  *
  * @xmit: Handler that 802.15.4 module calls for each transmitted frame.
- *      skb cntains the buffer starting from the IEEE 802.15.4 header.
- *      The low-level driver should send the frame based on available
- *      configuration.
- *      This function should return zero or negative errno.
- *      Called with pib_lock held.
+ *	skb cntains the buffer starting from the IEEE 802.15.4 header.
+ *	The low-level driver should send the frame based on available
+ *	configuration.
+ *	This function should return zero or negative errno.
+ *	Called with pib_lock held.
  *
  * @ed: Handler that 802.15.4 module calls for Energy Detection.
- *      This function should place the value for detected energy
- *      (usually device-dependant) in the level pointer and return
- *      either zero or negative errno.
- *      Called with pib_lock held.
+ *	This function should place the value for detected energy
+ *	(usually device-dependant) in the level pointer and return
+ *	either zero or negative errno.
+ *	Called with pib_lock held.
  *
  * @set_channel: Set radio for listening on specific channel.
- *      Set the device for listening on specified channel.
- *      Returns either zero, or negative errno.
- *      Called with pib_lock held.
+ *	Set the device for listening on specified channel.
+ *	Returns either zero, or negative errno.
+ *	Called with pib_lock held.
+ *
+ * @set_hw_addr_filt: Set radio for listening on specific address.
+ *	Set the device for listening on specified address.
+ *	Returns either zero, or negative errno.
  */
 struct ieee802154_ops {
 	struct module	*owner;
 	int		(*start)(struct ieee802154_dev *dev);
 	void		(*stop)(struct ieee802154_dev *dev);
 	int		(*xmit)(struct ieee802154_dev *dev,
-						struct sk_buff *skb);
+					struct sk_buff *skb);
 	int		(*ed)(struct ieee802154_dev *dev, u8 *level);
 	int		(*set_channel)(struct ieee802154_dev *dev,
-						int channel);
+					int channel);
+	int		(*set_hw_addr_filt)(struct ieee802154_dev *dev,
+					struct ieee802154_hw_addr_filt *filt,
+					unsigned long changed);
 };
 
 struct ieee802154_dev *ieee802154_alloc_device(size_t priv_size,

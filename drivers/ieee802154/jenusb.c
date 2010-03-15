@@ -35,10 +35,8 @@
 #include <linux/usb.h>
 #include <linux/usb/cdc.h>
 
-#include <net/ieee802154/af_ieee802154.h>
-#include <net/ieee802154/netdevice.h>
-#include <net/ieee802154/mac_def.h>
-#include <net/ieee802154/nl802154.h>
+#include <net/mac802154.h>
+#include <net/wpan-phy.h>
 #include "jenusb.h"
 
 struct jenusb {

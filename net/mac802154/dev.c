@@ -101,7 +101,7 @@ static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *d
 		data[1] = crc >> 8;
 	}
 
-	skb->iif = dev->ifindex;
+	skb->skb_iif = dev->ifindex;
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
@@ -119,10 +119,10 @@ static netdev_tx_t ieee802154_net_xmit(struct sk_buff *skb, struct net_device *d
 	work->skb = skb;
 	work->priv = priv->hw;
 
-	read_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 	work->chan = priv->chan;
 	work->page = priv->page;
-	read_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 
 
 	queue_work(priv->hw->dev_workqueue, &work->work);
@@ -173,7 +173,7 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
 	int err = -ENOIOCTLCMD;
 
-	read_lock_bh(&priv->mib_lock);
+	spin_lock_bh(&priv->mib_lock);
 
 	switch (cmd) {
 	case SIOCGIFADDR:
@@ -207,7 +207,7 @@ static int ieee802154_slave_ioctl(struct net_device *dev, struct ifreq *ifr,
 		err = 0;
 		break;
 	}
-	read_unlock_bh(&priv->mib_lock);
+	spin_unlock_bh(&priv->mib_lock);
 	return err;
 }
 
@@ -219,6 +219,7 @@ static int ieee802154_slave_mac_addr(struct net_device *dev, void *p)
 		return -EBUSY;
 	/* FIXME: validate addr */
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
+	ieee802154_dev_set_ieee_addr(dev);
 	return 0;
 }
 
@@ -255,7 +256,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 		return -EINVAL;
 
 	if (!saddr) {
-		read_lock_bh(&priv->mib_lock);
+		spin_lock_bh(&priv->mib_lock);
 		if (priv->short_addr == IEEE802154_ADDR_BROADCAST ||
 		    priv->short_addr == IEEE802154_ADDR_UNDEF ||
 		    priv->pan_id == IEEE802154_PANID_BROADCAST) {
@@ -270,7 +271,7 @@ static int ieee802154_header_create(struct sk_buff *skb,
 		dev_addr.pan_id = priv->pan_id;
 		saddr = &dev_addr;
 
-		read_unlock_bh(&priv->mib_lock);
+		spin_unlock_bh(&priv->mib_lock);
 	}
 
 	if (daddr->addr_type != IEEE802154_ADDR_NONE) {
@@ -483,7 +484,7 @@ static int ieee802154_netdev_register(struct wpan_phy *phy,
 	priv->chan = -1; /* not initialized */
 	priv->page = 0; /* for compat */
 
-	rwlock_init(&priv->mib_lock);
+	spin_lock_init(&priv->mib_lock);
 
 	get_random_bytes(&priv->bsn, 1);
 	get_random_bytes(&priv->dsn, 1);
@@ -586,7 +587,10 @@ static int ieee802154_process_ack(struct net_device *dev, struct sk_buff *skb)
 
 static int ieee802154_process_data(struct net_device *dev, struct sk_buff *skb)
 {
-	return netif_rx(skb);
+	if (in_interrupt())
+		return netif_rx(skb);
+	else
+		return netif_rx_ni(skb);
 }
 
 static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
@@ -595,7 +599,7 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 	pr_debug("%s Getting packet via slave interface %s\n",
 				__func__, sdata->dev->name);
 
-	read_lock(&sdata->mib_lock);
+	spin_lock_bh(&sdata->mib_lock);
 
 	switch (mac_cb(skb)->da.addr_type) {
 	case IEEE802154_ADDR_NONE:
@@ -630,7 +634,7 @@ static int ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 		break;
 	}
 
-	read_unlock(&sdata->mib_lock);
+	spin_unlock_bh(&sdata->mib_lock);
 
 	skb->dev = sdata->dev;
 

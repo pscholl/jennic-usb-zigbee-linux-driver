@@ -42,3 +42,8 @@ config IEEE802154_AT86RF230
 	depends on IEEE802154_DRIVERS && MAC802154
 	tristate "AT86RF230 transceiver driver"
 	depends on SPI
+
+config IEEE802154_CC2420
+       tristate "CC2420 driver"
+       depends on SPI
+       depends on  IEEE802154_DRIVERS
